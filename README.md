@@ -41,15 +41,4 @@ All citations live in the BibTeX file `refs.bib` at the repo root. Whenever you 
 
 ### Getting a BibTeX entry online
 
-Most sources give you a ready-made BibTeX entry via a **Cite / Citation** button:
-
-- **Zenodo** (e.g. the COG-BCI dataset): click **Cite all versions** → **BibTeX** → copy the block.
-- **Google Scholar**: click the quote icon (`"`) under a result → **BibTeX**.
-- **MDPI / Elsevier / IEEE**: look for a **Cite** / **Citation** / quote button on the article page → export as **BibTeX**.
-- **Zotero / Mendeley**: import the page, then export the library as BibTeX.
-
-Then just paste the entry into `refs.bib`, keeping a unique, descriptive key.
-
-## Setup
-
-- A virtual environment (`.venv`) is available; MNE is the main dependency so far.
+Most sources give you a ready-made BibTeX entry via a **Cite / Citation** button, select `BibTex` option. Then just paste the entry into `refs.bib`, keeping a unique, descriptive key.
