@@ -1,4 +1,5 @@
 # NOVA2026
+
 ## Folder structure
 
 ```
@@ -21,11 +22,27 @@ NOVA2026/
 
 > Note: `datasets/*` is git-ignored (only `.gitkeep` is tracked), so large raw data never gets committed.
 
+## Setup the environment
+
+1. **Create the virtual environment** (only once):
+   ```
+   python -m venv .venv
+   ```
+2. **Activate it**:
+   - Windows (cmd/PowerShell): `.venv\Scripts\activate.bat` / `.venv\Scripts\Activate.ps1`
+   - macOS/Linux: `source .venv/bin/activate`
+3. **Install the package** in editable mode — this also installs the runtime dependencies (`mne`, `numpy`, `scipy`, `matplotlib`) declared in `pyproject.toml`:
+   ```
+   pip install uv
+   uv sync
+   ```
+
+The `.venv/` folder is git-ignored, so it never gets committed.
+
 ## Where to write code
 
-- Put all Python modules under `src/` (e.g. `src/data/`, `src/analysis/`).
-- Keep it importable: `from src.data.mne_reader import ...`
-- Start from `src/data/mne_reader.py` to see the existing pattern for loading data with MNE.
+- Put all Python modules under `src/` (e.g. `src/nova2026/data/`, `src/nova2026/analysis/`).
+- Keep it importable: `from nova2026.data.mne_reader import ...`
 
 ## Where to put datasets
 
