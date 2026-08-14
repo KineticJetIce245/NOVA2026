@@ -14,7 +14,7 @@ NOVA2026/
 
 | Folder | Purpose |
 | --- | --- |
-| `src/` | **Your code goes here.** Organize it into subpackages (e.g. `src/data/`, `src/models/`). See `src/data/mne_reader.py` for an example of reading an EEGLAB `.set` file with MNE. |
+| `src/` | **Your code goes here.** Organize it into subpackages (e.g. `src/nova2026/data/`, `src/nova2026/models/`). |
 | `datasets/` | **Put raw datasets here.** The folder already exists and is the recommended location. Keep raw data intact (`.set`/`.fdt`, `.cnt`, behavioral logs, channel locations). |
 | `documents/` | Handouts, challenge briefs, and learning notes (PDF), plus their `typst/` sources. |
 | `references/` | Reference papers / device documentation (e.g. `attentivU.pdf`). |
