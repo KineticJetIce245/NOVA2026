@@ -11,9 +11,14 @@ def locate_project_root() -> Path:
 
 
 PROJECT_ROOT = locate_project_root()
-print(f"[config.py]: Current project root: {PROJECT_ROOT}.")
 DATA_DIR = PROJECT_ROOT / "datasets"
-print(f"[config.py]: Current data directory: {DATA_DIR}.")
 # modify this path to point to your dataset
-DATASET = DATA_DIR / "COG-BCI/sub-01/sub-01/ses-S1/eeg/PVT.set"
-print(f"[config.py]: Current dataset path: {DATASET}.")
+# DATASET = DATA_DIR / "COG-BCI/sub-01/sub-01/ses-S1/eeg/PVT.set"
+DATASET = DATA_DIR / "CAP-POS/DDE-OP-3345rev02 electrode positions for CA-208.elc"
+
+DATASET_DIR = DATA_DIR / "CAP-POS"
+DATASETS = []
+dataset_dir = os.listdir(DATASET_DIR)
+for dataset_file in dataset_dir:
+    if os.path.isfile(os.path.join(DATASET_DIR, dataset_file)):
+        DATASETS.append(dataset_file)
