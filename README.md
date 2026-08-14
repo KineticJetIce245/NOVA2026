@@ -1,7 +1,4 @@
 # NOVA2026
-
-Exploration project around **EEG and passive brain-computer interfaces (BCI)**: reading raw EEG data with MNE, working with cognitive datasets (COG-BCI, NOVA-ORI), and building up the signal-processing / ML knowledge to analyze it.
-
 ## Folder structure
 
 ```
@@ -17,7 +14,7 @@ NOVA2026/
 | Folder | Purpose |
 | --- | --- |
 | `src/` | **Your code goes here.** Organize it into subpackages (e.g. `src/data/`, `src/models/`). See `src/data/mne_reader.py` for an example of reading an EEGLAB `.set` file with MNE. |
-| `datasets/` | **Put raw datasets here.** The folder already exists and is the recommended location. Currently holds `COG-BCI/` and `NOVA-ORI/`. Keep raw data intact (`.set`/`.fdt`, `.cnt`, behavioral logs, channel locations). |
+| `datasets/` | **Put raw datasets here.** The folder already exists and is the recommended location. Keep raw data intact (`.set`/`.fdt`, `.cnt`, behavioral logs, channel locations). |
 | `documents/` | Handouts, challenge briefs, and learning notes (PDF), plus their `typst/` sources. |
 | `references/` | Reference papers / device documentation (e.g. `attentivU.pdf`). |
 | `refs.bib` | Bibliography — see below. |
@@ -41,15 +38,4 @@ All citations live in the BibTeX file `refs.bib` at the repo root. Whenever you 
 
 ### Getting a BibTeX entry online
 
-Most sources give you a ready-made BibTeX entry via a **Cite / Citation** button:
-
-- **Zenodo** (e.g. the COG-BCI dataset): click **Cite all versions** → **BibTeX** → copy the block.
-- **Google Scholar**: click the quote icon (`"`) under a result → **BibTeX**.
-- **MDPI / Elsevier / IEEE**: look for a **Cite** / **Citation** / quote button on the article page → export as **BibTeX**.
-- **Zotero / Mendeley**: import the page, then export the library as BibTeX.
-
-Then just paste the entry into `refs.bib`, keeping a unique, descriptive key.
-
-## Setup
-
-- A virtual environment (`.venv`) is available; MNE is the main dependency so far.
+Most sources give you a ready-made BibTeX entry via a **Cite / Citation** button, select `BibTex` option. Then just paste the entry into `refs.bib`, keeping a unique, descriptive key.
