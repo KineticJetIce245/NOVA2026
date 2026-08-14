@@ -1,7 +1,4 @@
 # NOVA2026
-
-Exploration project around **EEG and passive brain-computer interfaces (BCI)**: reading raw EEG data with MNE, working with cognitive datasets (COG-BCI, NOVA-ORI), and building up the signal-processing / ML knowledge to analyze it.
-
 ## Folder structure
 
 ```
