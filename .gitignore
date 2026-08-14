@@ -1,4 +1,16 @@
+# data
 datasets/*
 !datasets/.gitkeep
-.venv
+models/*
+!models/.gitkeep
+
+# editor
 .vscode
+
+# python
+.venv
+*.egg-info/
+*.egg
+__pycache__/
+*.pyc
+*.pyo
