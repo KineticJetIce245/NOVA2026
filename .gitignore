@@ -9,6 +9,7 @@ models/*
 
 # python
 .venv
+uv.lock
 *.egg-info/
 *.egg
 __pycache__/
