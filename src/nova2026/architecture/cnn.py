@@ -1,12 +1,18 @@
 import torch
 import torch.nn as nn
+import math
 
 CLASSES = 2
 CHANNEL_NUM = 12
 SAMPLE_POINTS = 1024
 
+TEMPORAL_FILTER = 8  # number of temporal filters
+DEPTHWISE_FILTER = 2  # number of spatial filters
+DROP_OUT_RATE = 0.5  # dropout rate
+SAMPLE_RATE = 128  # EEG sample rate in Hz
 
-class EEGWaveNetCNN(nn.Module):
+
+class EEGWaveNet(nn.Module):
     """
     EEGWaveNetCNN: model architecture from https://ieeexplore.ieee.org/document/9645336
 
@@ -100,7 +106,7 @@ class EEGWaveNetCNN(nn.Module):
             nn.BatchNorm1d(32),
             nn.LeakyReLU(0.01),
         )
-        self.classfier = nn.Sequential(
+        self.classifier = nn.Sequential(
             nn.Linear(160, 64),
             nn.LeakyReLU(0.01),
             nn.Linear(64, 32),
@@ -116,12 +122,115 @@ class EEGWaveNetCNN(nn.Module):
         temp_w4 = self.temp_conv_5(temp_w3)
         temp_w5 = self.temp_conv_6(temp_w4)
 
-        w1 = self.pipeline_1(temp_w1)
-        w2 = self.pipeline_2(temp_w2)
-        w3 = self.pipeline_3(temp_w3)
-        w4 = self.pipeline_4(temp_w4)
-        w5 = self.pipeline_5(temp_w5)
+        w1 = self.pipeline_1(temp_w1).mean(dim=-1)
+        w2 = self.pipeline_2(temp_w2).mean(dim=-1)
+        w3 = self.pipeline_3(temp_w3).mean(dim=-1)
+        w4 = self.pipeline_4(temp_w4).mean(dim=-1)
+        w5 = self.pipeline_5(temp_w5).mean(dim=-1)
 
-        concat_vector = torch.cat((w1, w2, w3, w4, w5), dim=1)  # pyright: ignore
-        classes = nn.functional.log_softmax(self.classifier(concat_vector), dim=1)  # pyright: ignore
+        concat_vector = torch.cat((w1, w2, w3, w4, w5), dim=1)
+        classes = nn.functional.log_softmax(self.classifier(concat_vector), dim=1)
         return classes
+
+
+class EEGNet(nn.Module):
+    """EEGNet: compact CNN architecture for EEG-based BCIs from Lawhern et al. (2018)
+    https://arxiv.org/abs/1611.08024
+
+    EEGNet is a compact convolutional neural network for EEG-based
+    brain-computer interfaces. It processes raw multichannel EEG signals
+    through the following stages:
+
+    1. Input scaling: the raw EEG input (channels x samples) is scaled.
+    2. Temporal convolution: a standard convolution over the time axis
+       learns frequency-specific temporal filters.
+    3. Depthwise convolution: a per-channel (depthwise) spatial
+       convolution combines the EEG channels to learn frequency-specific
+       spatial patterns.
+    4. Separable convolution: a depthwise convolution followed by a 1x1
+       (pointwise) convolution summarizes the temporal dimension into a
+       compact feature map.
+    5. Classification: feature maps are pooled, flattened, and passed
+       through a fully connected layer followed by softmax to output the
+       class prediction.
+    """
+
+    def __init__(
+        self,
+        f1=TEMPORAL_FILTER,
+        d=DEPTHWISE_FILTER,
+        chn=CHANNEL_NUM,
+        classes=CLASSES,
+        p=DROP_OUT_RATE,
+        fs=SAMPLE_RATE,
+    ):
+        super().__init__()
+
+        kernLength = int(fs * 0.5)  # 64
+        sep_kernLength = int(fs * 0.125)  # 16
+
+        # Block 1 ===================
+        # (\, 1, (C, T)) -> (\, F1, (C, T))
+        self.temporal_conv = nn.Conv2d(
+            in_channels=1,
+            out_channels=f1,
+            kernel_size=(1, kernLength),
+            padding="same",
+            bias=False,
+        )
+        # (\, F1, (C, T)) -> (\, F1 * D, (1, T))
+        self.depthwise_conv = nn.Conv2d(
+            in_channels=f1,
+            out_channels=f1 * d,
+            kernel_size=(chn, 1),
+            groups=f1,
+            padding="valid",
+            bias=False,
+        )
+        self.batchnorm1 = nn.BatchNorm2d(f1)
+        self.batchnorm2 = nn.BatchNorm2d(f1 * d)
+        self.elu = nn.ELU()
+        self.avgpool1 = nn.AvgPool2d(kernel_size=(1, 4))
+        self.dropout = nn.Dropout(p)
+
+        # Block 2 ===================
+        self.sep_depthwise_conv = nn.Conv2d(
+            in_channels=f1 * d,
+            out_channels=f1 * d,
+            kernel_size=(1, sep_kernLength),
+            groups=f1 * d,
+            padding="same",
+            bias=False,
+        )
+        self.sep_pointwise_conv = nn.Conv2d(
+            in_channels=f1 * d, out_channels=f1 * d, kernel_size=(1, 1), bias=False
+        )
+        self.batchnorm3 = nn.BatchNorm2d(f1 * d)
+        self.avgpool2 = nn.AvgPool2d(kernel_size=(1, 8))
+
+        self.classifier = nn.LazyLinear(classes)
+
+    def forward(self, x):
+        x = x.unsqueeze(1)  # Add channel dimension: (B, 1, (C, T))
+
+        x = self.temporal_conv(x)
+        x = self.batchnorm1(x)
+        x = self.depthwise_conv(x)
+        x = self.batchnorm2(x)
+        x = self.elu(x)
+
+        x = self.avgpool1(x)
+        x = self.dropout(x)
+
+        x = self.sep_depthwise_conv(x)
+        x = self.sep_pointwise_conv(x)
+        x = self.batchnorm3(x)
+        x = self.elu(x)
+
+        x = self.avgpool2(x)
+        x = self.dropout(x)
+
+        x = x.flatten(start_dim=1)  # Flatten: (B, F1 * D * T)
+        x = self.classifier(x)  # Fully connected layer: (B, classes)
+
+        return x
