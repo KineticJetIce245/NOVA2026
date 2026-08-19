@@ -175,8 +175,11 @@ def label_data():
             raw = load_runs(sub, ses)
             
             trials = get_trials(raw)
+            
+            # Put raw in RAM memory
             raw.load_data()
-            # Filter 0.5Hz - 45Hz
+            
+            # Call desired filtering pipeline
             pipelines.default_pipeline(raw)
 
             raw.pick(EEG_CHANNELS)
