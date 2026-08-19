@@ -2,6 +2,15 @@ from nova2026.data import eeg
 from pathlib import Path
 import numpy as np
 import torch
+import mne
+import pandas as pd
+
+from nova2026.config import(
+    SAMPLE_RATE,
+    SAMPLE_LENGTH,
+    WINDOW_LENGTH,
+    STEP_SIZE
+)
 
 EEG_CHANNELS = [
     "Fp1",
@@ -69,10 +78,10 @@ EEG_CHANNELS = [
 ]
 
 ROOT = Path("datasets/COG-BCI")
-SAMPLE_RATE = 128  # Hz
-SAMPLE_LENGTH = 2400  # ms
-WINDOW_LENGTH = 2000  # ms
-STEP_SIZE = 300  # ms
+#SAMPLE_RATE = 128  # Hz
+#SAMPLE_LENGTH = 2400  # ms
+#WINDOW_LENGTH = 2000  # ms
+#STEP_SIZE = 300  # ms
 
 
 TRANSLATION = {
@@ -95,10 +104,19 @@ def load_subjects():
 
 
 def load_sessions(sub):
-    return np.array([s.name for s in (ROOT / sub).iterdir() if s.is_dir()])
+    session_name = ROOT / sub
+    print(session_name)
+    session_paths = []
+    for s in session_name.iterdir():
+        if s.is_dir():
+            print(s.name)
+            session_paths.append(s.name)
+    return np.array(session_paths)
+    #return np.array([s.name for s in (ROOT / sub).iterdir() if s.is_dir()])
 
 
 def load_runs(sub, ses):
+    print(ROOT / sub / ses)
     return eeg.load(ROOT / sub / ses / "eeg/PVT.set")
 
 
@@ -152,11 +170,15 @@ def label_data():
     label_list = []
     meta_list = []
 
+    # Finds sub-# folder
     subs = load_subjects()
     for sub in subs:
+        # Finds ses-S# folder
         sessions = load_sessions(sub)
         for ses in sessions:
+            # Finds actual PVT.set dataset
             raw = load_runs(sub, ses)
+            
             trials = get_trials(raw)
             raw.load_data()
             # Filter 0.5Hz - 45Hz
@@ -181,7 +203,23 @@ def label_data():
             )
 
             load_eeg_trials(data_list, label_list, meta_list, raw, other, sub, ses, 0)
+            
 
+def check_annotations() -> None:
+    subs = load_subjects()
+    print(subs)
+    for sub in subs:
+        if sub == "sub-01":
+            sessions = load_sessions(sub)
+            for session in sessions:
+                raw = load_runs(sub, session)
+                print(raw.annotations.to_data_frame())
+        else:
+            return
+
+check_annotations()
+
+'''
     data_array = np.array(data_list)
     label_array = np.array(label_list)
     meta_array = np.array(meta_list)
@@ -190,6 +228,7 @@ def label_data():
 
     data_tensor = torch.from_numpy(data_array).float()
     label_tensor = torch.from_numpy(label_array).long()
+
 
     torch.save(
         {
@@ -202,6 +241,7 @@ def label_data():
 
 
 label_data()
+'''
 
 # raw = load_runs("sub-01", "ses-S1")
 # raw.plot(n_channels=5, scalings="auto", title="EEG 波形")
