@@ -130,10 +130,10 @@ def get_trials(raw):
     return np.array(trials)
 
 
-def load_eeg_trials(data_list, label_list, subject_list, raw, trials, sub, ses):
+def load_eeg_trials(data_list, label_list, meta_list, raw, trials, sub, ses):
     for trial in trials:
         stmls_time = trial[2]
-        subject_list.append((sub, ses))
+        meta_list.append((sub, ses, trial[0]))
         if trial[0] > 500:
             label_list.append(1)
         else:
@@ -145,6 +145,9 @@ def load_eeg_trials(data_list, label_list, subject_list, raw, trials, sub, ses):
             idxmax = raw.time_as_index(tmax)[0]
             idxmin = idxmax - int(WINDOW_LENGTH / 1000 * SAMPLE_RATE)
             batch.append(raw.get_data(picks=EEG_CHANNELS, start=idxmin, stop=idxmax))
+            print(
+                f"mean of the batch {i}: {np.mean(raw.get_data(picks=EEG_CHANNELS, start=idxmin, stop=idxmax))}"
+            )
 
         data_list.append(np.stack(batch, axis=0))
 
@@ -152,7 +155,7 @@ def load_eeg_trials(data_list, label_list, subject_list, raw, trials, sub, ses):
 def label_data():
     data_list = []
     label_list = []
-    subject_list = []
+    meta_list = []
 
     cln_trials_num = 0
     pos_num = 0
@@ -172,9 +175,10 @@ def label_data():
             raw.pick(EEG_CHANNELS)
 
             qualified_mask = trials[:, 1] > SAMPLE_LENGTH + 200  # 200ms as buffer
+
             cleaned_trials = trials[qualified_mask]
             load_eeg_trials(
-                data_list, label_list, subject_list, raw, cleaned_trials, sub, ses
+                data_list, label_list, meta_list, raw, cleaned_trials, sub, ses
             )
 
             # Stats
@@ -184,9 +188,9 @@ def label_data():
 
     data_array = np.array(data_list)
     label_array = np.array(label_list)
-    subject_array = np.array(subject_list)
+    meta_array = np.array(meta_list)
 
-    print(data_array.shape, label_array.shape, subject_array.shape)
+    print(data_array.shape, label_array.shape, meta_array.shape)
 
     data_tensor = torch.from_numpy(data_array).float()
     label_tensor = torch.from_numpy(label_array).long()
@@ -195,10 +199,15 @@ def label_data():
         {
             "data": data_tensor,
             "labels": label_tensor,
-            "subjects": subject_array,
+            "metadata": meta_array,
         },
         ROOT / "PVT_data.pt",
     )
 
 
-label_data()
+# label_data()
+
+raw = load_runs("sub-01", "ses-S1")
+raw.plot(n_channels=5, scalings="auto", title="EEG 波形")
+
+input("waiting...")
