@@ -29,7 +29,7 @@ NOVA2026/
    python -m venv .venv
    ```
 2. **Activate it**:
-   - Windows (cmd/PowerShell): `.venv\Scripts\activate.bat` / `.venv\Scripts\Activate.ps1`
+   - Windows (cmd/PowerShell): `.venv\Scripts\activate`
    - macOS/Linux: `source .venv/bin/activate`
 3. **Install the package** in editable mode — this also installs the runtime dependencies (`mne`, `numpy`, `scipy`, `matplotlib`) declared in `pyproject.toml`:
    ```

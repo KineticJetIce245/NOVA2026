@@ -1,1 +1,3 @@
-"""Data acquisition and preprocessing module."""
+from .eeg import load
+
+__all__ = ["load"]
