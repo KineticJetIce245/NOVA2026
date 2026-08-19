@@ -15,3 +15,10 @@ DATA_DIR = PROJECT_ROOT / "datasets"
 # modify this path to point to the dataset
 DATASET = DATA_DIR / "COG-BCI/sub-01/ses-S1/eeg/PVT.set"
 # DATASET = DATA_DIR / "CAP-POS/DDE-OP-3345rev02 electrode positions for CA-208.elc"
+
+
+# Constants needed for labeling and filtering
+SAMPLE_RATE = 128  # Hz
+SAMPLE_LENGTH = 2400  # ms
+WINDOW_LENGTH = 2000  # ms
+STEP_SIZE = 300  # ms
