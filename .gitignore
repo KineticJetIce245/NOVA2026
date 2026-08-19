@@ -10,6 +10,7 @@ models/*
 # python
 .venv
 uv.lock
+uv.toml
 *.egg-info/
 *.egg
 __pycache__/

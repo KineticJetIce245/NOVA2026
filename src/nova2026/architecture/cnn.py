@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import math
 
 CLASSES = 2
 CHANNEL_NUM = 12

@@ -72,7 +72,7 @@ ROOT = Path("datasets/COG-BCI")
 SAMPLE_RATE = 128  # Hz
 SAMPLE_LENGTH = 2400  # ms
 WINDOW_LENGTH = 2000  # ms
-STEP_SIZE = 100  # ms
+STEP_SIZE = 300  # ms
 
 
 TRANSLATION = {
@@ -130,25 +130,20 @@ def get_trials(raw):
     return np.array(trials)
 
 
-def load_eeg_trials(data_list, label_list, meta_list, raw, trials, sub, ses):
+def load_eeg_trials(data_list, label_list, meta_list, raw, trials, sub, ses, label):
     for trial in trials:
         stmls_time = trial[2]
         meta_list.append((sub, ses, trial[0]))
-        if trial[0] > 500:
-            label_list.append(1)
-        else:
-            label_list.append(0)
+        label_list.append(label)
 
         batch = []
-        for i in range(4):
-            tmax = (stmls_time - (i + 1) * STEP_SIZE) / 1000  # starting from -0.1s
+        for i in range(1):  # 1 windows
+            tmax = (stmls_time - i * STEP_SIZE - 100) / 1000  # starting from -0.1s
             idxmax = raw.time_as_index(tmax)[0]
             idxmin = idxmax - int(WINDOW_LENGTH / 1000 * SAMPLE_RATE)
-            batch.append(raw.get_data(picks=EEG_CHANNELS, start=idxmin, stop=idxmax))
-            print(
-                f"mean of the batch {i}: {np.mean(raw.get_data(picks=EEG_CHANNELS, start=idxmin, stop=idxmax))}"
+            batch.append(
+                raw.get_data(picks=EEG_CHANNELS, start=idxmin, stop=idxmax) * 1e6
             )
-
         data_list.append(np.stack(batch, axis=0))
 
 
@@ -156,10 +151,6 @@ def label_data():
     data_list = []
     label_list = []
     meta_list = []
-
-    cln_trials_num = 0
-    pos_num = 0
-    all_trials = []
 
     subs = load_subjects()
     for sub in subs:
@@ -177,14 +168,19 @@ def label_data():
             qualified_mask = trials[:, 1] > SAMPLE_LENGTH + 200  # 200ms as buffer
 
             cleaned_trials = trials[qualified_mask]
+            cleaned_trials = cleaned_trials[
+                np.argsort(cleaned_trials[:, 0])
+            ]  # Sort by RT
+            n = int(len(cleaned_trials) * 0.1)
+
+            bottom_10_percent = cleaned_trials[-n:]
+            other = cleaned_trials[:-n]
+
             load_eeg_trials(
-                data_list, label_list, meta_list, raw, cleaned_trials, sub, ses
+                data_list, label_list, meta_list, raw, bottom_10_percent, sub, ses, 1
             )
 
-            # Stats
-            cln_trials_num += cleaned_trials.shape[0]
-            all_trials.append((sub, ses, cleaned_trials))
-            pos_num += np.sum(cleaned_trials[:, 0] > 500)
+            load_eeg_trials(data_list, label_list, meta_list, raw, other, sub, ses, 0)
 
     data_array = np.array(data_list)
     label_array = np.array(label_list)
@@ -201,13 +197,13 @@ def label_data():
             "labels": label_tensor,
             "metadata": meta_array,
         },
-        ROOT / "PVT_data.pt",
+        ROOT / "PVT_data_window_1.pt",
     )
 
 
-# label_data()
+label_data()
 
-raw = load_runs("sub-01", "ses-S1")
-raw.plot(n_channels=5, scalings="auto", title="EEG 波形")
-
-input("waiting...")
+# raw = load_runs("sub-01", "ses-S1")
+# raw.plot(n_channels=5, scalings="auto", title="EEG 波形")
+#
+# input("waiting...")
