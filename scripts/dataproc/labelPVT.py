@@ -12,6 +12,8 @@ from nova2026.config import(
     STEP_SIZE
 )
 
+from pre_processing_pipelines import pipelines
+
 EEG_CHANNELS = [
     "Fp1",
     "Fz",
@@ -182,8 +184,7 @@ def label_data():
             trials = get_trials(raw)
             raw.load_data()
             # Filter 0.5Hz - 45Hz
-            raw.filter(0.5, 45.0, fir_design="firwin", verbose=False)
-            raw.resample(SAMPLE_RATE)
+            pipelines.default_pipeline(raw)
 
             raw.pick(EEG_CHANNELS)
 
