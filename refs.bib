@@ -1,14 +1,6 @@
 @dataset{hinss_2022_6874129,
-  author       = {Hinss, Marcel F. and
-                  Jahanpour, Emilie S. and
-                  Somon, Bertille and
-                  Pluchon, Lou and
-                  Dehais, Frédéric and
-                  Roy, Raphaëlle N.},
-  title        = {COG-BCI database: A multi-session and multi-task
-                   EEG cognitive dataset for passive brain-computer
-                   interfaces
-                  },
+  author       = {Hinss, Marcel F. and Jahanpour, Emilie S. and Somon, Bertille and Pluchon, Lou and Dehais, Frédéric and Roy, Raphaëlle N.},
+  title        = {COG-BCI database: A multi-session and multi-task EEG cognitive dataset for passive brain-computer interfaces},
   month        = jul,
   year         = 2022,
   publisher    = {Zenodo},
@@ -17,20 +9,32 @@
   url          = {https://doi.org/10.5281/zenodo.6874129},
 }
 
-@Article{s19235200,
-AUTHOR = {Kosmyna, Nataliya and Maes, Pattie},
-TITLE = {AttentivU: An EEG-Based Closed-Loop Biofeedback System for Real-Time Monitoring and Improvement of Engagement for Personalized Learning},
-JOURNAL = {Sensors},
-VOLUME = {19},
-YEAR = {2019},
-NUMBER = {23},
-ARTICLE-NUMBER = {5200},
-URL = {https://www.mdpi.com/1424-8220/19/23/5200},
-PubMedID = {31783646},
-ISSN = {1424-8220},
-ABSTRACT = {Information about a person’s engagement and attention might be a valuable asset in many settings including work situations, driving, and learning environments. To this end, we propose the first prototype of a device called AttentivU—a system that uses a wearable system which consists of two main components. Component 1 is represented by an EEG headband used to measure the engagement of a person in real-time. Component 2 is a scarf, which provides subtle, haptic feedback (vibrations) in real-time when the drop in engagement is detected. We tested AttentivU in two separate studies with 48 adults. The participants were engaged in a learning scenario of either watching three video lectures on different subjects or participating in a set of three face-to-face lectures with a professor. There were three conditions administrated during both studies: (1) biofeedback, meaning the scarf (component 2 of the system) was vibrating each time the EEG headband detected a drop in engagement; (2) random feedback, where the vibrations did not correlate or depend on the engagement level detected by the system, and (3) no feedback, when no vibrations were administered. The results show that the biofeedback condition redirected the engagement of the participants to the task at hand and improved their performance on comprehension tests.},
-DOI = {10.3390/s19235200}
+@article{s19235200,
+  author         = {Kosmyna, Nataliya and Maes, Pattie},
+  title          = {AttentivU: An EEG-Based Closed-Loop Biofeedback System for Real-Time Monitoring and Improvement of Engagement for Personalized Learning},
+  journal        = {Sensors},
+  volume         = {19},
+  year           = {2019},
+  number         = {23},
+  article-number = {5200},
+  url            = {https://www.mdpi.com/1424-8220/19/23/5200},
+  pubmedid       = {31783646},
+  issn           = {1424-8220},
+  abstract       = {Information about a person’s engagement and attention might be a valuable asset in many settings including work situations, driving, and learning environments. To this end, we propose the first prototype of a device called AttentivU—a system that uses a wearable system which consists of two main components. Component 1 is represented by an EEG headband used to measure the engagement of a person in real-time. Component 2 is a scarf, which provides subtle, haptic feedback (vibrations) in real-time when the drop in engagement is detected. We tested AttentivU in two separate studies with 48 adults. The participants were engaged in a learning scenario of either watching three video lectures on different subjects or participating in a set of three face-to-face lectures with a professor. There were three conditions administrated during both studies: (1) biofeedback, meaning the scarf (component 2 of the system) was vibrating each time the EEG headband detected a drop in engagement; (2) random feedback, where the vibrations did not correlate or depend on the engagement level detected by the system, and (3) no feedback, when no vibrations were administered. The results show that the biofeedback condition redirected the engagement of the participants to the task at hand and improved their performance on comprehension tests.},
+  doi            = {10.3390/s19235200},
 }
 
-
-
+@article{Lawhern_2018,
+  doi       = {10.1088/1741-2552/aace8c},
+  url       = {https://doi.org/10.1088/1741-2552/aace8c},
+  year      = {2018},
+  month     = {jul},
+  publisher = {IOP Publishing},
+  volume    = {15},
+  number    = {5},
+  pages     = {056013},
+  author    = {Lawhern, Vernon J and Solon, Amelia J and Waytowich, Nicholas R and Gordon, Stephen M and Hung, Chou P and Lance, Brent J},
+  title     = {EEGNet: a compact convolutional neural network for EEG-based brain–computer interfaces},
+  journal   = {Journal of Neural Engineering},
+  abstract  = {Objective. Brain–computer interfaces (BCI) enable direct communication with a computer, using neural activity as the control signal. This neural signal is generally chosen from a variety of well-studied electroencephalogram (EEG) signals. For a given BCI paradigm, feature extractors and classifiers are tailored to the distinct characteristics of its expected EEG control signal, limiting its application to that specific signal. Convolutional neural networks (CNNs), which have been used in computer vision and speech recognition to perform automatic feature extraction and classification, have successfully been applied to EEG-based BCIs; however, they have mainly been applied to single BCI paradigms and thus it remains unclear how these architectures generalize to other paradigms. Here, we ask if we can design a single CNN architecture to accurately classify EEG signals from different BCI paradigms, while simultaneously being as compact as possible. Approach. In this work we introduce EEGNet, a compact convolutional neural network for EEG-based BCIs. We introduce the use of depthwise and separable convolutions to construct an EEG-specific model which encapsulates well-known EEG feature extraction concepts for BCI. We compare EEGNet, both for within-subject and cross-subject classification, to current state-of-the-art approaches across four BCI paradigms: P300 visual-evoked potentials, error-related negativity responses (ERN), movement-related cortical potentials (MRCP), and sensory motor rhythms (SMR). Main results. We show that EEGNet generalizes across paradigms better than, and achieves comparably high performance to, the reference algorithms when only limited training data is available across all tested paradigms. In addition, we demonstrate three different approaches to visualize the contents of a trained EEGNet model to enable interpretation of the learned features. Significance. Our results suggest that EEGNet is robust enough to learn a wide variety of interpretable features over a range of BCI tasks. Our models can be found at: https://github.com/vlawhern/arl-eegmodels.},
+}

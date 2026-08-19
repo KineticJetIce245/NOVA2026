@@ -9,12 +9,12 @@ import copy
 import numpy as np
 
 ROOT = DATA_DIR / "COG-BCI"
-DATASET = ROOT / "PVT_data_window_1.pt"
+DATASET = ROOT / "PVT_data_2000ms_200ms.pt"
 
 BATCH_SIZE = 32
 EPOCHS = 10
 LR = 1e-3
-K = 30
+K = 90
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -50,7 +50,8 @@ def train_one_fold(x_train, y_train, x_val, y_val):
 
     model = EEGNet(chn=62).to(DEVICE)
     optimizer = torch.optim.Adam(model.parameters(), lr=LR)
-    criterion = FocalLoss(gamma=2.0, alpha=[1, 1.2], reduction="mean")
+    criterion = FocalLoss(gamma=3.0, alpha=[1, 3.5], reduction="mean")
+    # criterion = torch.nn.CrossEntropyLoss()
 
     best_f1 = 0.0
     best_model_state = None
@@ -59,7 +60,7 @@ def train_one_fold(x_train, y_train, x_val, y_val):
     print(f"Train samples: {len(x_train)}, Test samples: {len(x_val)}")
 
     for epoch in range(1, EPOCHS + 1):
-        # ----- 训练阶段 -----
+        # ----- Training -----
         model.train()
         train_loss = 0.0
         for batch_data, batch_target in train_loader:
@@ -71,7 +72,7 @@ def train_one_fold(x_train, y_train, x_val, y_val):
             loss.backward()
             optimizer.step()
 
-            # max-norm 约束
+            # max-norm
             with torch.no_grad():
                 max_norm_(model.depthwise_conv.weight, max_value=1.0)
                 max_norm_(model.classifier.weight, max_value=0.25)
@@ -80,7 +81,7 @@ def train_one_fold(x_train, y_train, x_val, y_val):
 
         train_loss /= len(x_train)
 
-        # ----- 验证阶段 -----
+        # ----- Testing -----
         model.eval()
         val_loss = 0.0
         all_preds = []
@@ -121,27 +122,26 @@ def train_one_fold(x_train, y_train, x_val, y_val):
     return best_f1
 
 
-# ---------- 主函数 ----------
 def main():
-    # 1. 加载数据
+    # Data Loading
     data, labels, sub_names, rt = load_data(DATASET)
     n_trials = data.shape[0]
     print(f"Total trials: {n_trials}, Total subjects: {len(np.unique(sub_names))}")
 
-    # 2. LOSO 交叉验证
+    # Prepare LOSO
     unique_subs = np.unique(sub_names)
     fold_results = []
 
     for test_sub in unique_subs:
         print(f"\n=== Fold: test subject = {test_sub} ===")
 
-        # 划分 trial 索引
+        # Split data based on subject
         test_trial_idx = np.where(sub_names == test_sub)[0]
         train_trial_idx = np.where(sub_names != test_sub)[0]
 
-        # 3. 对训练集中的每个受试者，按类别分别筛选，保证两类都进入训练集
         selected_train_trials = []
         train_subs = np.unique(sub_names[train_trial_idx])
+        # For each subject in the training set
         for sub in train_subs:
             sub_idx = np.where(sub_names == sub)[0]
             sub_labels = labels[sub_idx].numpy()
@@ -177,11 +177,9 @@ def main():
             ),
         )
 
-        # 4. 将 trial 展开为窗口
-        # 训练窗口
+        # Shape data and labels into windows for training and testing
         train_data_windows = data[selected_train_trials].reshape(-1, 62, 256)
         train_labels_windows = np.repeat(labels[selected_train_trials], 1)
-        # 测试窗口（不筛选）
         test_data_windows = data[test_trial_idx].reshape(-1, 62, 256)
         test_labels_windows = np.repeat(labels[test_trial_idx], 1)
 
@@ -190,17 +188,15 @@ def main():
             dict(zip(*np.unique(test_labels_windows, return_counts=True))),
         )
 
-        # 转换为 Tensor
         X_train = train_data_windows
         y_train = train_labels_windows
         X_test = test_data_windows
         y_test = test_labels_windows
 
-        # 6. 训练当前 fold
         best_f1 = train_one_fold(X_train, y_train, X_test, y_test)
         fold_results.append(best_f1)
 
-    # 7. 输出最终结果
+    # Outputs
     print("\n================ LOSO Results ================")
     for sub, f1 in zip(unique_subs, fold_results):
         print(f"Subject {sub}: Best F1 = {f1:.4f}")

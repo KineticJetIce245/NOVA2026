@@ -70,9 +70,10 @@ EEG_CHANNELS = [
 
 ROOT = Path("datasets/COG-BCI")
 SAMPLE_RATE = 128  # Hz
-SAMPLE_LENGTH = 2400  # ms
+# SAMPLE_LENGTH = 2400  # ms
+SAMPLE_LENGTH = 2000  # ms
 WINDOW_LENGTH = 2000  # ms
-STEP_SIZE = 300  # ms
+# STEP_SIZE = 300  # ms
 
 
 TRANSLATION = {
@@ -137,13 +138,10 @@ def load_eeg_trials(data_list, label_list, meta_list, raw, trials, sub, ses, lab
         label_list.append(label)
 
         batch = []
-        for i in range(1):  # 1 windows
-            tmax = (stmls_time - i * STEP_SIZE - 100) / 1000  # starting from -0.1s
-            idxmax = raw.time_as_index(tmax)[0]
-            idxmin = idxmax - int(WINDOW_LENGTH / 1000 * SAMPLE_RATE)
-            batch.append(
-                raw.get_data(picks=EEG_CHANNELS, start=idxmin, stop=idxmax) * 1e6
-            )
+        tmax = (stmls_time - 100) / 1000
+        idxmax = raw.time_as_index(tmax)[0]
+        idxmin = idxmax - int(WINDOW_LENGTH / 1000 * SAMPLE_RATE)
+        batch.append(raw.get_data(picks=EEG_CHANNELS, start=idxmin, stop=idxmax) * 1e6)
         data_list.append(np.stack(batch, axis=0))
 
 
@@ -197,13 +195,8 @@ def label_data():
             "labels": label_tensor,
             "metadata": meta_array,
         },
-        ROOT / "PVT_data_window_1.pt",
+        ROOT / "PVT_data_2000ms_200ms.pt",
     )
 
 
 label_data()
-
-# raw = load_runs("sub-01", "ses-S1")
-# raw.plot(n_channels=5, scalings="auto", title="EEG 波形")
-#
-# input("waiting...")
