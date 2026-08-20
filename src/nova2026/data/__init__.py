@@ -1,4 +1,4 @@
 from .eeg import load
-from .pipeline import Pipeline
+from .pipeline import DefaultPipe, Pipeline
 
-__all__ = ["load", "Pipeline"]
+__all__ = ["DefaultPipe", "Pipeline", "load"]

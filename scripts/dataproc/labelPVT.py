@@ -2,10 +2,10 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from pre_processing_pipelines import pipelines
 
 from nova2026.config import SAMPLE_RATE, SAMPLE_SIZE
 from nova2026.data import eeg
+from nova2026.data.pipeline import DefaultPipe
 
 EEG_CHANNELS = [
     "Fp1",
@@ -154,6 +154,7 @@ def load_eeg_trials(data_list, label_list, meta_list, raw, trials, sub, ses, lab
 
 
 def label_data():
+    p = DefaultPipe()
     data_list = []
     label_list = []
     meta_list = []
@@ -169,11 +170,8 @@ def label_data():
 
             trials = get_trials(raw)
 
-            # Put raw in RAM memory
-            raw.load_data()
-
             # Call desired filtering pipeline
-            pipelines.default_pipeline(raw)
+            p.rundown(raw)
 
             raw.pick(EEG_CHANNELS)
 

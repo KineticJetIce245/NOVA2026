@@ -1,4 +1,5 @@
-"""Build prototype PVT datasets with trial-level engagement features.
+"""
+Build prototype PVT datasets with trial-level engagement features.
 
 Run as a module from the repository root, for example::
 
@@ -14,13 +15,12 @@ from pathlib import Path
 import numpy as np
 import torch
 from mne.io import BaseRaw
+from pipelines import AttUPipeline
+from spectral import compute_trial_spectral_features
 
-from nova2026.config import DATA_DIR, SAMPLE_LENGTH, SAMPLE_RATE, WINDOW_LENGTH
+from nova2026.config import DATA_DIR, SAMPLE_RATE, SAMPLE_SIZE
 from nova2026.data import eeg
-
-from .pipelines import PIPELINES, apply_pipeline
-from .spectral import compute_trial_spectral_features
-
+from nova2026.data.pipeline import DefaultPipe, Pipeline
 
 DATASET_ROOT = DATA_DIR / "COG-BCI"
 DEFAULT_OUTPUT_DIR = DATASET_ROOT / "prototype_outputs"
@@ -90,6 +90,11 @@ EEG_CHANNELS = [
     "F2",
 ]
 
+PIPELINES: dict[str, Pipeline] = {
+    "default": DefaultPipe(),
+    "attentive-u": AttUPipeline(),
+}
+
 
 def load_subjects(root: Path = DATASET_ROOT) -> list[str]:
     """Return sorted COG-BCI subject directory names."""
@@ -123,11 +128,12 @@ def get_trials(raw: BaseRaw) -> np.ndarray:
     error_timestamp = 0
 
     for annotation in raw.annotations:
-        timestamp = int(np.int32(annotation["onset"] * 1000))
+        timestamp = int(np.int32(annotation["onset"] * 1000))  # pyright: ignore
         description = str(annotation["description"])
 
         if description == "13":
             stimulus_timestamp = timestamp
+
         elif description == "14":
             trials.append(
                 np.array(
@@ -144,30 +150,30 @@ def get_trials(raw: BaseRaw) -> np.ndarray:
                 )
             )
             response_timestamp = timestamp
+
         elif description == "12":
-            trials.append(
-                np.array([-1, -1, -1, timestamp], dtype=np.int64)
-            )
+            trials.append(np.array([-1, -1, -1, timestamp], dtype=np.int64))
             error_timestamp = timestamp
 
     if not trials:
         return np.empty((0, 4), dtype=np.int64)
+
     return np.stack(trials, axis=0)
 
 
 def select_labeled_trials(trials: np.ndarray) -> list[tuple[np.ndarray, int]]:
-    """Apply the existing qualification and slowest-10-percent labeling rule."""
+    # Apply the existing qualification and slowest-10-percent labeling rule.
     if trials.ndim != 2 or trials.shape[1] != 4:
         raise ValueError("trials must have shape (n_trials, 4).")
     if not len(trials):
         return []
 
-    qualified = trials[trials[:, 1] > SAMPLE_LENGTH + 200]
+    qualified = trials[trials[:, 1] > SAMPLE_SIZE + 200]
     if not len(qualified):
         return []
 
     ordered = qualified[np.argsort(qualified[:, 0])]
-    positive_count = int(len(ordered) * 0.1)
+    positive_count = int(len(ordered) * 0.1)  # 10%
 
     if positive_count == 0:
         positive = ordered[:0]
@@ -183,25 +189,31 @@ def select_labeled_trials(trials: np.ndarray) -> list[tuple[np.ndarray, int]]:
 
 
 def extract_trial_window(raw: BaseRaw, stimulus_time_ms: int) -> np.ndarray:
-    """Extract one DNN-aligned EEG window in microvolts."""
-    window_samples = int(WINDOW_LENGTH / 1000 * SAMPLE_RATE)
-    end_time_seconds = (stimulus_time_ms - 100) / 1000
-    stop = int(raw.time_as_index(end_time_seconds)[0])
-    start = stop - window_samples
+    # Extract one DNN-aligned EEG window in microvolts.
 
-    if start < 0 or stop > raw.n_times:
+    # translate the sample size from ms to index
+    sample_points_num = int(SAMPLE_SIZE / 1000 * SAMPLE_RATE)
+    stop_s = (stimulus_time_ms - 100) / 1000
+    # converts s to index
+    stop_idx = int(raw.time_as_index(stop_s)[0])
+    start_idx = stop_idx - sample_points_num
+
+    if start_idx < 0 or stop_idx > raw.n_times:
         raise ValueError(
             "Trial window falls outside the recording: "
-            f"start={start}, stop={stop}, n_times={raw.n_times}."
+            f"start={start_idx}, stop={stop_idx}, n_times={raw.n_times}."
         )
 
-    window_uv = raw.get_data(
-        picks=EEG_CHANNELS,
-        start=start,
-        stop=stop,
-    ) * 1e6
+    window_uv = (
+        raw.get_data(
+            picks=EEG_CHANNELS,
+            start=start_idx,
+            stop=stop_idx,
+        )
+        * 1e6
+    )  # pyright: ignore
 
-    expected_shape = (len(EEG_CHANNELS), window_samples)
+    expected_shape = (len(EEG_CHANNELS), sample_points_num)
     if window_uv.shape != expected_shape:
         raise ValueError(
             f"Expected trial window shape {expected_shape}, got {window_uv.shape}."
@@ -210,7 +222,7 @@ def extract_trial_window(raw: BaseRaw, stimulus_time_ms: int) -> np.ndarray:
 
 
 def _output_path(pipeline_name: str, output_dir: Path) -> Path:
-    return output_dir / f"PVT_data_{WINDOW_LENGTH}ms__{pipeline_name}.pt"
+    return output_dir / f"PVT_data_{SAMPLE_SIZE}ms__{pipeline_name}.pt"
 
 
 def _save_checkpoint_atomically(checkpoint: dict, output_path: Path) -> None:
@@ -224,19 +236,13 @@ def _save_checkpoint_atomically(checkpoint: dict, output_path: Path) -> None:
 
 
 def label_data(
-    pipeline_name: str,
+    pipeline: Pipeline | None,
     output_dir: Path = DEFAULT_OUTPUT_DIR,
     subjects: Sequence[str] | None = None,
 ) -> Path:
-    """Build one pipeline-specific PVT dataset and return its output path."""
-    if pipeline_name not in PIPELINES:
-        available = ", ".join(sorted(PIPELINES))
-        raise ValueError(
-            f"Unknown preprocessing pipeline {pipeline_name!r}. "
-            f"Available: {available}."
-        )
-
+    # Build one pipeline-specific PVT dataset and return its output path.
     selected_subjects = list(subjects) if subjects is not None else load_subjects()
+    pipeline = pipeline if pipeline is not None else DefaultPipe()
     data_list: list[np.ndarray] = []
     label_list: list[int] = []
     metadata_list: list[tuple[str, str, int]] = []
@@ -250,10 +256,11 @@ def label_data(
             raw = load_run(subject, session)
             labeled_trials = select_labeled_trials(get_trials(raw))
 
-            apply_pipeline(pipeline_name, raw)
+            pipeline.rundown(raw)
+
             if not np.isclose(raw.info["sfreq"], SAMPLE_RATE):
                 raise ValueError(
-                    f"Pipeline {pipeline_name!r} produced "
+                    f"Pipeline {type(pipeline).__name__} produced "
                     f"{raw.info['sfreq']} Hz; expected {SAMPLE_RATE} Hz."
                 )
 
@@ -262,50 +269,31 @@ def label_data(
                 raise ValueError(
                     f"Recording is missing EEG channels: {missing_channels}."
                 )
+
             raw.pick(EEG_CHANNELS)
 
             for trial, label in labeled_trials:
                 window_uv = extract_trial_window(raw, int(trial[2]))
-                data_list.append(window_uv[np.newaxis, ...])
+                data_list.append(window_uv[np.newaxis, ...])  # (1, 62, 256)
                 label_list.append(label)
                 metadata_list.append((subject, session, int(trial[0])))
 
     if not data_list:
         raise ValueError("No qualified PVT trials were found.")
 
-    data_array = np.stack(data_list, axis=0)
+    data_array = np.stack(data_list, axis=0)  # (n-trials, 62, 256)
     label_array = np.asarray(label_list, dtype=np.int64)
     metadata_array = np.asarray(metadata_list, dtype=object)
 
-    trial_windows = np.squeeze(data_array, axis=1)
-    spectral = compute_trial_spectral_features(
-        trial_windows,
-        sfreq=float(SAMPLE_RATE),
-    )
-
-    trial_count = data_array.shape[0]
-    expected_feature_shape = (trial_count, len(EEG_CHANNELS))
-    for feature_name in ("theta", "alpha", "beta", "engagement"):
-        if spectral[feature_name].shape != expected_feature_shape:
-            raise ValueError(
-                f"{feature_name} has shape {spectral[feature_name].shape}; "
-                f"expected {expected_feature_shape}."
-            )
-
-    output_path = _output_path(pipeline_name, Path(output_dir))
+    output_path = _output_path(type(pipeline).__name__, Path(output_dir))
     checkpoint = {
         "data": torch.from_numpy(data_array).float(),
         "labels": torch.from_numpy(label_array).long(),
         "metadata": metadata_array,
         "channel_names": list(EEG_CHANNELS),
-        "psd_frequencies": torch.from_numpy(spectral["frequencies"]).float(),
-        "theta_power": torch.from_numpy(spectral["theta"]).float(),
-        "alpha_power": torch.from_numpy(spectral["alpha"]).float(),
-        "beta_power": torch.from_numpy(spectral["beta"]).float(),
-        "engagement": torch.from_numpy(spectral["engagement"]).float(),
-        "pipeline": pipeline_name,
+        "pipeline": type(pipeline).__name__,
         "sample_rate_hz": SAMPLE_RATE,
-        "window_length_ms": WINDOW_LENGTH,
+        "window_length_ms": SAMPLE_SIZE,
         "window_end_offset_ms": -100,
         "signal_unit": "microvolts",
     }
@@ -319,8 +307,8 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--pipeline",
-        choices=[*sorted(PIPELINES), "all"],
-        default="all",
+        choices=[*sorted(PIPELINES)],
+        default="default",
         help="Preprocessing pipeline to build. Defaults to both variants.",
     )
     parser.add_argument(
@@ -339,14 +327,14 @@ def _parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = _parse_args()
-    pipeline_names = sorted(PIPELINES) if args.pipeline == "all" else [args.pipeline]
-    for pipeline_name in pipeline_names:
-        output_path = label_data(
-            pipeline_name=pipeline_name,
-            output_dir=args.output_dir,
-            subjects=args.subjects,
-        )
-        print(output_path)
+    pipeline = PIPELINES.get(args.pipeline)
+    print("Test")
+    output_path = label_data(
+        pipeline=pipeline,
+        output_dir=args.output_dir,
+        subjects=args.subjects,
+    )
+    print(output_path)
 
 
 if __name__ == "__main__":

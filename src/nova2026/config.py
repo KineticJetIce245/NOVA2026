@@ -1,5 +1,4 @@
 from pathlib import Path
-import os
 
 
 def locate_project_root() -> Path:
@@ -21,4 +20,3 @@ DATASET = DATA_DIR / "COG-BCI/sub-01/ses-S1/eeg/PVT.set"
 # Constants needed for labeling and filtering
 SAMPLE_RATE = 128  # Hz
 SAMPLE_SIZE = 2000  # ms
-
