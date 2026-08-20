@@ -1,15 +1,10 @@
 """Continuous EEG preprocessing pipelines used by the prototype builder."""
 
-from collections.abc import Callable
-
-import mne
 import numpy as np
 from mne.io import BaseRaw
 
 from nova2026.config import SAMPLE_RATE
-
-
-Pipeline = Callable[[BaseRaw], None]
+from nova2026.data.pipeline import Pipeline
 
 IIR_PARAMS = {
     "order": 4,
@@ -17,17 +12,35 @@ IIR_PARAMS = {
 }
 
 
-def default_pipeline(raw: BaseRaw) -> None:
+class DefaultPipe(Pipeline[BaseRaw]):
     """Apply the existing default filter and resample ``raw`` in place."""
-    raw.load_data()
-    raw.filter(
+
+    def __init__(
+        self,
         l_freq=0.5,
         h_freq=45.0,
         picks="eeg",
-        fir_design="firwin",
+        sample_rate=SAMPLE_RATE,
         verbose=False,
-    )
-    raw.resample(SAMPLE_RATE, verbose=False)
+    ):
+        super().__init__()
+
+        def filter_raw_eeg(raw: BaseRaw) -> tuple[None, BaseRaw]:
+            raw.filter(
+                l_freq=l_freq,
+                h_freq=h_freq,
+                picks=picks,
+                fir_design="firwin",
+                verbose=verbose,
+            )
+            return (None, raw)
+
+        def resample_raw_eeg(raw: BaseRaw) -> tuple[None, BaseRaw]:
+            raw.resample(sample_rate, verbose=verbose)
+            return (None, raw)
+
+        self.add_tube(filter_raw_eeg)
+        self.add_tube(resample_raw_eeg)
 
 
 def center_scale_clip_channel(values_v: np.ndarray) -> np.ndarray:

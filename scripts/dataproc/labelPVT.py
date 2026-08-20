@@ -1,18 +1,11 @@
-from nova2026.data import eeg
 from pathlib import Path
+
 import numpy as np
 import torch
-import mne
-import pandas as pd
-
-from nova2026.config import(
-    SAMPLE_RATE,
-    SAMPLE_LENGTH,
-    WINDOW_LENGTH,
-    STEP_SIZE
-)
-
 from pre_processing_pipelines import pipelines
+
+from nova2026.config import SAMPLE_RATE, SAMPLE_SIZE
+from nova2026.data import eeg
 
 EEG_CHANNELS = [
     "Fp1",
@@ -110,7 +103,7 @@ def load_sessions(sub):
             print(s.name)
             session_paths.append(s.name)
     return np.array(session_paths)
-    #return np.array([s.name for s in (ROOT / sub).iterdir() if s.is_dir()])
+    # return np.array([s.name for s in (ROOT / sub).iterdir() if s.is_dir()])
 
 
 def load_runs(sub, ses):
@@ -155,7 +148,7 @@ def load_eeg_trials(data_list, label_list, meta_list, raw, trials, sub, ses, lab
         batch = []
         tmax = (stmls_time - 100) / 1000
         idxmax = raw.time_as_index(tmax)[0]
-        idxmin = idxmax - int(WINDOW_LENGTH / 1000 * SAMPLE_RATE)
+        idxmin = idxmax - int(SAMPLE_SIZE / 1000 * SAMPLE_RATE)
         batch.append(raw.get_data(picks=EEG_CHANNELS, start=idxmin, stop=idxmax) * 1e6)
         data_list.append(np.stack(batch, axis=0))
 
@@ -173,18 +166,18 @@ def label_data():
         for ses in sessions:
             # Finds actual PVT.set dataset
             raw = load_runs(sub, ses)
-            
+
             trials = get_trials(raw)
-            
+
             # Put raw in RAM memory
             raw.load_data()
-            
+
             # Call desired filtering pipeline
             pipelines.default_pipeline(raw)
 
             raw.pick(EEG_CHANNELS)
 
-            qualified_mask = trials[:, 1] > SAMPLE_LENGTH + 200  # 200ms as buffer
+            qualified_mask = trials[:, 1] > SAMPLE_SIZE + 200  # 200ms as buffer
 
             cleaned_trials = trials[qualified_mask]
             cleaned_trials = cleaned_trials[
@@ -200,7 +193,6 @@ def label_data():
             )
 
             load_eeg_trials(data_list, label_list, meta_list, raw, other, sub, ses, 0)
-            
 
     data_array = np.array(data_list)
     label_array = np.array(label_list)
@@ -211,7 +203,6 @@ def label_data():
     data_tensor = torch.from_numpy(data_array).float()
     label_tensor = torch.from_numpy(label_array).long()
 
-
     torch.save(
         {
             "data": data_tensor,
@@ -220,24 +211,22 @@ def label_data():
         },
         ROOT / "PVT_data_2000ms_200ms.pt",
     )
-    
 
 
-'''
-def check_annotations() -> None:
-    subs = load_subjects()
-    print(subs)
-    for sub in subs:
-        if sub == "sub-01":
-            sessions = load_sessions(sub)
-            for session in sessions:
-                raw = load_runs(sub, session)
-                print(raw.annotations.to_data_frame())
-        else:
-            return
+# def check_annotations() -> None:
+#     subs = load_subjects()
+#     print(subs)
+#     for sub in subs:
+#         if sub == "sub-01":
+#             sessions = load_sessions(sub)
+#             for session in sessions:
+#                 raw = load_runs(sub, session)
+#                 print(raw.annotations.to_data_frame())
+#         else:
+#             return
+#
+# check_annotations()
+# label_data()
 
-check_annotations()
-'''
-
-if __name__ == "__main__":
-    label_data()
+raw = eeg.load(ROOT / "sub-01" / "ses-S1" / "eeg/PVT.set")
+print(type(raw))
