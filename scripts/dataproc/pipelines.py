@@ -12,7 +12,7 @@ IIR_PARAMS = {
 }
 
 
-class AttUPipeline(Pipeline[BaseRaw]):
+class AttUPipeline(Pipeline):
     # Apply the offline AttentivU-inspired pipeline to ``raw`` in place.
     def __init__(
         self,

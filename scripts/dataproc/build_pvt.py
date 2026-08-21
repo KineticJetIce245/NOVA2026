@@ -1,22 +1,18 @@
 """Build prototype PVT datasets with trial-level engagement features."""
 
-from __future__ import annotations
-
-import argparse
-from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
 import torch
+from loadnsave import load_run, load_sessions, load_subjects, save_chkpt
 from mne.io import BaseRaw
-from pipelines import AttUPipeline
 
 from nova2026.config import DATA_DIR, SAMPLE_RATE, SAMPLE_SIZE
-from nova2026.data import eeg
 from nova2026.data.pipeline import DefaultPipe, Pipeline
 
 DATASET_ROOT = DATA_DIR / "COG-BCI"
-DEFAULT_OUTPUT_DIR = DATASET_ROOT / "prototype_outputs"
+DEFAULT_OUTPUT_DIR = DATASET_ROOT / "outputs"
+DATASET = "PVT"
 
 EEG_CHANNELS = [
     "Fp1",
@@ -82,35 +78,6 @@ EEG_CHANNELS = [
     "AF4",
     "F2",
 ]
-
-PIPELINES: dict[str, Pipeline] = {
-    "default": DefaultPipe(),
-    "attentive-u": AttUPipeline(),
-}
-
-
-def load_subjects(root: Path = DATASET_ROOT) -> list[str]:
-    """Return sorted COG-BCI subject directory names."""
-    return sorted(
-        path.name
-        for path in root.iterdir()
-        if path.is_dir() and path.name.startswith("sub-")
-    )
-
-
-def load_sessions(subject: str, root: Path = DATASET_ROOT) -> list[str]:
-    """Return sorted session directory names for one subject."""
-    subject_path = root / subject
-    return sorted(
-        path.name
-        for path in subject_path.iterdir()
-        if path.is_dir() and path.name.startswith("ses-")
-    )
-
-
-def load_run(subject: str, session: str, root: Path = DATASET_ROOT) -> BaseRaw:
-    """Load one PVT recording."""
-    return eeg.load(root / subject / session / "eeg" / "PVT.set")
 
 
 def get_trials(raw: BaseRaw) -> np.ndarray:
@@ -214,27 +181,12 @@ def extract_trial_window(raw: BaseRaw, stimulus_time_ms: int) -> np.ndarray:
     return window_uv
 
 
-def _output_path(pipeline_name: str, output_dir: Path) -> Path:
-    return output_dir / f"PVT_data_{SAMPLE_SIZE}ms__{pipeline_name}.pt"
-
-
-def _save_checkpoint_atomically(checkpoint: dict, output_path: Path) -> None:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    temporary_path = output_path.with_suffix(output_path.suffix + ".tmp")
-    try:
-        torch.save(checkpoint, temporary_path)
-        temporary_path.replace(output_path)
-    finally:
-        temporary_path.unlink(missing_ok=True)
-
-
 def label_data(
-    pipeline: Pipeline | None,
+    data_type: str = DATASET,
+    pipeline: Pipeline | None = None,
     output_dir: Path = DEFAULT_OUTPUT_DIR,
-    subjects: Sequence[str] | None = None,
-) -> Path:
-    # Build one pipeline-specific PVT dataset and return its output path.
-    selected_subjects = list(subjects) if subjects is not None else load_subjects()
+) -> None:
+    selected_subjects = load_subjects(DATASET_ROOT)
     pipeline = pipeline if pipeline is not None else DefaultPipe()
     data_list: list[np.ndarray] = []
     label_list: list[int] = []
@@ -245,8 +197,8 @@ def label_data(
         if not subject_path.is_dir():
             raise FileNotFoundError(f"Subject directory not found: {subject_path}")
 
-        for session in load_sessions(subject):
-            raw = load_run(subject, session)
+        for session in load_sessions(subject, DATASET_ROOT):
+            raw = load_run(subject, session, DATASET_ROOT, data_type)
             labeled_trials = select_labeled_trials(get_trials(raw))
 
             pipeline.rundown(raw)
@@ -279,7 +231,6 @@ def label_data(
     label_array = np.asarray(label_list, dtype=np.int64)
     metadata_array = np.asarray(metadata_list, dtype=object)
 
-    output_path = _output_path(type(pipeline).__name__, Path(output_dir))
     checkpoint = {
         "data": torch.from_numpy(data_array).float(),
         "labels": torch.from_numpy(label_array).long(),
@@ -291,42 +242,4 @@ def label_data(
         "window_end_offset_ms": -100,
         "signal_unit": "microvolts",
     }
-    _save_checkpoint_atomically(checkpoint, output_path)
-    return output_path
-
-
-def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Build prototype PVT datasets.")
-    parser.add_argument(
-        "--pipeline",
-        choices=[*sorted(PIPELINES)],
-        default="default",
-        help="Preprocessing pipeline to build. Defaults to both variants.",
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=DEFAULT_OUTPUT_DIR,
-        help="Directory for generated Torch files.",
-    )
-    parser.add_argument(
-        "--subjects",
-        nargs="+",
-        help="Optional subject names, for example: --subjects sub-01 sub-02.",
-    )
-    return parser.parse_args()
-
-
-def main() -> None:
-    args = _parse_args()
-    pipeline = PIPELINES.get(args.pipeline)
-    output_path = label_data(
-        pipeline=pipeline,
-        output_dir=args.output_dir,
-        subjects=args.subjects,
-    )
-    print(output_path)
-
-
-if __name__ == "__main__":
-    main()
+    save_chkpt(checkpoint, output_dir)

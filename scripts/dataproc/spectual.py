@@ -2,7 +2,7 @@ import mne
 import numpy as np
 import torch
 
-from nova2026.config import DATA_DIR
+from nova2026.config import DATA_DIR, SAMPLE_RATE
 
 DATASET = DATA_DIR / "COG-BCI/prototype_outputs/PVT_data_2000ms__AttUPipeline.pt"
 
@@ -11,20 +11,9 @@ ALPHA_BAND: tuple[int, int] = (7, 11)
 BETA_BAND: tuple[int, int] = (11, 20)
 
 
-def load_data(path):
-    checkpoint = torch.load(path, weights_only=False)
-    data = checkpoint["data"]
-    labels = checkpoint["labels"]
-    meta = checkpoint["metadata"]
-
-    subjects = meta[:, 0]
-    rt = meta[:, 2].astype(float)
-    return checkpoint, data, labels, subjects, rt
-
-
-def compute_and_save_psd(path):
+def compute_and_save_psd(data_set: str, output_set: str):
     checkpoint = torch.load(
-        DATA_DIR / f"COG-BCI/prototype_outputs/{path}_data_AttUPipeline.pt",
+        DATA_DIR / f"COG-BCI/outputs/{data_set}",
         weights_only=False,
     )
     data = checkpoint["data"]
@@ -44,8 +33,8 @@ def compute_and_save_psd(path):
         fmin=THETA_BAND[0],
         fmax=BETA_BAND[1],
         n_fft=n_samples,
-        n_per_seg=n_samples,  # Taking the whole legnth of the window for the FFT
-        n_overlap=0,
+        n_per_seg=SAMPLE_RATE,  # Taking 1s as the length of each segment
+        n_overlap=SAMPLE_RATE // 2,  # 50% overlap
         window="hamming",
         average="mean",
         remove_dc=True,
@@ -54,7 +43,7 @@ def compute_and_save_psd(path):
 
     torch.save(
         {"psd": psd, "freq": freq},
-        DATA_DIR / f"COG-BCI/prototype_outputs/{path}_psd.pt",
+        DATA_DIR / f"COG-BCI/outputs/{output_set}",
     )
 
 
@@ -64,10 +53,8 @@ def band_power(psd, frequencies, fmin, fmax):
     return power
 
 
-def compute_engagement_metrics():
-    ckpt = torch.load(
-        DATA_DIR / "COG-BCI/prototype_outputs/PVT_psd.pt", weights_only=False
-    )
+def compute_engagement_metrics(data_set: str):
+    ckpt = torch.load(DATA_DIR / f"COG-BCI/outputs/{data_set}", weights_only=False)
     psd = ckpt["psd"]
     freq = ckpt["freq"]
 
@@ -76,7 +63,7 @@ def compute_engagement_metrics():
     beta_power = band_power(psd, freq, BETA_BAND[0], BETA_BAND[1])
 
     epsilon = np.finfo(psd.dtype).eps
-    engagement = np.divide(
+    return np.divide(
         beta_power,
         np.maximum(alpha_power + theta_power, epsilon),
     )
