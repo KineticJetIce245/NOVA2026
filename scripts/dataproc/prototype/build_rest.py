@@ -1,4 +1,4 @@
-"""Build prototype PVT datasets with trial-level engagement features."""
+"""Build prototype Resting datasets."""
 
 from __future__ import annotations
 
@@ -11,12 +11,13 @@ import torch
 from mne.io import BaseRaw
 from pipelines import AttUPipeline
 
-from nova2026.config import DATA_DIR, SAMPLE_RATE, SAMPLE_SIZE
+from nova2026.config import DATA_DIR, SAMPLE_RATE
 from nova2026.data import eeg
 from nova2026.data.pipeline import DefaultPipe, Pipeline
 
 DATASET_ROOT = DATA_DIR / "COG-BCI"
 DEFAULT_OUTPUT_DIR = DATASET_ROOT / "prototype_outputs"
+DATASET = "RS_Beg_EC"
 
 EEG_CHANNELS = [
     "Fp1",
@@ -110,112 +111,11 @@ def load_sessions(subject: str, root: Path = DATASET_ROOT) -> list[str]:
 
 def load_run(subject: str, session: str, root: Path = DATASET_ROOT) -> BaseRaw:
     """Load one PVT recording."""
-    return eeg.load(root / subject / session / "eeg" / "PVT.set")
-
-
-def get_trials(raw: BaseRaw) -> np.ndarray:
-    """Extract reaction-time and timing fields from PVT annotations."""
-    trials: list[np.ndarray] = []
-    stimulus_timestamp = 0
-    response_timestamp = 0
-    error_timestamp = 0
-
-    for annotation in raw.annotations:
-        timestamp = int(np.int32(annotation["onset"] * 1000))  # pyright: ignore
-        description = str(annotation["description"])
-
-        if description == "13":
-            stimulus_timestamp = timestamp
-
-        elif description == "14":
-            trials.append(
-                np.array(
-                    [
-                        timestamp - stimulus_timestamp,
-                        min(
-                            stimulus_timestamp - response_timestamp,
-                            stimulus_timestamp - error_timestamp,
-                        ),
-                        stimulus_timestamp,
-                        timestamp,
-                    ],
-                    dtype=np.int64,
-                )
-            )
-            response_timestamp = timestamp
-
-        elif description == "12":
-            trials.append(np.array([-1, -1, -1, timestamp], dtype=np.int64))
-            error_timestamp = timestamp
-
-    if not trials:
-        return np.empty((0, 4), dtype=np.int64)
-
-    return np.stack(trials, axis=0)
-
-
-def select_labeled_trials(trials: np.ndarray) -> list[tuple[np.ndarray, int]]:
-    # Apply the existing qualification and slowest-10-percent labeling rule.
-    if trials.ndim != 2 or trials.shape[1] != 4:
-        raise ValueError("trials must have shape (n_trials, 4).")
-    if not len(trials):
-        return []
-
-    qualified = trials[trials[:, 1] > SAMPLE_SIZE + 200]
-    if not len(qualified):
-        return []
-
-    ordered = qualified[np.argsort(qualified[:, 0])]
-    positive_count = int(len(ordered) * 0.1)  # 10%
-
-    if positive_count == 0:
-        positive = ordered[:0]
-        negative = ordered
-    else:
-        positive = ordered[-positive_count:]
-        negative = ordered[:-positive_count]
-
-    return [
-        *((trial, 1) for trial in positive),
-        *((trial, 0) for trial in negative),
-    ]
-
-
-def extract_trial_window(raw: BaseRaw, stimulus_time_ms: int) -> np.ndarray:
-    # Extract one DNN-aligned EEG window in microvolts.
-
-    # translate the sample size from ms to index
-    sample_points_num = int(SAMPLE_SIZE / 1000 * SAMPLE_RATE)
-    stop_s = (stimulus_time_ms - 100) / 1000
-    # converts s to index
-    stop_idx = int(raw.time_as_index(stop_s)[0])
-    start_idx = stop_idx - sample_points_num
-
-    if start_idx < 0 or stop_idx > raw.n_times:
-        raise ValueError(
-            "Trial window falls outside the recording: "
-            f"start={start_idx}, stop={stop_idx}, n_times={raw.n_times}."
-        )
-
-    window_uv = (
-        raw.get_data(
-            picks=EEG_CHANNELS,
-            start=start_idx,
-            stop=stop_idx,
-        )
-        * 1e6
-    )  # pyright: ignore
-
-    expected_shape = (len(EEG_CHANNELS), sample_points_num)
-    if window_uv.shape != expected_shape:
-        raise ValueError(
-            f"Expected trial window shape {expected_shape}, got {window_uv.shape}."
-        )
-    return window_uv
+    return eeg.load(root / subject / session / "eeg" / f"{DATASET}.set")
 
 
 def _output_path(pipeline_name: str, output_dir: Path) -> Path:
-    return output_dir / f"PVT_data_{SAMPLE_SIZE}ms__{pipeline_name}.pt"
+    return output_dir / f"{DATASET}_data_{pipeline_name}.pt"
 
 
 def _save_checkpoint_atomically(checkpoint: dict, output_path: Path) -> None:
@@ -237,8 +137,7 @@ def label_data(
     selected_subjects = list(subjects) if subjects is not None else load_subjects()
     pipeline = pipeline if pipeline is not None else DefaultPipe()
     data_list: list[np.ndarray] = []
-    label_list: list[int] = []
-    metadata_list: list[tuple[str, str, int]] = []
+    metadata_list: list[tuple[str, str]] = []
 
     for subject in selected_subjects:
         subject_path = DATASET_ROOT / subject
@@ -247,7 +146,6 @@ def label_data(
 
         for session in load_sessions(subject):
             raw = load_run(subject, session)
-            labeled_trials = select_labeled_trials(get_trials(raw))
 
             pipeline.rundown(raw)
 
@@ -265,30 +163,32 @@ def label_data(
 
             raw.pick(EEG_CHANNELS)
 
-            for trial, label in labeled_trials:
-                window_uv = extract_trial_window(raw, int(trial[2]))
-                # data_list.append(window_uv[np.newaxis, ...])  # (1, 62, 256)
-                data_list.append(window_uv)  # (62, 256)
-                label_list.append(label)
-                metadata_list.append((subject, session, int(trial[0])))
+            data_list.append(raw.get_data(picks=EEG_CHANNELS) * 1e6)  # pyright: ignore
+            metadata_list.append((subject, session))
 
     if not data_list:
-        raise ValueError("No qualified PVT trials were found.")
+        raise ValueError(f"No qualified {DATASET} trials were found.")
 
-    data_array = np.asarray(data_list)  # (n-trials, 62, 256)
-    label_array = np.asarray(label_list, dtype=np.int64)
+    min_shape = tuple(np.min([a.shape for a in data_list], axis=0))
+    print(f"Target crop shape: {min_shape}")
+
+    # 2. Crop every array to that minimum shape (removes extra data at the end)
+    cropped_list = [a[tuple(slice(0, s) for s in min_shape)] for a in data_list]
+
+    # 3. Stack them into a single 3D array
+    result = np.stack(cropped_list, axis=0)
+    print(f"Final array shape: {result.shape}")  # (3, 62, 190)
+
+    data_array = np.asarray(cropped_list)  # (n-trials, 62, 256)
     metadata_array = np.asarray(metadata_list, dtype=object)
 
     output_path = _output_path(type(pipeline).__name__, Path(output_dir))
     checkpoint = {
         "data": torch.from_numpy(data_array).float(),
-        "labels": torch.from_numpy(label_array).long(),
         "metadata": metadata_array,
         "channel_names": list(EEG_CHANNELS),
         "pipeline": type(pipeline).__name__,
         "sample_rate_hz": SAMPLE_RATE,
-        "window_length_ms": SAMPLE_SIZE,
-        "window_end_offset_ms": -100,
         "signal_unit": "microvolts",
     }
     _save_checkpoint_atomically(checkpoint, output_path)

@@ -1,12 +1,14 @@
+import copy
+
+import numpy as np
+import torch
+import torch.nn.functional as F
+from sklearn.metrics import accuracy_score, f1_score
+from torch.utils.data import DataLoader, TensorDataset
+
 from nova2026.architecture.cnn import EEGNet
 from nova2026.architecture.lossfun import FocalLoss
 from nova2026.config import DATA_DIR
-from torch.utils.data import DataLoader, TensorDataset
-from sklearn.metrics import f1_score, accuracy_score
-import torch.nn.functional as F
-import torch
-import copy
-import numpy as np
 
 ROOT = DATA_DIR / "COG-BCI"
 DATASET = ROOT / "PVT_data_2000ms_200ms.pt"
