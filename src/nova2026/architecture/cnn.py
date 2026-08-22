@@ -94,19 +94,20 @@ class EEGWaveNet(nn.Module):
             nn.BatchNorm1d(32),
             nn.LeakyReLU(0.01),
         )
-        self.pipeline_5 = nn.Sequential(
-            nn.Conv1d(in_channels=chn, out_channels=32, kernel_size=4, groups=1),
-            nn.BatchNorm1d(32),
-            nn.LeakyReLU(0.01),
-            nn.Conv1d(32, 32, kernel_size=4, groups=1),
-            nn.BatchNorm1d(32),
-            nn.LeakyReLU(0.01),
-            nn.Conv1d(32, 32, kernel_size=4, groups=1),
-            nn.BatchNorm1d(32),
-            nn.LeakyReLU(0.01),
-        )
+        # self.pipeline_5 = nn.Sequential(
+        #     nn.Conv1d(in_channels=chn, out_channels=32, kernel_size=4, groups=1),
+        #     nn.BatchNorm1d(32),
+        #     nn.LeakyReLU(0.01),
+        #     nn.Conv1d(32, 32, kernel_size=4, groups=1),
+        #     nn.BatchNorm1d(32),
+        #     nn.LeakyReLU(0.01),
+        #     nn.Conv1d(32, 32, kernel_size=4, groups=1),
+        #     nn.BatchNorm1d(32),
+        #     nn.LeakyReLU(0.01),
+        # )
         self.classifier = nn.Sequential(
-            nn.Linear(160, 64),
+            nn.Linear(128, 64),
+            # nn.Linear(160, 64),
             nn.LeakyReLU(0.01),
             nn.Linear(64, 32),
             nn.Sigmoid(),
@@ -119,15 +120,15 @@ class EEGWaveNet(nn.Module):
         temp_w2 = self.temp_conv_3(temp_w1)
         temp_w3 = self.temp_conv_4(temp_w2)
         temp_w4 = self.temp_conv_5(temp_w3)
-        temp_w5 = self.temp_conv_6(temp_w4)
+        # temp_w5 = self.temp_conv_6(temp_w4)
 
         w1 = self.pipeline_1(temp_w1).mean(dim=-1)
         w2 = self.pipeline_2(temp_w2).mean(dim=-1)
         w3 = self.pipeline_3(temp_w3).mean(dim=-1)
         w4 = self.pipeline_4(temp_w4).mean(dim=-1)
-        w5 = self.pipeline_5(temp_w5).mean(dim=-1)
+        # w5 = self.pipeline_5(temp_w5).mean(dim=-1)
 
-        concat_vector = torch.cat((w1, w2, w3, w4, w5), dim=1)
+        concat_vector = torch.cat((w1, w2, w3, w4), dim=1)
         classes = nn.functional.log_softmax(self.classifier(concat_vector), dim=1)
         return classes
 

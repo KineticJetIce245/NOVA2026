@@ -6,7 +6,7 @@ class PipelineError(Exception):
     pass
 
 
-class Pipeline[D]:
+class Pipeline:
     """A series of transformation steps applied to data of a single type.
 
     Tubes are registered with :meth:`add_tube` and form an ordered chain of
@@ -17,11 +17,11 @@ class Pipeline[D]:
     """
 
     def __init__(self):
-        self.__tubes__: list[Callable[[D], tuple[Any, D]]] = []
-        self.__load__: D | None = None
+        self.__tubes__: list[Callable[[Any], tuple[Any, Any]]] = []
+        self.__load__: Any | None = None
         self.__step_loc__: int = 0
 
-    def add_tube(self, tube: Callable[[D], tuple[Any, D]]):
+    def add_tube(self, tube: Callable[[Any], tuple[Any, Any]]):
         """Append a transformation step to the end of the chain.
 
         Parameters
@@ -32,7 +32,7 @@ class Pipeline[D]:
         """
         self.__tubes__.append(tube)
 
-    def rundown(self, data: D):
+    def rundown(self, data: Any):
         """Run the full chain on ``data`` from start to finish.
 
         The given data passes through every registered tube in order. The
@@ -54,7 +54,7 @@ class Pipeline[D]:
             result, temp_load = tube(temp_load)
         return result, temp_load
 
-    def feed(self, data: D):
+    def feed(self, data: Any):
         """Load ``data`` into the pipeline and reset the step position.
 
         Parameters
@@ -139,7 +139,7 @@ from mne.io import BaseRaw
 from nova2026.config import SAMPLE_RATE
 
 
-class DefaultPipe(Pipeline[BaseRaw]):
+class DefaultPipe(Pipeline):
     def __init__(
         self,
         l_freq=0.5,
