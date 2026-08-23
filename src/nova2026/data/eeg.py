@@ -58,6 +58,12 @@ class Loader:
             self.path: Path = path
             self.tags: list[str] | None = tags
 
+        def __str__(self) -> str:
+            return f"[{self.tags}: {self.path}]"
+
+        def __repr__(self) -> str:
+            return self.__str__()
+
     class TaggedData:
         """Represents a tagged raw data object.
 

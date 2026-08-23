@@ -78,7 +78,10 @@ EEG_CHANNELS = [
 
 
 def tagging_cogbci(datarf: Loader.DataFileRef) -> list[str]:
-    return [t for t in datarf.path.parts[:-2] if t not in DIR_MASK]
+    tag_list = [t for t in datarf.path.parts[:-2] if t not in DIR_MASK]
+    tag_list[0] = tag_list[0].replace("sub-", "")
+    tag_list[1] = tag_list[1].replace("ses-S", "")
+    return tag_list
 
 
 def data_integrity_check(raw: mne.io.BaseRaw) -> None:
@@ -102,13 +105,14 @@ loader.search(data_type, "name")
 loader.refine(lambda datarf: datarf.path.suffix == ".set")
 # tag the files based on "sub" and "ses"
 loader.tag(tagging_cogbci)
+# sort the quary cache
+loader.query_cache.sort(key=lambda q: (int(q.tags[0]), int(q.tags[1])))  # pyright: ignore
 # load the data into TaggedData
 tagged_data_list: list[Loader.TaggedData] = loader.load(mode="eeglab")
 
 pipeline = AttUPipeline()
-data_list: list[np.ndarray] = []
-label_list: list[int] = []
-metadata_list: list[tuple[str, str]] = []
+# 25 participants, 3 sessions
+data_list = []
 
 
 for tagged_data in tagged_data_list:
@@ -123,21 +127,19 @@ for tagged_data in tagged_data_list:
     data_raw = raw.get_data(picks=EEG_CHANNELS) * 1e6  # pyright: ignore
     # Discard the first and last second of data to avoid filter edge effects
     data_raw = data_raw[:, 128:-128]
-    print(data_raw.shape)
+    windows_list = []
     for w in range(data_raw.shape[1] // 256):
-        data_list.append(data_raw[:, w * 256 : w * 256 + 256])
-        metadata_list.append((tagged_data.tags[0], tagged_data.tags[1]))
+        windows_list.append(data_raw[:, w * 256 : w * 256 + 256])
+    windows_list_np = np.stack(windows_list, axis=0)
+    data_list.append(windows_list_np)
 
-if not data_list:
-    raise ValueError("No qualified RS trials were found.")
-
-data_array = np.asarray(data_list)
-label_array = np.asarray(label_list, dtype=np.int64)
-metadata_array = np.asarray(metadata_list, dtype=object)
+data_list = np.asarray(data_list)
+print(data_list.shape)
+data_list = data_list.reshape(25, 3, *(data_list.shape[-3:]))
+print(data_list.shape)
 
 checkpoint = {
-    "data": torch.from_numpy(data_array).float(),
-    "metadata": metadata_array,
+    "data": torch.from_numpy(data_list).float(),
     "channel_names": list(EEG_CHANNELS),
     "pipeline": type(pipeline).__name__,
     "sample_rate_hz": SAMPLE_RATE,
