@@ -7,20 +7,31 @@ from nova2026.config import DATA_DIR
 
 
 def load(set_file: str | Path) -> mne.io.BaseRaw:
+    """Load an EEGLAB ``.set`` file into a raw MNE object.
+
+    Args:
+        set_file (str | Path): Path to the ``.set`` file to load.
+
+    Returns:
+        mne.io.BaseRaw: The loaded raw data.
+    """
     return mne.io.read_raw_eeglab(str(set_file), preload=True, verbose=False)
 
 
-"""
-The format of EEG recording files, the value list holds the
-the required files for the given format.
+"""Supported formats of EEG recording files.
+
+The list holds the file suffixes (e.g. ``".set"``) that are recognized
+when searching with ``query_type="suffix"``.
 """
 EEG_DATA_FORMAT = [".set", ".vhdr", ".dat", ".edf", ".bdf", ".cnt", ".txt", ".raw"]
-# Unrecommanded practice:
-# Do not name the constants with the same name as the
-# method arguments.
-# dataset_list = ["COG-BCI"]
-# trial_filename_list = ["PVT.set"]
-# resting_filename_list = ["RS_Beg_EC.set", "RS_Beg_EO.set"]
+
+LOAD_OPTS = {
+    "eeglab": mne.io.read_raw_eeglab,
+    "brainvision": mne.io.read_raw_brainvision,
+    "edf": mne.io.read_raw_edf,
+    "bdf": mne.io.read_raw_bdf,
+    "cnt": mne.io.read_raw_cnt,
+}
 
 
 class Loader:
@@ -55,9 +66,12 @@ class Loader:
             tags (list[str] | None): Optional tags associated with the data.
         """
 
-        def __init__(self) -> None:
-            self.raw: mne.io.BaseRaw | None = None
-            self.tags: list[str] | None = None
+        def __init__(self, raw: mne.io.BaseRaw, tags: list[str]) -> None:
+            self.raw: mne.io.BaseRaw = raw
+            self.tags: list[str] = tags
+
+        def is_tagged_with(self, tag: str) -> bool:
+            return tag in self.tags
 
     def __init__(self, dataset: str, root: Path | None = None):
         """Initialize the Loader.
@@ -93,7 +107,7 @@ class Loader:
                 from. Defaults to the dataset directory.
 
         Returns:
-            list[Path]: Paths of all matching files.
+            list[DataFileRef]: References to all matching files.
 
         Raises:
             ValueError: If ``query_type`` is ``"suffix"`` and the query is not
@@ -106,7 +120,6 @@ class Loader:
             raise ValueError(f"Unsupported file format: {query}")
 
         for item_path in query_path.iterdir():
-            print(item_path)
             # Recursive search
             if item_path.is_dir():
                 self.search(query, query_type, item_path)
@@ -124,49 +137,69 @@ class Loader:
         """Filter the cached search results by a predicate.
 
         Args:
-            is_valid (Callable[[Path], bool]): Predicate deciding whether a
-                cached path is kept.
+            validator (Callable[[DataFileRef], bool]): Predicate deciding
+                whether a cached reference is kept.
 
         Returns:
-            list[Path]: The filtered subset of the cached results.
-
-        Raises:
-            ValueError: If no ``search`` has been performed yet.
+            list[DataFileRef]: The filtered subset of the cached results.
         """
-        if self.query_cache is None:
-            raise ValueError("No query has been made yet")
         self.query_cache = [p for p in self.query_cache if validator(p)]
         return self.query_cache
 
-    def tag(self, tagger: Callable[[Path], list[str]]):
+    def tag(self, tagger: Callable[[DataFileRef], list[str]]):
         """Tag the cached search results.
 
         Args:
-            tagger (Callable[[Path], list[str]]): Function that takes a path
-                and returns a list of tags.
+            tagger (Callable[[DataFileRef], list[str]]): Function that takes
+                a data file reference and returns a list of tags.
 
         Returns:
-            list[Path]: The tagged subset of the cached results.
+            list[DataFileRef]: The tagged subset of the cached results.
         """
-        if self.query_cache is None:
-            raise ValueError("No query has been made yet")
-
         for q in self.query_cache:
-            q.tags = tagger(q.path)
+            q.tags = tagger(q)
         return self.query_cache
 
-    def load(self, loader: Callable[[DataFileRef], TaggedData]):
+    def load(
+        self,
+        mode: str | None = None,
+        loader: Callable[[DataFileRef], TaggedData] | None = None,
+    ) -> list[TaggedData]:
         """Load the cached search results.
 
         Args:
-            loader (Callable[[DataFileRef], TaggedData]): Function that takes a
-                DataFileRef object and returns a TaggedData object.
+            mode (str | None, optional): Name of a predefined loader in
+                :data:`LOAD_OPTS` (e.g. ``"eeglab"``). Mutually exclusive
+                with ``loader``.
+            loader (Callable[[DataFileRef], TaggedData] | None, optional):
+                Custom function that takes a DataFileRef object and returns
+                a TaggedData object. Defaults to ``None``.
 
         Returns:
             list[TaggedData]: The loaded subset of the cached results.
+
+        Raises:
+            ValueError: If neither ``mode`` nor ``loader`` is given, or if
+                ``mode`` is not a key of :data:`LOAD_OPTS`.
         """
+        loader_func = None
+        if loader is None:
+            if mode is None:
+                raise ValueError("Either mode or loader must be specified")
+            else:
+                mne_func = LOAD_OPTS.get(mode)
+                if mne_func is None:
+                    raise ValueError(f"Unknown mode: {mode}")
+                loader_func = lambda drf: Loader.TaggedData(
+                    raw=mne_func(drf.path, verbose=False), tags=drf.tags
+                )
+        else:
+            loader_func = loader
+
+        if loader_func is None:
+            raise ValueError("Unable to obtain loader.")
+
         loaded_list: list[Loader.TaggedData] = []
         for q in self.query_cache:
-            loader_list = loader(q)
-            loaded_list.append(loader_list)
+            loaded_list.append(loader_func(q))
         return loaded_list

@@ -83,16 +83,3 @@ class AttUPipeline(Pipeline):
         self.add_tube(resample_raw)
         self.add_tube(filter_raw)
         self.add_tube(center_scale_clip_raw)
-
-
-# def apply_pipeline(name: str, raw: BaseRaw) -> None:
-#     """Apply a named preprocessing pipeline to ``raw`` in place."""
-#     try:
-#         pipeline = PIPELINES[name]
-#     except KeyError as error:
-#         available = ", ".join(sorted(PIPELINES))
-#         raise ValueError(
-#             f"Unknown preprocessing pipeline {name!r}. Available: {available}."
-#         ) from error
-#
-#     pipeline(raw)
