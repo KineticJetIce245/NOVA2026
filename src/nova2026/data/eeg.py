@@ -35,16 +35,54 @@ class Loader:
         FileNotFoundError: If the dataset directory does not exist.
     """
 
+    class DataFileRef:
+        """Represents a reference to a data file.
+
+        Attributes:
+            path (Path): The path to the data file.
+            tags (list[str] | None): Optional tags associated with the data file.
+        """
+
+        def __init__(self, path: Path, tags: list[str] | None) -> None:
+            self.path: Path = path
+            self.tags: list[str] | None = tags
+
+    class TaggedData:
+        """Represents a tagged raw data object.
+
+        Attributes:
+            raw (mne.io.BaseRaw | None): The raw data object.
+            tags (list[str] | None): Optional tags associated with the data.
+        """
+
+        def __init__(self) -> None:
+            self.raw: mne.io.BaseRaw | None = None
+            self.tags: list[str] | None = None
+
     def __init__(self, dataset: str, root: Path | None = None):
+        """Initialize the Loader.
+
+        Args:
+            dataset (str): Name of the dataset subfolder under the root directory.
+            root (Path | None, optional): Base directory containing the dataset.
+                Defaults to ``DATA_DIR``.
+
+        Raises:
+            FileNotFoundError: If the dataset directory does not exist.
+        """
         self.root: Path = DATA_DIR if root is None else root
         self.dataset: Path = self.root / dataset
-        self.query_cache: list[Path] | None = None
+        self.query_cache: list[Loader.DataFileRef] = []
         if not (self.dataset).exists():
             raise FileNotFoundError(f"Dataset {self.dataset} not found in {self.root}")
 
+    def clear(self):
+        """Clear the cached search results."""
+        self.query_cache = []
+
     def search(
         self, query: str, query_type: str, query_path: Path | None = None
-    ) -> list[Path]:
+    ) -> list[DataFileRef]:
         """Recursively search for files matching a name or suffix query.
 
         Args:
@@ -67,23 +105,22 @@ class Loader:
         if query_type == "suffix" and not (query in EEG_DATA_FORMAT):
             raise ValueError(f"Unsupported file format: {query}")
 
-        query_result: list[Path] = []
         for item_path in query_path.iterdir():
+            print(item_path)
             # Recursive search
             if item_path.is_dir():
-                query_result.extend(self.search(query, query_type, item_path))
+                self.search(query, query_type, item_path)
                 continue
 
             # check if the file matches the query
             hit_by_name = (query_type == "name") and (query in item_path.stem)
             hit_by_suffix = (query_type == "suffix") and (query in item_path.suffix)
             if hit_by_name or hit_by_suffix:
-                query_result.append(item_path)
+                self.query_cache.append(Loader.DataFileRef(item_path, None))
 
-        self.query_cache = query_result.copy()
-        return query_result
+        return self.query_cache
 
-    def look_for(self, is_valid: Callable[[Path], bool]):
+    def refine(self, validator: Callable[[DataFileRef], bool]):
         """Filter the cached search results by a predicate.
 
         Args:
@@ -98,6 +135,38 @@ class Loader:
         """
         if self.query_cache is None:
             raise ValueError("No query has been made yet")
-        query_result = [p for p in self.query_cache if is_valid(p)]
-        self.query_cache = query_result.copy()
-        return query_result
+        self.query_cache = [p for p in self.query_cache if validator(p)]
+        return self.query_cache
+
+    def tag(self, tagger: Callable[[Path], list[str]]):
+        """Tag the cached search results.
+
+        Args:
+            tagger (Callable[[Path], list[str]]): Function that takes a path
+                and returns a list of tags.
+
+        Returns:
+            list[Path]: The tagged subset of the cached results.
+        """
+        if self.query_cache is None:
+            raise ValueError("No query has been made yet")
+
+        for q in self.query_cache:
+            q.tags = tagger(q.path)
+        return self.query_cache
+
+    def load(self, loader: Callable[[DataFileRef], TaggedData]):
+        """Load the cached search results.
+
+        Args:
+            loader (Callable[[DataFileRef], TaggedData]): Function that takes a
+                DataFileRef object and returns a TaggedData object.
+
+        Returns:
+            list[TaggedData]: The loaded subset of the cached results.
+        """
+        loaded_list: list[Loader.TaggedData] = []
+        for q in self.query_cache:
+            loader_list = loader(q)
+            loaded_list.append(loader_list)
+        return loaded_list
