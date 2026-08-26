@@ -1,9 +1,9 @@
-"""Build the resting-baseline checkpoint: ``outputs/RS_Beg_EO_128Hz_AttUPipeline.pt``.
+"""Build the resting-baseline checkpoint.
 
 Preprocessing
 -------------
 Identical to the PVT build (see ``cogbci_pvt.py``): every recording passes
-through :class:`AttUPipeline` (``pipelines.py``), i.e. the operator
+through :class:`AttUNoK` (``pipelines.py``), i.e. the operator
 P = K o B o R o B o N of the engagement-z-scoring design doc
 (``documents/engagement_zscoring.pdf``, Eq. 1): 60 Hz notch (10 Hz width) ->
 4-20 Hz zero-phase Butterworth band-pass -> resample 500 -> 128 Hz ->
@@ -136,10 +136,12 @@ def data_integrity_check(raw: mne.io.BaseRaw) -> None:
 
 
 def tile_baseline_windows(
+    data_list,
+    metadata_list,
     continuous_uv: np.ndarray,
     subject: str,
     session: str,
-) -> np.ndarray:
+) -> None:
     """Tile a trimmed continuous run into ``(W_r, 62, 256)`` microvolt windows.
 
     ``continuous_uv`` has shape ``(n_channels, n_times)`` in microvolts and
@@ -159,20 +161,13 @@ def tile_baseline_windows(
         continuous_uv[:, start : start + WINDOW_SAMPLES]
         for start in range(0, n_times - WINDOW_SAMPLES + 1, HOP_SAMPLES)
     ]
-    stacked = np.stack(windows).astype(np.float32)
-
-    expected = (len(EEG_CHANNELS), WINDOW_SAMPLES)
-    if stacked.shape[1:] != expected:
-        raise ValueError(
-            f"Recording {subject}/{session}: expected windows of shape "
-            f"{expected}, got {stacked.shape[1:]}."
-        )
-    return stacked
+    data_list.extend(windows)
+    metadata_list.extend([(subject, session)] * len(windows))
 
 
 # create a new loader
 loader = Loader("COG-BCI", root=DATA_DIR)
-data_type = "RS_Beg_EO"
+data_type = "RS_Beg_EC"
 # search for files named as RS_Beg/End_EC/EO
 loader.search(data_type, "name")
 # refine for files with .set extension
@@ -204,17 +199,8 @@ for tagged_data in tagged_data_list:
     continuous_uv = raw.get_data(picks=EEG_CHANNELS) * 1e6  # pyright: ignore
     continuous_uv = continuous_uv[:, TRIM_SAMPLES:-TRIM_SAMPLES]
 
-    windows = tile_baseline_windows(continuous_uv, subject, session)
-    if len(windows) < MIN_WINDOWS_WARN:
-        print(
-            f"Warning: {subject}/{session} yields only {len(windows)} baseline "
-            f"windows (< {MIN_WINDOWS_WARN}); median/MAD estimates will be noisy."
-        )
-    data_list.append(windows)
-    metadata_list.append((subject, session))
+    tile_baseline_windows(data_list, metadata_list, continuous_uv, subject, session)
 
-if len({(s, e) for s, e in metadata_list}) != len(metadata_list):
-    raise ValueError("Duplicate (subject, session) recordings in the query cache.")
 
 metadata = np.asarray(metadata_list, dtype=object)  # (R, 2)
 window_counts = [len(w) for w in data_list]
@@ -225,7 +211,7 @@ print(
 )
 
 checkpoint = {
-    "data": data_list,  # list[R] of (W_r, 62, 256) float32, microvolts
+    "data": data_list,
     "metadata": metadata,
     "channel_names": list(EEG_CHANNELS),
     "pipeline": type(pipeline).__name__,

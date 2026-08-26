@@ -18,8 +18,8 @@ from engage_z import fit_baselines, lapse_contrast, normalize, normalize_composi
 from nova2026.config import DATA_DIR
 
 DATASET_ROOT = DATA_DIR / "COG-BCI" / "outputs"
-REST_DATASET = "RS_Beg_EO_128Hz_AttUPipeline.pt"
-PVT_DATASET = "PVT_128Hz_AttUPipeline.pt"
+REST_DATASET = "RS_Beg_EO_128Hz_AttUPipeline.pt"  # baseline: eyes-open rest
+PVT_DATASET = "RS_Beg_EC_128Hz_AttUPipeline.pt"  # scored: eyes-closed rest
 
 rest_checkpoint = torch.load(DATASET_ROOT / REST_DATASET, weights_only=False)
 pvt_checkpoint = torch.load(DATASET_ROOT / PVT_DATASET, weights_only=False)
@@ -31,23 +31,8 @@ z_chan = normalize(pvt_checkpoint, baselines)  # (N, 62) per-channel z, Eq. 10
 z_bar = normalize_composite(pvt_checkpoint, baselines)  # (N,) composite, Eq. 13
 
 meta = np.asarray(pvt_checkpoint["metadata"], dtype=object)
-labels = np.asarray(pvt_checkpoint["labels"])
 print(
     f"Trials: N={len(z_bar)}, z shape {z_chan.shape}, "
-    f"Z_bar in [{z_bar.min():.3f}, {z_bar.max():.3f}]"
+    f"Z_bar in [{z_bar.min():.3f}, {z_bar.max():.3f}] "
+    f"Z_bar mean {z_bar.mean():.4f}, Z_bar std {z_bar.std():.4f}\n"
 )
-
-# Validation 3: primary contrast, paired within session (design doc Sec. 3).
-contrast = lapse_contrast(z_bar, labels, meta)
-print(
-    f"Paired lapse contrast: mean={contrast['mean']:+.4f} sigma "
-    f"(sd {contrast['sd']:.4f}, n={contrast['n_sessions']} sessions), "
-    f"t({contrast['n_sessions'] - 1})={contrast['t']:.2f}, p={contrast['p']:.4f}"
-)
-
-# Per-session table: trial count and mean composite score.
-print("\nper (subject, session): n_trials, mean Z_bar")
-for key in sorted(baselines, key=lambda k: (int(k[0][4:]), int(k[1][5:]))):
-    mask = (meta[:, 0] == key[0]) & (meta[:, 1] == key[1])
-    n = int(mask.sum())
-    print(f"  {key[0]} {key[1]}: n={n:3d}  mean Z_bar={z_bar[mask].mean():+.4f}")

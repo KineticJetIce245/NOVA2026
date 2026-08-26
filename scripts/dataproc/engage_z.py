@@ -40,6 +40,7 @@ from typing import NamedTuple
 
 import numpy as np
 from mne.time_frequency import psd_array_welch
+from scipy import stats
 
 from nova2026.config import SAMPLE_RATE
 
@@ -51,7 +52,9 @@ MAD_SIGMA = 1.4826  # 1 / Phi^-1(0.75): MAD-to-sigma consistency factor
 SIGMA_FLOOR_RATIO = 1e-3  # degenerate-channel guard (Eq. 9)
 
 
-def welch_psd(windows: np.ndarray, sfreq: float = SAMPLE_RATE) -> tuple[np.ndarray, np.ndarray]:
+def welch_psd(
+    windows: np.ndarray, sfreq: float = SAMPLE_RATE
+) -> tuple[np.ndarray, np.ndarray]:
     """Welch PSD per the design doc (Sec. 1.3).
 
     Hamming taper, segment length L = fs (1 s), 50 % overlap, zero-padded to
@@ -77,7 +80,9 @@ def welch_psd(windows: np.ndarray, sfreq: float = SAMPLE_RATE) -> tuple[np.ndarr
     )
 
 
-def band_power(psd: np.ndarray, freqs: np.ndarray, fmin: float, fmax: float) -> np.ndarray:
+def band_power(
+    psd: np.ndarray, freqs: np.ndarray, fmin: float, fmax: float
+) -> np.ndarray:
     """Trapezoidal band power over the half-open interval [fmin, fmax) (Eq. 6).
 
     The 0.5 Hz grid puts 7 Hz and 11 Hz exactly on grid points; a closed
@@ -99,7 +104,9 @@ def engagement_index(psd: np.ndarray, freqs: np.ndarray) -> np.ndarray:
     p_alpha = band_power(psd, freqs, *ALPHA_BAND)
     p_beta = band_power(psd, freqs, *BETA_BAND)
     tiny = np.finfo(np.float64).tiny
-    return np.log(np.maximum(p_beta, tiny)) - np.log(np.maximum(p_alpha + p_theta, tiny))
+    return np.log(np.maximum(p_beta, tiny)) - np.log(
+        np.maximum(p_alpha + p_theta, tiny)
+    )
 
 
 class Baseline(NamedTuple):
@@ -112,26 +119,44 @@ class Baseline(NamedTuple):
         (Eq. 9 + guard).
     sigma_G: float, resting spread of the channel-averaged z (Eq. 12).
     n_windows: int, number of resting windows the baseline was fitted on.
+    composite_mean: float, mean of the PDF composite (Eq. 13) over the
+        resting windows themselves.  The composite is median-centred by
+        construction (sigma_G comes from a MAD, so the resting *median* of
+        the composite is 0), but ln E is mildly left-skewed, so the resting
+        *mean* sits at ``composite_mean`` (~-0.1).  Subtract it
+        (``composite(..., mean_referenced=True)``) for readings in "below /
+        above the resting mean" units, e.g. absolute decision thresholds.
     """
 
     center: np.ndarray
     scale: np.ndarray
     sigma_G: float
     n_windows: int
+    composite_mean: float
 
     def z(self, log_e: np.ndarray) -> np.ndarray:
         """Per-channel z-score (Eq. 10); ``(..., n_channels)`` in, same shape out."""
         return (log_e - self.center) / self.scale
 
-    def composite(self, log_e: np.ndarray) -> np.ndarray:
+    def composite(self, log_e: np.ndarray, mean_referenced: bool = False) -> np.ndarray:
         """Collapse channels to one score per trial, in baseline sigma units.
 
         The channel mean of unit-spread z-scores is not itself unit-spread
         (inter-channel correlation is high, so the effective dimensionality
         is ~1-2, not 62); dividing by ``sigma_G`` makes the composite
         comparable to a single-channel z (Eq. 13).
+
+        With ``mean_referenced=True`` the resting-mean offset
+        (``composite_mean``) is subtracted, so 0 means "at the resting
+        *mean*" rather than "at the resting *median*".  Within-session
+        paired contrasts are unaffected (the offset is a per-session
+        constant); only absolute readings and cross-session thresholds
+        change.
         """
-        return self.z(log_e).mean(axis=-1) / self.sigma_G
+        out = self.z(log_e).mean(axis=-1) / self.sigma_G
+        if mean_referenced:
+            out = out - self.composite_mean
+        return out
 
 
 def baseline_from_rest(windows: np.ndarray) -> Baseline:
@@ -148,7 +173,11 @@ def baseline_from_rest(windows: np.ndarray) -> Baseline:
 
     composite = ((log_e - center) / scale).mean(axis=-1)  # Eq. 11 (g_w)
     sigma_g = MAD_SIGMA * np.median(np.abs(composite - np.median(composite)))  # Eq. 12
-    return Baseline(center, scale, max(float(sigma_g), 1e-6), log_e.shape[0])
+    sigma_g = max(float(sigma_g), 1e-6)
+    # resting mean of the PDF composite (median is 0 by construction; the mean
+    # is pulled to ~-0.1 by the left skew of ln E) -- see Baseline.composite.
+    composite_mean = float(composite.mean()) / sigma_g
+    return Baseline(center, scale, sigma_g, log_e.shape[0], composite_mean)
 
 
 def fit_baselines(rest_checkpoint: dict) -> dict[tuple[str, str], Baseline]:
@@ -167,7 +196,9 @@ def fit_baselines(rest_checkpoint: dict) -> dict[tuple[str, str], Baseline]:
             f"{len(metadata)} metadata rows."
         )
     channel_names = list(rest_checkpoint["channel_names"])
-    n_samples = int(rest_checkpoint["window_length_ms"] / 1000 * rest_checkpoint["sample_rate_hz"])
+    n_samples = int(
+        rest_checkpoint["window_length_ms"] / 1000 * rest_checkpoint["sample_rate_hz"]
+    )
 
     baselines: dict[tuple[str, str], Baseline] = {}
     for row, windows in zip(metadata, data):
@@ -188,13 +219,17 @@ def trial_log_engagement(pvt_checkpoint: dict) -> np.ndarray:
     """ln E per trial and channel: ``(N, 62)`` (Welch + Eq. 7)."""
     data = np.asarray(pvt_checkpoint["data"], dtype=np.float64)
     channel_names = list(pvt_checkpoint["channel_names"])
-    n_samples = int(pvt_checkpoint["window_length_ms"] / 1000 * pvt_checkpoint["sample_rate_hz"])
+    n_samples = int(
+        pvt_checkpoint["window_length_ms"] / 1000 * pvt_checkpoint["sample_rate_hz"]
+    )
     if data.ndim != 3 or data.shape[1:] != (len(channel_names), n_samples):
         raise ValueError(f"PVT data: expected (N, 62, {n_samples}), got {data.shape}.")
     return engagement_index(*welch_psd(data))
 
 
-def normalize(pvt_checkpoint: dict, baselines: dict[tuple[str, str], Baseline]) -> np.ndarray:
+def normalize(
+    pvt_checkpoint: dict, baselines: dict[tuple[str, str], Baseline]
+) -> np.ndarray:
     """Per-channel z of every trial against its own (s, e) baseline (Eq. 10).
 
     Returns ``(N, 62)``.  Raises KeyError when a trial's (subject, session)
@@ -217,13 +252,21 @@ def normalize(pvt_checkpoint: dict, baselines: dict[tuple[str, str], Baseline]) 
 
 
 def normalize_composite(
-    pvt_checkpoint: dict, baselines: dict[tuple[str, str], Baseline]
+    pvt_checkpoint: dict,
+    baselines: dict[tuple[str, str], Baseline],
+    mean_referenced: bool = False,
 ) -> np.ndarray:
     """One engagement score per trial: Z_bar (Eq. 13), shape ``(N,)``.
 
     Channels are collapsed *after* per-channel z-scoring, never before --
     each site has its own resting beta/(alpha+theta) offset, so averaging
     raw ln E across channels first would mix incommensurable offsets.
+
+    With ``mean_referenced=True`` the per-session resting-mean offset is
+    subtracted (see :meth:`Baseline.composite`), so 0 means "at the resting
+    mean" instead of "at the resting median".  Use this for absolute
+    decision thresholds (e.g. predict.py); the default keeps the design
+    doc's median-referenced definition.
     """
     log_e = trial_log_engagement(pvt_checkpoint)
     metadata = np.asarray(pvt_checkpoint["metadata"], dtype=object)
@@ -233,5 +276,67 @@ def normalize_composite(
         baseline = baselines.get(key)
         if baseline is None:
             raise KeyError(f"No resting baseline for {key}; rebuild RS_Beg_EO.")
-        out[i] = baseline.composite(log_e[i])
+        out[i] = baseline.composite(log_e[i], mean_referenced=mean_referenced)
     return out
+
+
+# --------------------------------------------------------------------------
+# validation 3: primary contrast
+# --------------------------------------------------------------------------
+def lapse_contrast(
+    z_bar: np.ndarray,
+    labels: np.ndarray,
+    metadata: np.ndarray,
+) -> dict:
+    """Primary contrast, paired within session (design doc, validation 3).
+
+    For every (subject, session), computes the difference between the mean
+    composite score of lapse trials (y=1, the within-session slowest RT
+    decile) and the mean of the remaining trials,
+
+        d_{s,e} = mean(Z_bar | y=1) - mean(Z_bar | y=0),
+
+    then aggregates those session differences across sessions ("paired within
+    session and aggregated across sessions").  The session pairing removes
+    the near-constant session-level offsets that a pooled contrast would be
+    contaminated by (channels degrading between the rest block and the PVT
+    run shift Z_bar by a constant that cancels in a within-session contrast).
+
+    Returns a dict with 'mean' and 'sd' of the session differences,
+    'n_sessions', the one-sample t-statistic 't' and p-value 'p' of the
+    differences against zero, and 'per_session' (the differences) with
+    'keys' (the (subject, session) of each difference).
+    """
+    meta = np.asarray(metadata, dtype=object)
+    y = np.asarray(labels, dtype=np.int64)
+    z = np.asarray(z_bar, dtype=np.float64)
+    if not (len(z) == len(y) == len(meta)):
+        raise ValueError(
+            f"Length mismatch: z_bar {len(z)}, labels {len(y)}, metadata {len(meta)}."
+        )
+
+    session_keys = sorted(
+        {(str(s), str(e)) for s, e in meta[:, :2]},
+        key=lambda k: (int(k[0][4:]), int(k[1][5:])),
+    )
+    diffs: list[float] = []
+    keys: list[tuple[str, str]] = []
+    for key in session_keys:
+        mask = (meta[:, 0].astype(str) == key[0]) & (meta[:, 1].astype(str) == key[1])
+        zs, ys = z[mask], y[mask]
+        if (ys == 1).sum() == 0 or (ys == 0).sum() == 0:
+            continue  # degenerate session: cannot form the pair
+        diffs.append(float(zs[ys == 1].mean() - zs[ys == 0].mean()))
+        keys.append(key)
+
+    diffs_arr = np.asarray(diffs, dtype=np.float64)
+    t_stat, p_value = stats.ttest_1samp(diffs_arr, 0.0)
+    return {
+        "mean": float(diffs_arr.mean()),
+        "sd": float(diffs_arr.std(ddof=1)),
+        "n_sessions": int(len(diffs_arr)),
+        "t": float(t_stat),
+        "p": float(p_value),
+        "per_session": diffs_arr,
+        "keys": keys,
+    }
