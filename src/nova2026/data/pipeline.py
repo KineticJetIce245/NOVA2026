@@ -48,16 +48,28 @@ class Pipeline:
         tuple
             ``(result, final_data)`` from the last tube.
         """
-        if data is self.__load__:
+
+        if data is None:
+            raise PipelineError("data is type None. Please provide actual data.")
+
+        is_self_load = data is self.__load__
+
+        if is_self_load:
             print(
                 f"[data: {data}] is the same as self.__load__: {self.__load__}. Running the pipeline on self.__load__"
             )
-            self.__load__ = None  # Reassigning the variable to None, with data still holding the original data
-            self.__step_loc__ = 0  # Since we are running the whole pipeline anyway
+
         temp_load = data
         result = None
         for tube in self.__tubes__:
             result, temp_load = tube(temp_load)
+
+        if is_self_load:
+            self.__load__ = (
+                temp_load  # in case pipeline doesn't modify everything in-place
+            )
+            return result, self.spit()  # spit resets and returns modified self.__load__
+
         return result, temp_load
 
     def feed(self, data: Any):
