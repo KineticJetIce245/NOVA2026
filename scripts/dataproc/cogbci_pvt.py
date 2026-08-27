@@ -43,6 +43,7 @@ from save_pt import save_chkpt
 
 from nova2026.config import DATA_DIR, SAMPLE_RATE, SAMPLE_SIZE
 from nova2026.data.eeg import Loader
+from nova2026.data.pipeline import Pipeline
 
 OUTPUT_DIR = DATA_DIR / "COG-BCI" / "outputs"
 DIR_MASK = (DATA_DIR / "COG-BCI").parts
