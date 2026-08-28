@@ -91,19 +91,21 @@ class Pipeline:
         Raises
         ------
         PipelineError
-            If there are no tubes, ``steps`` is non-positive, no data has been
-            fed, or the chain has already been completed.
+            If there are no tubes or no data to process.
+        ValueError
+            If ``steps`` is not positive, or if the pipeline has no data or
+            has already completed processing.
         """
         if len(self.__tubes__) == 0:
             raise PipelineError("Pipeline has no tubes to process data.")
         if steps <= 0:
-            raise PipelineError("Number of steps must be positive.")
+            raise ValueError("Number of steps must be positive.")
         if self.__load__ is None:
-            raise PipelineError("Pipeline has no data to process. Call feed() first.")
+            raise ValueError("Pipeline has no data to process. Call feed() first.")
         if self.__step_loc__ >= len(self.__tubes__):
             self.__load__ = None
             self.__step_loc__ = 0
-            raise PipelineError(
+            raise ValueError(
                 "Pipeline has already completed processing. Call feed() first."
             )
 

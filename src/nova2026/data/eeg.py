@@ -2,8 +2,10 @@ from collections.abc import Callable
 from pathlib import Path
 
 import mne
+import numpy as np
 
-from nova2026.config import DATA_DIR
+from nova2026.config import DATA_DIR, SAMPLE_SIZE
+from nova2026.data.pipeline import Pipeline, PipelineError
 
 
 def load(set_file: str | Path) -> mne.io.BaseRaw:
@@ -66,6 +68,7 @@ class Loader:
 
     class TaggedData:
         """Represents a tagged raw data object.
+        Defaults loads the data from the file during initializing.
 
         Attributes:
             raw (mne.io.BaseRaw | None): The raw data object.
@@ -74,6 +77,7 @@ class Loader:
 
         def __init__(self, raw: mne.io.BaseRaw, tags: list[str]) -> None:
             self.raw: mne.io.BaseRaw = raw
+            self.raw.load_data()
             self.tags: list[str] = tags
 
         def is_tagged_with(self, tag: str) -> bool:
@@ -93,12 +97,20 @@ class Loader:
         self.root: Path = DATA_DIR if root is None else root
         self.dataset: Path = self.root / dataset
         self.query_cache: list[Loader.DataFileRef] = []
+        self.tagged_data: list[Loader.TaggedData] = []
         if not (self.dataset).exists():
             raise FileNotFoundError(f"Dataset {self.dataset} not found in {self.root}")
 
-    def clear(self):
+    def clear_query(self):
         """Clear the cached search results."""
         self.query_cache = []
+
+    def clear_data(self):
+        self.tagged_data = []
+
+    def clear(self):
+        self.clear_query()
+        self.clear_data()
 
     def search(
         self, query: str, query_type: str, query_path: Path | None = None
@@ -208,4 +220,172 @@ class Loader:
         loaded_list: list[Loader.TaggedData] = []
         for q in self.query_cache:
             loaded_list.append(loader_func(q))
+        self.tagged_data = loaded_list
         return loaded_list
+
+    def run_pipe(self, pipeline: Pipeline):
+        if len(self.tagged_data) == 0:
+            raise ValueError("No data to run pipeline on.")
+        for tagged_data in self.tagged_data:
+            _, result_raw = pipeline.rundown(tagged_data.raw)
+            if not isinstance(result_raw, mne.io.BaseRaw):
+                raise PipelineError("Pipeline must return a mne.io.BaseRaw object.")
+            tagged_data.raw = result_raw
+
+    def run(self, func: Callable[[mne.io.BaseRaw], mne.io.BaseRaw]):
+        """Run a function on all tagged data.
+
+        Args:
+            func (Callable[[mne.io.BaseRaw], mne.io.BaseRaw]): The function to
+                run on each raw object.
+        """
+        for tagged_data in self.tagged_data:
+            result_raw = func(tagged_data.raw)
+            if not isinstance(result_raw, mne.io.BaseRaw):
+                raise PipelineError("Pipeline must return a mne.io.BaseRaw object.")
+            tagged_data.raw = result_raw
+
+    def slice(
+        self,
+        cuts: list[int],
+        eegchannels: list[str],
+        sample_size: int = SAMPLE_SIZE,
+        cut_at_start: bool = True,
+        permutate: Callable[[np.ndarray], np.ndarray] | None = None,
+    ) -> tuple[list[list[str]], list[np.ndarray]]:
+        """Slicing the tagged data with given cuts.
+
+        Args:
+            cuts (list[int]): List of cut indices.
+            eegchannels (list[str]): List of EEG channel names.
+            sample_size (int, optional): Size of each window. Defaults to
+                :data:`SAMPLE_SIZE`.
+            permutate (Callable[[np.ndarray], np.ndarray] | None, optional):
+                Function applied to each window before it is stored. If given,
+                ``data_list[i]`` is ``permutate(window)``. The function must
+                return a new array: the window passed to it is a view of the
+                recording, so it must not be modified in place.
+            cut_at_start (bool, optional): If ``True``, each window starts at
+                ``cut``; otherwise it ends at ``cut``.
+
+        Returns:
+            tuple[list[list[str]], list[np.ndarray]]: A pair ``(meta_list,
+            data_list)``. Each list has one entry per window: ``meta_list[i]``
+            holds the tags of the recording that window came from, and
+            ``data_list[i]`` is the ``(n_channels, sample_size)`` window (after
+            ``permutate``, if provided).
+
+        Raises:
+            TypeError: If the EEG recording is not a numpy array.
+            ValueError: If there is no tagged data, ``cuts`` is empty, or a
+                cut index is out of bounds.
+        """
+
+        if len(self.tagged_data) == 0:
+            raise ValueError("No data to slice.")
+
+        meta_list: list[list[str]] = []
+        data_list: list[np.ndarray] = []
+
+        for tagged_data in self.tagged_data:
+            recording = tagged_data.raw.get_data(picks=eegchannels)
+            if not isinstance(recording, np.ndarray):
+                raise TypeError("EEG recording must be a numpy array.")
+
+            cuts = sorted(cuts)
+            n_times = recording.shape[1]
+            if len(cuts) == 0:
+                raise ValueError("No cuts provided.")
+            if cut_at_start:
+                if cuts[0] < 0 or cuts[-1] + sample_size > n_times:
+                    raise ValueError("Cut indices out of bounds.")
+            else:
+                if cuts[0] - sample_size < 0 or cuts[-1] > n_times:
+                    raise ValueError("Cut indices out of bounds.")
+
+            for cut in cuts:
+                window: np.ndarray
+                if cut_at_start:
+                    window = recording[:, cut : cut + sample_size]
+                else:
+                    window = recording[:, cut - sample_size : cut]
+                if permutate is None:
+                    data_list.append(window)
+                else:
+                    data_list.append(permutate(window))
+                meta_list.append(list(tagged_data.tags))
+
+        return meta_list, data_list
+
+    def slice_const_interval(
+        self,
+        eegchannels: list[str],
+        sample_size: int = SAMPLE_SIZE,
+        trim: tuple[int, int] | int = 0,
+        hop: int = -1,
+        permutate: Callable[[np.ndarray], np.ndarray] | None = None,
+    ) -> tuple[list[list[str]], list[np.ndarray]]:
+        """Slicing the tagged data with constant interval.
+
+        Args:
+            eegchannels (list[str]): List of EEG channel names.
+            sample_size (int, optional): Size of each window. Defaults to
+                :data:`SAMPLE_SIZE`.
+            trim (tuple[int, int] | int, optional): Number of samples to trim
+                from the beginning and end of the recording. An ``int`` value
+                is applied to both ends. Defaults to ``0`` (no trimming).
+            hop (int, optional): Hop size between windows. Defaults to -1,
+                which means hop = sample_size.
+            permutate (Callable[[np.ndarray], np.ndarray] | None, optional):
+                Function applied to each window before it is stored. If given,
+                ``data_list[i]`` is ``permutate(window)``. The function must
+                return a new array: the window passed to it is a view of the
+                recording, so it must not be modified in place.
+
+        Returns:
+            tuple[list[list[str]], list[np.ndarray]]: A pair ``(meta_list,
+            data_list)``. Each list has one entry per window: ``meta_list[i]``
+            holds the tags of the recording that window came from, and
+            ``data_list[i]`` is the ``(n_channels, sample_size)`` window (after
+            ``permutate``, if provided).
+
+        Raises:
+            TypeError: If the EEG recording is not a numpy array.
+            ValueError: If there is no tagged data, the trim leaves no data,
+                or the trimmed recording is shorter than ``sample_size``.
+        """
+
+        if hop <= 0:
+            hop = sample_size
+
+        if len(self.tagged_data) == 0:
+            raise ValueError("No data to slice.")
+
+        if isinstance(trim, int):
+            trim = (trim, trim)
+
+        meta_list: list[list[str]] = []
+        data_list: list[np.ndarray] = []
+        for tagged_data in self.tagged_data:
+            recording = tagged_data.raw.get_data(picks=eegchannels)
+            if not isinstance(recording, np.ndarray):
+                raise TypeError("EEG recording must be a numpy array")
+
+            start, end = trim[0], recording.shape[1] - trim[1]
+            if start > end:
+                raise ValueError(f"Trim start {start} is greater than trim end {end}.")
+
+            recording = recording[:, start:end]
+            if recording.shape[1] < sample_size:
+                raise ValueError(
+                    f"Recording length {recording.shape[1]} after trim is "
+                    f"shorter than sample_size {sample_size}."
+                )
+            for idx in range(0, recording.shape[1] - sample_size + 1, hop):
+                if permutate is None:
+                    data_list.append(recording[:, idx : idx + sample_size])
+                else:
+                    data_list.append(permutate(recording[:, idx : idx + sample_size]))
+                meta_list.append(list(tagged_data.tags))
+
+        return meta_list, data_list

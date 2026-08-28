@@ -40,7 +40,7 @@ import numpy as np
 from pipelines import AttUPipeline
 from save_pt import save_chkpt
 
-from nova2026.config import DATA_DIR, SAMPLE_RATE, SAMPLE_SIZE
+from nova2026.config import DATA_DIR, SAMPLE_RATE, WINDOW_SIZE
 from nova2026.data.eeg import Loader
 
 OUTPUT_DIR = DATA_DIR / "COG-BCI" / "outputs"
@@ -112,7 +112,7 @@ EEG_CHANNELS = [
 
 # Window length and hop are derived from config so the baseline cannot
 # silently desynchronise from the trial tensor (design doc, implementation map).
-WINDOW_SAMPLES = int(SAMPLE_SIZE / 1000 * SAMPLE_RATE)  # T = 256 samples = 2000 ms
+WINDOW_SAMPLES = int(WINDOW_SIZE / 1000 * SAMPLE_RATE)  # T = 256 samples = 2000 ms
 HOP_SAMPLES = WINDOW_SAMPLES // 2  # H = T/2 = 128 samples -> 50 % overlap
 TRIM_SAMPLES = SAMPLE_RATE  # 1 s at each end (zero-phase filter transient)
 MIN_WINDOWS_WARN = 30  # below this, median/MAD baseline estimates get noisy
@@ -216,7 +216,7 @@ checkpoint = {
     "channel_names": list(EEG_CHANNELS),
     "pipeline": type(pipeline).__name__,
     "sample_rate_hz": SAMPLE_RATE,
-    "window_length_ms": SAMPLE_SIZE,
+    "window_length_ms": WINDOW_SIZE,
     "data_type": data_type,
 }
 save_chkpt(checkpoint, OUTPUT_DIR)

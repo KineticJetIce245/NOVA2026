@@ -168,7 +168,10 @@ def loso_f1(
         "pooled": pooled,
         "macro_f1": macro_f1,
         "chance_f1": chance_f1,
-        "null": {"mean": float(null_arr.mean()), "p95": float(np.percentile(null_arr, 95))},
+        "null": {
+            "mean": float(null_arr.mean()),
+            "p95": float(np.percentile(null_arr, 95)),
+        },
     }
 
 
@@ -179,7 +182,9 @@ if __name__ == "__main__":
     from nova2026.config import DATA_DIR
 
     DATASET_ROOT = DATA_DIR / "COG-BCI" / "outputs"
-    rest = torch.load(DATASET_ROOT / "RS_Beg_EO_128Hz_AttUPipeline.pt", weights_only=False)
+    rest = torch.load(
+        DATASET_ROOT / "RS_Beg_EO_128Hz_AttUPipeline.pt", weights_only=False
+    )
     pvt = torch.load(DATASET_ROOT / "PVT_128Hz_AttUPipeline.pt", weights_only=False)
 
     baselines = fit_baselines(rest)

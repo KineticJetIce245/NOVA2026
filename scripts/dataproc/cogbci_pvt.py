@@ -41,7 +41,7 @@ import torch
 from pipelines import AttUPipeline
 from save_pt import save_chkpt
 
-from nova2026.config import DATA_DIR, SAMPLE_RATE, SAMPLE_SIZE
+from nova2026.config import DATA_DIR, SAMPLE_RATE, WINDOW_SIZE
 from nova2026.data.eeg import Loader
 from nova2026.data.pipeline import Pipeline
 
@@ -165,7 +165,7 @@ def select_labeled_trials(trials: np.ndarray) -> list[tuple[np.ndarray, int]]:
     if not len(trials):
         return []
 
-    qualified = trials[trials[:, 1] > SAMPLE_SIZE + 200]
+    qualified = trials[trials[:, 1] > WINDOW_SIZE + 200]
     if not len(qualified):
         return []
 
@@ -201,7 +201,7 @@ def extract_trial_window(raw: mne.io.BaseRaw, stimulus_time_ms: int) -> np.ndarr
     # Extract one DNN-aligned EEG window in microvolts.
 
     # translate the sample size from ms to index
-    sample_points_num = int(SAMPLE_SIZE / 1000 * SAMPLE_RATE)
+    sample_points_num = int(WINDOW_SIZE / 1000 * SAMPLE_RATE)
     stop_s = (stimulus_time_ms - 100) / 1000
     # converts s to index
     stop_idx = int(raw.time_as_index(stop_s)[0])
@@ -278,7 +278,7 @@ checkpoint = {
     "channel_names": list(EEG_CHANNELS),
     "pipeline": type(pipeline).__name__,
     "sample_rate_hz": SAMPLE_RATE,
-    "window_length_ms": SAMPLE_SIZE,
+    "window_length_ms": WINDOW_SIZE,
     "data_type": "PVT",
 }
 save_chkpt(checkpoint, OUTPUT_DIR)
