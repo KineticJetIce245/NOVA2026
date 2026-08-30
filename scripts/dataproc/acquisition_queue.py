@@ -64,7 +64,10 @@ class AcquisitionQueue:
         timestamps: np.ndarray,
         info: Info,
     ) -> tuple[np.ndarray, np.ndarray]:
+        # data: (n_samples, n_channels)
+        # timestamps: (n_times,)
 
+        # TODO: check if with throws an error or correctly waits for the thread to finish & how self.lock works
         with self.lock:
             if self.callback_error is not None:
                 return data, timestamps
@@ -130,7 +133,7 @@ class AcquisitionQueue:
         if self.prev_time is not None:
             boundary_interval = float(timestamps[0]) - self.prev_time
 
-            if boundary_interval <= TIMESTAMP_EPSILON:
+            if boundary_interval <= 0:
                 raise StreamDiscontinuityError("Overlapping chunks detected.")
 
             if boundary_interval > maximum_interval:
@@ -154,46 +157,35 @@ class AcquisitionQueue:
         timestamps: np.ndarray,
     ) -> None:
 
-        valid = (
-            data.ndim == 2
-            and timestamps.ndim == 1
-            and data.shape[1] == self.expected_channel_count
-            and data.shape[0] == timestamps.shape[0]
-            and data.shape[0] > 0
-        )
+        if data.ndim != 2:
+            raise StreamDataValidityError(
+                "Expected data dimensions to be "
+                "(samples, channels). "
+                f"Received shape {data.shape}."
+            )
 
-        if not valid:
-            if data.ndim != 2:
-                raise StreamDataValidityError(
-                    "Expected data dimensions to be "
-                    "(samples, channels). "
-                    f"Received shape {data.shape}."
-                )
+        if timestamps.ndim != 1:
+            raise StreamDataValidityError(
+                "Expected timestamp dimensions to be "
+                "(samples,). "
+                f"Received shape {timestamps.shape}."
+            )
 
-            if timestamps.ndim != 1:
-                raise StreamDataValidityError(
-                    "Expected timestamp dimensions to be "
-                    "(samples,). "
-                    f"Received shape {timestamps.shape}."
-                )
+        if data.shape[1] != self.expected_channel_count:
+            raise StreamDataValidityError(
+                "Expected "
+                f"{self.expected_channel_count} channels. "
+                f"Received {data.shape[1]}."
+            )
 
-            if data.shape[1] != self.expected_channel_count:
-                raise StreamDataValidityError(
-                    "Expected "
-                    f"{self.expected_channel_count} channels. "
-                    f"Received {data.shape[1]}."
-                )
+        if data.shape[0] != timestamps.shape[0]:
+            raise StreamDataValidityError(
+                f"Received {data.shape[0]} samples but "
+                f"{timestamps.shape[0]} timestamps."
+            )
 
-            if data.shape[0] != timestamps.shape[0]:
-                raise StreamDataValidityError(
-                    f"Received {data.shape[0]} samples but "
-                    f"{timestamps.shape[0]} timestamps."
-                )
-
-            if data.shape[0] <= 0:
-                raise StreamDataValidityError(
-                    "The received chunk contained no samples."
-                )
+        if data.shape[0] <= 0:
+            raise StreamDataValidityError("The received chunk contained no samples.")
 
         self._check_chunk_values(data)
         self._check_timestamp_continuity(timestamps)
