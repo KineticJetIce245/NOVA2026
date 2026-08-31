@@ -1,6 +1,5 @@
 import mne
 import numpy as np
-import torch
 from pipelines import AttUPipeline
 
 from nova2026.config import DATA_DIR, SAMPLE_RATE, SAMPLE_SIZE, WINDOW_SIZE
@@ -120,7 +119,6 @@ def get_trials(raw: mne.io.BaseRaw) -> np.ndarray:
 
 
 def data_integrity_check(raw: mne.io.BaseRaw) -> mne.io.BaseRaw:
-
     if not np.isclose(raw.info["sfreq"], SAMPLE_RATE):
         raise ValueError(
             f"Pipeline produced {raw.info['sfreq']} Hz; expected {SAMPLE_RATE} Hz."

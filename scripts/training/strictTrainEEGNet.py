@@ -241,12 +241,18 @@ def main():
     macro_f1s = np.asarray(macro_f1s)
     binary_f1s = np.asarray(binary_f1s)
     aurocs = np.asarray(aurocs)
-    pooled_f1 = float(f1_score(all_targets, np.asarray(all_probs) >= 0.5, average="binary", pos_label=1))
+    pooled_f1 = float(
+        f1_score(
+            all_targets, np.asarray(all_probs) >= 0.5, average="binary", pos_label=1
+        )
+    )
     pooled_auroc = float(roc_auc_score(all_targets, all_probs))
 
     print("\n================ Strict LOSO Results ================")
     for sub, mf, bf, auc in zip(unique_subs, macro_f1s, binary_f1s, aurocs):
-        print(f"Subject {sub}: macro F1 {mf:.4f} | binary F1 {bf:.4f} | AUROC {auc:.4f}")
+        print(
+            f"Subject {sub}: macro F1 {mf:.4f} | binary F1 {bf:.4f} | AUROC {auc:.4f}"
+        )
     print(f"Mean macro F1:  {macro_f1s.mean():.4f} ± {macro_f1s.std():.4f}")
     print(f"Mean binary F1: {binary_f1s.mean():.4f} ± {binary_f1s.std():.4f}")
     print(f"Mean AUROC:     {aurocs.mean():.4f} ± {aurocs.std():.4f}")
