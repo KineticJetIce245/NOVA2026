@@ -9,6 +9,7 @@ from scripts.dataproc.streaming.channel_selection_contract import (
     ChannelSelectionContract,
 )
 from nova2026.data.pipeline import Pipeline
+from scripts.dataproc.streaming.streamer import Streamer
 
 
 # Acquisition is started manually after the stream passes validation.
@@ -101,7 +102,7 @@ ALLOWED_PROCESSING_FLAGS = {
 }
 
 
-class DefaultStream(Pipeline):
+class DefaultStreamer(Streamer):
     """Prepare and validate an EEG stream for manual acquisition.
 
     The streamer connects to an MNE-LSL stream, validates its configuration,
@@ -123,7 +124,7 @@ class DefaultStream(Pipeline):
                 value (str | None): Identifier value to validate.
                 parameter_name (str): Identifier name used in error messages.
 
-            Raises:
+            Raises
                 TypeError: If the identifier is not a string or ``None``.
                 ValueError: If the identifier is an empty string.
             """
@@ -491,4 +492,4 @@ class DefaultStream(Pipeline):
 
             return stream, channel_selection
 
-        self.add_tube(connect_stream)
+        self.add_pre_processing_tube(connect_stream)
