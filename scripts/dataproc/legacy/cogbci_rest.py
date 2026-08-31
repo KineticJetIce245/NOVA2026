@@ -21,12 +21,11 @@ samples; the last partial window is discarded.
 
 Checkpoint schema (dict returned by ``torch.load``)
 ---------------------------------------------------
-data            list of W float64 arrays, one per window, in recording order
-                    (all windows of a recording are contiguous); each entry has
-                    shape (62, 256) and holds EEG in microvolts (the
-                    ``permutate`` callback multiplies the raw data by 1e6);
-                    channel order is EEG_CHANNELS (62 channels)
-metadata        (W, 2) object array    columns [subject, session];
+data            list of R float32 arrays, one per (subject, session); each
+                    entry has shape (W_r, 62, 256) and holds EEG in
+                    microvolts; channel order is EEG_CHANNELS (62 channels);
+                    W_r varies between recordings (runs differ in length)
+metadata        (R, 2) object array    columns [subject, session];
                     subject like "sub-01", session like "ses-S1";
                     row i corresponds to data[i]
 channel_names   list[str] of 62 channel names (EEG_CHANNELS)
@@ -41,7 +40,7 @@ import numpy as np
 from pipelines import AttUPipeline
 from save_pt import save_chkpt
 
-from nova2026.config import DATA_DIR, SAMPLE_RATE, SAMPLE_SIZE, WINDOW_SIZE
+from nova2026.config import DATA_DIR, SAMPLE_RATE, WINDOW_SIZE
 from nova2026.data.eeg import Loader
 
 OUTPUT_DIR = DATA_DIR / "COG-BCI" / "outputs"
@@ -113,7 +112,8 @@ EEG_CHANNELS = [
 
 # Window length and hop are derived from config so the baseline cannot
 # silently desynchronise from the trial tensor (design doc, implementation map).
-HOP_SAMPLES = SAMPLE_SIZE // 2  # H = T/2 = 128 samples -> 50 % overlap
+WINDOW_SAMPLES = int(WINDOW_SIZE / 1000 * SAMPLE_RATE)  # T = 256 samples = 2000 ms
+HOP_SAMPLES = WINDOW_SAMPLES // 2  # H = T/2 = 128 samples -> 50 % overlap
 TRIM_SAMPLES = SAMPLE_RATE  # 1 s at each end (zero-phase filter transient)
 MIN_WINDOWS_WARN = 30  # below this, median/MAD baseline estimates get noisy
 
@@ -124,7 +124,7 @@ def tagging_cogbci(datarf: Loader.DataFileRef) -> list[str]:
     return [t for t in datarf.path.parts[:-2] if t not in DIR_MASK]
 
 
-def data_integrity_check(raw: mne.io.BaseRaw) -> mne.io.BaseRaw:
+def data_integrity_check(raw: mne.io.BaseRaw) -> None:
     if not np.isclose(raw.info["sfreq"], SAMPLE_RATE):
         raise ValueError(
             f"Pipeline produced {raw.info['sfreq']} Hz; expected {SAMPLE_RATE} Hz."
@@ -133,12 +133,41 @@ def data_integrity_check(raw: mne.io.BaseRaw) -> mne.io.BaseRaw:
     missing_channels = sorted(set(EEG_CHANNELS) - set(raw.ch_names))
     if missing_channels:
         raise ValueError(f"Recording is missing EEG channels: {missing_channels}.")
-    return raw
 
 
-def pick_channels(raw: mne.io.BaseRaw) -> mne.io.BaseRaw:
-    raw.pick(EEG_CHANNELS)
-    return raw
+def tile_baseline_windows(
+    continuous_uv: np.ndarray,
+    subject: str,
+    session: str,
+) -> np.ndarray:
+    """Tile a trimmed continuous run into ``(W_r, 62, 256)`` microvolt windows.
+
+    ``continuous_uv`` has shape ``(n_channels, n_times)`` in microvolts and
+    must already be trimmed by ``TRIM_SAMPLES`` at each end.  Windows start
+    every ``HOP_SAMPLES`` samples (50 % overlap); the last partial window is
+    discarded.  Raises with the offending recording's identity if the run is
+    too short or a window has the wrong shape.
+    """
+    n_times = continuous_uv.shape[-1]
+    if n_times < WINDOW_SAMPLES:
+        raise ValueError(
+            f"Recording {subject}/{session} has only {n_times} usable samples "
+            f"after the 1 s edge trim; need at least {WINDOW_SAMPLES}."
+        )
+
+    windows = [
+        continuous_uv[:, start : start + WINDOW_SAMPLES]
+        for start in range(0, n_times - WINDOW_SAMPLES + 1, HOP_SAMPLES)
+    ]
+    stacked = np.stack(windows).astype(np.float32)
+
+    expected = (len(EEG_CHANNELS), WINDOW_SAMPLES)
+    if stacked.shape[1:] != expected:
+        raise ValueError(
+            f"Recording {subject}/{session}: expected windows of shape "
+            f"{expected}, got {stacked.shape[1:]}."
+        )
+    return stacked
 
 
 # create a new loader
@@ -155,30 +184,48 @@ if not loader.query_cache:
     raise ValueError(f"No '{data_type}' recordings found under {DATA_DIR / 'COG-BCI'}.")
 
 # load the data into TaggedData
-loader.load(mode="eeglab")
+tagged_data_list: list[Loader.TaggedData] = loader.load(mode="eeglab")
 
-# run the pipeline
 pipeline = AttUPipeline()
-loader.run_pipe(pipeline)
+data_list: list[np.ndarray] = []
+metadata_list: list[tuple[str, str]] = []
 
-loader.run(data_integrity_check)
-loader.run(pick_channels)
+for tagged_data in tagged_data_list:
+    subject, session = tagged_data.tags
+    raw: mne.io.BaseRaw = tagged_data.raw
+    raw.load_data()
+    assert raw is not None
 
-meta_list, data_list = loader.slice_const_interval(
-    eegchannels=EEG_CHANNELS,
-    sample_size=SAMPLE_SIZE,
-    trim=(TRIM_SAMPLES, TRIM_SAMPLES),
-    hop=HOP_SAMPLES,
-    permutate=lambda array: array * 1e6,
+    pipeline.rundown(raw)
+    data_integrity_check(raw)
+    raw.pick(EEG_CHANNELS)
+
+    # continuous run in microvolts, 1 s trimmed at each end
+    continuous_uv = raw.get_data(picks=EEG_CHANNELS) * 1e6  # pyright: ignore
+    continuous_uv = continuous_uv[:, TRIM_SAMPLES:-TRIM_SAMPLES]
+
+    windows = tile_baseline_windows(continuous_uv, subject, session)
+    if len(windows) < MIN_WINDOWS_WARN:
+        print(
+            f"Warning: {subject}/{session} yields only {len(windows)} baseline "
+            f"windows (< {MIN_WINDOWS_WARN}); median/MAD estimates will be noisy."
+        )
+    data_list.append(windows)
+    metadata_list.append((subject, session))
+
+if len({(s, e) for s, e in metadata_list}) != len(metadata_list):
+    raise ValueError("Duplicate (subject, session) recordings in the query cache.")
+
+metadata = np.asarray(metadata_list, dtype=object)  # (R, 2)
+window_counts = [len(w) for w in data_list]
+print(
+    f"Built rest checkpoint: R={len(data_list)} recordings, "
+    f"windows per recording min={min(window_counts)} max={max(window_counts)} "
+    f"(~56 expected for ~60 s runs)."
 )
 
-# Here we can assume that tags are in the right format
-meta_list = [(tags[0], tags[1]) for tags in meta_list]
-
-metadata = np.asarray(meta_list, dtype=object)  # (W, 2), one row per window
-
 checkpoint = {
-    "data": data_list,  # list[W] of (62, 256) float64, microvolts, per window
+    "data": data_list,  # list[R] of (W_r, 62, 256) float32, microvolts
     "metadata": metadata,
     "channel_names": list(EEG_CHANNELS),
     "pipeline": type(pipeline).__name__,

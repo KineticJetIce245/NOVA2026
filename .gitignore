@@ -16,3 +16,4 @@ uv.toml
 __pycache__/
 *.pyc
 *.pyo
+dist/

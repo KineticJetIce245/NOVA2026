@@ -3,12 +3,32 @@ from pathlib import Path
 
 import mne
 import numpy as np
+import torch
 
 from nova2026.config import DATA_DIR, SAMPLE_SIZE
 from nova2026.data.pipeline import Pipeline, PipelineError
 
 
-def load(set_file: str | Path) -> mne.io.BaseRaw:
+def _gen_output_path(
+    data_type: str, pipeline_name: str, sample_rate: float, output_dir: Path
+) -> Path:
+    return output_dir / f"{data_type}_{sample_rate}Hz_{pipeline_name}.pt"
+
+
+def save_chkpt(chkpt, output_dir) -> None:
+    output_path: Path = _gen_output_path(
+        chkpt["data_type"], chkpt["pipeline"], chkpt["sample_rate_hz"], output_dir
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = output_path.with_suffix(output_path.suffix + ".tmp")
+    try:
+        torch.save(chkpt, temporary_path)
+        temporary_path.replace(output_path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+
+def load_eeg(set_file: str | Path) -> mne.io.BaseRaw:
     """Load an EEGLAB ``.set`` file into a raw MNE object.
 
     Args:
@@ -247,8 +267,8 @@ class Loader:
 
     def slice(
         self,
-        cuts: list[int],
-        eegchannels: list[str],
+        cuts_list: list[list[int]],
+        eeg_channels: list[str],
         sample_size: int = SAMPLE_SIZE,
         cut_at_start: bool = True,
         permutate: Callable[[np.ndarray], np.ndarray] | None = None,
@@ -256,8 +276,10 @@ class Loader:
         """Slicing the tagged data with given cuts.
 
         Args:
-            cuts (list[int]): List of cut indices.
-            eegchannels (list[str]): List of EEG channel names.
+            cuts_list (list[list[int]]): List of cut-index lists. ``cuts_list[i]``
+                gives the cut indices for ``self.tagged_data[i]``, so its length
+                must equal the number of tagged data.
+            eeg_channels (list[str]): List of EEG channel names.
             sample_size (int, optional): Size of each window. Defaults to
                 :data:`SAMPLE_SIZE`.
             permutate (Callable[[np.ndarray], np.ndarray] | None, optional):
@@ -277,8 +299,9 @@ class Loader:
 
         Raises:
             TypeError: If the EEG recording is not a numpy array.
-            ValueError: If there is no tagged data, ``cuts`` is empty, or a
-                cut index is out of bounds.
+            ValueError: If there is no tagged data, ``cuts_list`` length does
+                not match the tagged data, a cuts list is empty, or a cut
+                index is out of bounds.
         """
 
         if len(self.tagged_data) == 0:
@@ -287,8 +310,11 @@ class Loader:
         meta_list: list[list[str]] = []
         data_list: list[np.ndarray] = []
 
-        for tagged_data in self.tagged_data:
-            recording = tagged_data.raw.get_data(picks=eegchannels)
+        if len(self.tagged_data) != len(cuts_list):
+            raise ValueError("Number of cuts lists must match number of tagged data.")
+
+        for tagged_data, cuts in zip(self.tagged_data, cuts_list):
+            recording = tagged_data.raw.get_data(picks=eeg_channels)
             if not isinstance(recording, np.ndarray):
                 raise TypeError("EEG recording must be a numpy array.")
 
@@ -319,7 +345,7 @@ class Loader:
 
     def slice_const_interval(
         self,
-        eegchannels: list[str],
+        eeg_channels: list[str],
         sample_size: int = SAMPLE_SIZE,
         trim: tuple[int, int] | int = 0,
         hop: int = -1,
@@ -328,7 +354,7 @@ class Loader:
         """Slicing the tagged data with constant interval.
 
         Args:
-            eegchannels (list[str]): List of EEG channel names.
+            eeg_channels (list[str]): List of EEG channel names.
             sample_size (int, optional): Size of each window. Defaults to
                 :data:`SAMPLE_SIZE`.
             trim (tuple[int, int] | int, optional): Number of samples to trim
@@ -367,7 +393,7 @@ class Loader:
         meta_list: list[list[str]] = []
         data_list: list[np.ndarray] = []
         for tagged_data in self.tagged_data:
-            recording = tagged_data.raw.get_data(picks=eegchannels)
+            recording = tagged_data.raw.get_data(picks=eeg_channels)
             if not isinstance(recording, np.ndarray):
                 raise TypeError("EEG recording must be a numpy array")
 
