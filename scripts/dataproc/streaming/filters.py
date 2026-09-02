@@ -1,5 +1,7 @@
 from typing import Any, cast
 
+from abc import ABC, abstractmethod
+
 import numpy as np
 from scipy.signal import butter, iirnotch, sosfilt, sosfilt_zi, tf2sos
 
@@ -32,7 +34,13 @@ class FrequencyModeError(RuntimeError):
     pass
 
 
-class SOSFilterBuilder:
+class FilterBuilder(ABC):
+    sfreq: float
+    pipeline_freq: float
+    supported_freq_modes: tuple[str, ...]
+
+
+class SOSFilterBuilder(FilterBuilder):
     """Design ordered SOS filters for streaming or pipeline data.
 
     Args:
@@ -44,12 +52,13 @@ class SOSFilterBuilder:
         self,
         sfreq: float,
         pipeline_freq: float,
+        supported_freq_modes: tuple[str, ...] = SUPPORTED_FREQ_MODES,
     ) -> None:
         """Initialize the filter builder."""
 
         self.sfreq = sfreq
         self.pipeline_freq = pipeline_freq
-        self.supported_freq_modes = SUPPORTED_FREQ_MODES
+        self.supported_freq_modes = supported_freq_modes
 
     def _build_notch_filter(
         self,
@@ -109,9 +118,7 @@ class SOSFilterBuilder:
         bandpass_order = filter_parameters[2]
 
         if not np.isfinite(sfreq) or sfreq <= 2 * high_cutoff:
-            raise ValueError(
-                f"sfreq must exceed {2 * high_cutoff} Hz, got {sfreq}."
-            )
+            raise ValueError(f"sfreq must exceed {2 * high_cutoff} Hz, got {sfreq}.")
 
         bandpass_sos = butter(
             N=bandpass_order,
@@ -188,7 +195,19 @@ class SOSFilterBuilder:
         return tuple(filter_list)
 
 
-class StreamingSOSFilter:
+class StreamingFilter(ABC):
+    @abstractmethod
+    def __call__(self, data: np.ndarray) -> np.ndarray:
+        """Filter one data chunk."""
+        ...
+
+    @abstractmethod
+    def reset(self) -> None:
+        """Reset the filter's streaming state."""
+        ...
+
+
+class StreamingSOSFilter(StreamingFilter):
     """Apply one SOS filter continuously across incoming data chunks.
 
     Args:

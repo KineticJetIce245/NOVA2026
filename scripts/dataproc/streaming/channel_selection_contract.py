@@ -1,3 +1,6 @@
+import numpy as np
+
+
 class ChannelDimensionError(RuntimeError):
     pass
 
@@ -15,7 +18,7 @@ class ChannelSelectionContract:
         self.eeg_channel_names = eeg_channel_names
         self.expected_channel_names = expected_channel_names
 
-        self.selected_indices_contract: tuple[int, ...] | None = None
+        self.indices_contract: tuple[int, ...] | None = None
         self.dropped_channel_names: tuple[str, ...] = ()
         self.selected_channel_names: tuple[str, ...] = ()
 
@@ -83,15 +86,15 @@ class ChannelSelectionContract:
         identity_order = tuple(range(len(self.expected_channel_names)))
 
         if indices_contract_tuple == identity_order:
-            self.selected_indices_contract = None
+            self.indices_contract = None
         else:
-            self.selected_indices_contract = indices_contract_tuple
+            self.indices_contract = indices_contract_tuple
 
     def print_channel_selection_contract(self) -> None:
         print(
             f"EEG channel names: {self.eeg_channel_names}\n"
             f"Expected EEG channel names: {self.expected_channel_names}\n"
-            f"Indices contract: {self.selected_indices_contract}\n"
+            f"Indices contract: {self.indices_contract}\n"
             f"Selected channels: {self.selected_channel_names}\n"
             f"Dropped channels: {self.dropped_channel_names}"
         )
@@ -99,7 +102,12 @@ class ChannelSelectionContract:
     def get_contract(self) -> tuple[int, ...] | None:
         self._build_queue_indices()
         self.print_channel_selection_contract()
-        return self.get_selected_indices_contract()
+        return self.get_indices_contract()
 
-    def get_selected_indices_contract(self):
-        return self.selected_indices_contract
+    def get_indices_contract(self):
+        return self.indices_contract
+
+    def apply_contract(self, arr: np.ndarray, axis: int = 0) -> np.ndarray:
+        if self.indices_contract is None:
+            return arr.copy()
+        return np.take(arr, indices=self.indices_contract, axis=axis)

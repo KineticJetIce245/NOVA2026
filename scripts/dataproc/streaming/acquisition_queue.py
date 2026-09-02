@@ -4,6 +4,10 @@ from threading import Lock
 import numpy as np
 from mne import Info
 
+from scripts.dataproc.streaming.channel_selection_contract import (
+    ChannelSelectionContract,
+)
+
 
 TIMESTAMP_EPSILON = 1e-6  # 1 microsecond
 
@@ -75,7 +79,7 @@ class AcquisitionQueue:
         missed_sample_tolerance: int,
         max_allowed_lag: float,
         expected_channel_count: int,
-        indices_contract: tuple[int, ...] | None,
+        channel_selection_contract: ChannelSelectionContract,
     ) -> None:
         """Initialize the acquisition queue.
 
@@ -115,8 +119,8 @@ class AcquisitionQueue:
         self.prev_time: float | None = None
         self.callback_error: Exception | None = None
 
+        self.channel_selection_contract = channel_selection_contract
         self.acq_queue: Queue[tuple[np.ndarray, np.ndarray]] = Queue()
-        self.indices_contract = indices_contract
         self.lock: Lock = Lock()  # Protects shared timestamp and error state
 
     def callback(
@@ -154,10 +158,7 @@ class AcquisitionQueue:
         try:
             self._validate_chunks(data, timestamps)
 
-            if self.indices_contract is None:
-                queued_data = data.copy()
-            else:
-                queued_data = np.take(data, indices=self.indices_contract, axis=1)
+            queued_data = self.channel_selection_contract.apply_contract(data, axis=1)
 
             queue_item = (
                 queued_data,
