@@ -91,9 +91,13 @@ class SupervisedTrainer:
                 outputs = self.model(batch_data)
                 if permutate is not None:
                     outputs = permutate(outputs)
-                raw.extend(outputs.cpu().numpy())
-                targets.extend(batch_target.cpu().numpy())
-        return raw, targets
+                raw.append(outputs.cpu())
+                targets.append(batch_target)
+
+        return (
+            torch.cat(raw, dim=0).cpu().numpy(),
+            torch.cat(targets, dim=0).cpu().numpy(),
+        )
 
     def _evaluate_loss(self, loader: DataLoader) -> float:
         self._ensure()
@@ -165,7 +169,6 @@ class SupervisedTrainer:
             test_preds, test_targets = self._predict(
                 test_loader, permutates.get("test_output", lambda x: x)
             )
-
         return {
             "history": history,
             "best_val_loss": best_val_loss,

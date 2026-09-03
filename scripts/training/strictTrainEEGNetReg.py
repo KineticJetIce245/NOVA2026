@@ -2,6 +2,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from sklearn.metrics import accuracy_score, f1_score
 from torch.utils.data import DataLoader, TensorDataset
 
 from nova2026.architecture.cnn import EEGNet
@@ -22,30 +23,54 @@ SEED = 0
 
 # model hyperparameters
 # criterion = torch.nn.CrossEntropyLoss()
-criterion = FocalLoss(gamma=3.0, alpha=[1, 3.5], reduction="mean")
+criterion = FocalLoss(gamma=3.0, alpha=[1, 1], reduction="mean")
 permutates = {
     "epoch": lambda d: print(
-        f"At epoch {d['epoch']}, train_loss={d['train_loss']:.4f}, val_loss={d['best_val_loss']:.4f}"
+        f"At epoch {d['epoch']}, train_loss={d['train_loss']:.4f}, best_so_far={d['best_so_far']:.4f}"
     ),
-    "test_output": None,
+    "test_output": lambda logits: torch.argmax(logits, dim=1),
 }
 
 
-def regularizer(model, max_value: float = 1.0, eps: float = 1e-8) -> None:
+def regularizer(model, eps: float = 1e-8) -> None:
     """Apply the max-norm constraint to a parameter."""
     param_dept = model.depthwise_conv.weight
     param_sep = model.sep_pointwise_conv.weight
     with torch.no_grad():
         norm_dept = param_dept.norm(2)
         norm_sep = param_sep.norm(2)
-        if norm_dept > max_value:
-            param_dept.mul_(max_value / (norm_dept + eps))
-        if norm_sep > max_value:
-            param_sep.mul_(max_value / (norm_sep + eps))
+        if norm_dept > 1.0:
+            param_dept.mul_(1.0 / (norm_dept + eps))
+        if norm_sep > 0.25:
+            param_sep.mul_(0.25 / (norm_sep + eps))
 
 
-def label_trials(data_chkpt: dict) -> np.ndarray:
-    return np.array([0 if t < 500 else 1 for t in data_chkpt["rt"]])
+def label_trials(data_chkpt: dict, seed: int, neg_cap: NEG_CAP) -> np.ndarray:
+    meta_list = data_chkpt["metadata"]
+    meta_set = {}
+    sub_set = {}
+    for i, tags in enumerate(meta_list):
+        # dict: (sub, ses) -> [trial.n]
+        meta_set.setdefault((tags[0], tags[1]), []).append(i)
+        sub_set.setdefault(tags[0], []).append(i)  # dict: sub -> [trial.n]
+
+    labels = [-1] * len(meta_list)  # -1 trials are not going to be used
+
+    # label positive trials
+    for idx_list in meta_set.values():
+        idx_list.sort(key=lambda i: data_chkpt["rt"][i])
+        num = 10 * len(idx_list) // 100
+        pos = idx_list[-num:] if num > 0 else []
+        for idx in pos:
+            labels[idx] = 1
+
+    # select negative trials (underfitting)
+    for idx_list in sub_set.values():
+        neg_list = [i for i in idx_list if labels[i] != 1]
+        rng = np.random.default_rng(seed)
+        neg_list = rng.choice(subs_not_test, size=n_vals, replace=False)
+
+    return np.array(labels)
 
 
 def organizer(
@@ -58,6 +83,7 @@ def organizer(
     print(f"Omitting subject {test_sub} from training data.")
     chkpt = {}
     labels = label_trials(data_chkpt)
+    label_mask = labels != -1
     data = np.asarray(data_chkpt["data"])
     subs_meta = np.asarray([tags[0] for tags in data_chkpt["metadata"]])
 
@@ -65,8 +91,8 @@ def organizer(
     test_mask = subs_meta == test_sub
     chkpt["test"] = DataLoader(
         TensorDataset(
-            torch.tensor(data[test_mask], dtype=torch.float32),
-            torch.tensor(labels[test_mask], dtype=torch.long),
+            torch.tensor(data[test_mask & label_mask], dtype=torch.float32),
+            torch.tensor(labels[test_mask & label_mask], dtype=torch.long),
         ),
         batch_size=BATCH_SIZE,
         shuffle=False,
@@ -87,8 +113,8 @@ def organizer(
     # train DataLoader
     chkpt["train"] = DataLoader(
         TensorDataset(
-            torch.tensor(data[train_mask], dtype=torch.float32),
-            torch.tensor(labels[train_mask], dtype=torch.long),
+            torch.tensor(data[train_mask & label_mask], dtype=torch.float32),
+            torch.tensor(labels[train_mask & label_mask], dtype=torch.long),
         ),
         batch_size=BATCH_SIZE,
         shuffle=True,
@@ -97,8 +123,8 @@ def organizer(
     # val DataLoader
     chkpt["val"] = DataLoader(
         TensorDataset(
-            torch.tensor(data[val_mask], dtype=torch.float32),
-            torch.tensor(labels[val_mask], dtype=torch.long),
+            torch.tensor(data[val_mask & label_mask], dtype=torch.float32),
+            torch.tensor(labels[val_mask & label_mask], dtype=torch.long),
         ),
         batch_size=BATCH_SIZE,
         shuffle=False,
@@ -126,5 +152,10 @@ for i, sub in enumerate(subs):  # main LOSO loop
         f"=== Fold test_sub={sub} | "
         f"train {len(d['train'].dataset)} | test {len(d['test'].dataset)} | val {len(d['val'].dataset)} ==="
     )
-    trainer.train(EPOCHS, permutates)
+    result = trainer.train(EPOCHS, permutates)
     print(f"Completed training for subject {sub}.")
+    preds = np.asarray(result["test_preds"])
+    targets = np.asarray(result["test_targets"])
+    acc = accuracy_score(targets, preds)
+    f1 = f1_score(targets, preds, average="binary", pos_label=1)
+    print(f"Test accuracy: {acc:.4f} | F1: {f1:.4f}")
