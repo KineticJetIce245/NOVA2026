@@ -1,10 +1,10 @@
+"""Design filter coefficients independently of streaming state."""
+
+from abc import ABC
 from typing import Any, cast
 
-from abc import ABC, abstractmethod
-
 import numpy as np
-from scipy.signal import butter, iirnotch, sosfilt, sosfilt_zi, tf2sos
-
+from scipy.signal import butter, iirnotch, tf2sos
 
 EXPECTED_NB_CHANNELS = 64
 BANDPASS_ORDER = 3
@@ -19,22 +19,18 @@ SUPPORTED_FREQ_MODES = ("sfreq", "pipeline")
 class FilterListMismatchError(RuntimeError):
     """Raised when the filter and parameter lists have different lengths."""
 
-    pass
-
 
 class FilterNotFoundError(RuntimeError):
     """Raised when an unsupported filter is requested."""
-
-    pass
 
 
 class FrequencyModeError(RuntimeError):
     """Raised when an unsupported frequency mode is requested."""
 
-    pass
-
 
 class FilterBuilder(ABC):
+    """Describe the sampling rates available to coefficient builders."""
+
     sfreq: float
     pipeline_freq: float
     supported_freq_modes: tuple[str, ...]
@@ -193,71 +189,3 @@ class SOSFilterBuilder(FilterBuilder):
             filter_list.append(designed_filter)
 
         return tuple(filter_list)
-
-
-class StreamingFilter(ABC):
-    @abstractmethod
-    def __call__(self, data: np.ndarray) -> np.ndarray:
-        """Filter one data chunk."""
-        ...
-
-    @abstractmethod
-    def reset(self) -> None:
-        """Reset the filter's streaming state."""
-        ...
-
-
-class StreamingSOSFilter(StreamingFilter):
-    """Apply one SOS filter continuously across incoming data chunks.
-
-    Args:
-        sos: Second-order-section filter coefficients.
-        n_channels: Expected number of data channels.
-    """
-
-    def __init__(
-        self,
-        sos: np.ndarray,
-        n_channels: int,
-    ) -> None:
-        """Initialize the streaming filter."""
-
-        self.sos = sos
-        self.n_channels = n_channels
-        self.zi: np.ndarray | None = None
-
-    def __call__(self, data: np.ndarray) -> np.ndarray:
-        """Filter one data chunk while preserving state across calls.
-
-        Args:
-            data: Data shaped as samples by channels.
-
-        Returns:
-            The filtered data with the same shape as the input.
-        """
-
-        if data.ndim != 2:
-            raise ValueError("Expected data shaped (samples, channels).")
-
-        if data.shape[1] != self.n_channels:
-            raise ValueError(
-                f"Expected {self.n_channels} channels, got {data.shape[1]}."
-            )
-
-        if self.zi is None:
-            initial_state = sosfilt_zi(self.sos)[:, :, None]
-            self.zi = initial_state * data[0][None, None, :]
-
-        filtered_data, self.zi = sosfilt(
-            self.sos,
-            data,
-            axis=0,
-            zi=self.zi,
-        )
-
-        return filtered_data
-
-    def reset(self) -> None:
-        """Clear the saved filter state."""
-
-        self.zi = None

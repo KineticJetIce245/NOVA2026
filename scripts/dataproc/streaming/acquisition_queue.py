@@ -1,13 +1,10 @@
-from queue import Empty, Queue
+from queue import Empty, Full, Queue
 from threading import Lock
 
 import numpy as np
 from mne import Info
 
-from scripts.dataproc.streaming.channel_selection_contract import (
-    ChannelSelectionContract,
-)
-
+from .channel_selection_contract import ChannelSelectionContract
 
 TIMESTAMP_EPSILON = 1e-6  # 1 microsecond
 
@@ -15,29 +12,21 @@ TIMESTAMP_EPSILON = 1e-6  # 1 microsecond
 class StreamDiscontinuityError(RuntimeError):
     """Raised when incoming stream timestamps are discontinuous."""
 
-    pass
-
 
 class StreamDataValidityError(RuntimeError):
     """Raised when an incoming stream chunk has an invalid structure."""
-
-    pass
 
 
 class StreamDataLagError(RuntimeError):
     """Raised when processing falls too far behind data acquisition."""
 
-    pass
-
 
 class StreamDataValueError(RuntimeError):
     """Raised when incoming EEG data contains invalid numerical values."""
 
-    pass
-
 
 class AcquisitionQueue:
-    """Transfer validated EEG chunks from acquisition to processing.
+    """Transfer copied EEG chunks from acquisition to processing.
 
     Incoming chunks are received through :meth:`callback`, validated, copied,
     and stored in a thread-safe FIFO queue. The processing thread retrieves
@@ -52,6 +41,13 @@ class AcquisitionQueue:
             the most recently enqueued and dequeued samples.
         expected_channel_count (int): Expected number of channels in every
             incoming chunk.
+        channel_selection_contract: Validated inlet-to-canonical channel order.
+        max_chunks: Maximum number of queued chunks; overflow stops the run.
+        timestamp_tolerance: Permitted timestamp jitter in seconds, less than
+            half an input sample when strict signal validation is enabled.
+        validate_signal: Validate numeric values and timing here by default.
+            Streamer disables this so RunProcessor can record and recover brief
+            faults. Shape checks and queue limits are always enforced.
 
     Attributes:
         sfreq (float): Expected sampling frequency in Hz.
@@ -80,6 +76,9 @@ class AcquisitionQueue:
         max_allowed_lag: float,
         expected_channel_count: int,
         channel_selection_contract: ChannelSelectionContract,
+        max_chunks: int = 128,
+        timestamp_tolerance: float = TIMESTAMP_EPSILON,
+        validate_signal: bool = True,
     ) -> None:
         """Initialize the acquisition queue.
 
@@ -91,6 +90,10 @@ class AcquisitionQueue:
                 seconds.
             expected_channel_count (int): Expected number of channels in each
                 incoming chunk.
+            channel_selection_contract: Canonical channel ordering contract.
+            max_chunks: Maximum queue capacity in chunks.
+            timestamp_tolerance: Permitted timing jitter in seconds.
+            validate_signal: Enable strict numeric, timing, and backlog checks.
 
         Raises:
             ValueError: If ``sfreq``, ``max_allowed_lag``, or
@@ -110,6 +113,12 @@ class AcquisitionQueue:
         if expected_channel_count <= 0:
             raise ValueError("expected_channel_count must be positive.")
 
+        if max_chunks <= 0:
+            raise ValueError("max_chunks must be positive.")
+
+        if not 0 <= timestamp_tolerance < 0.5 / sfreq:
+            raise ValueError("timestamp_tolerance must be less than half a sample.")
+
         self.sfreq: float = sfreq
         self.missed_sample_tolerance: int = missed_sample_tolerance
         self.max_allowed_lag: float = max_allowed_lag
@@ -120,14 +129,18 @@ class AcquisitionQueue:
         self.callback_error: Exception | None = None
 
         self.channel_selection_contract = channel_selection_contract
-        self.acq_queue: Queue[tuple[np.ndarray, np.ndarray]] = Queue()
+        self.acq_queue: Queue[tuple[np.ndarray, np.ndarray]] = Queue(maxsize=max_chunks)
+        self.timestamp_tolerance = timestamp_tolerance
+        self.validate_signal = validate_signal
+        self.max_observed_lag = 0.0
+        self.max_observed_size = 0
         self.lock: Lock = Lock()  # Protects shared timestamp and error state
 
     def callback(
         self,
         data: np.ndarray,
         timestamps: np.ndarray,
-        _: Info,
+        _: Info | None,
     ) -> tuple[np.ndarray, np.ndarray]:
         """Validate and enqueue a newly acquired EEG chunk.
 
@@ -141,16 +154,17 @@ class AcquisitionQueue:
                 ``(n_samples, n_channels)``.
             timestamps (np.ndarray): Sample timestamps with shape
                 ``(n_samples,)``.
-            info (Info): MNE metadata describing the connected stream.
+            _ (Info | None): Unused metadata from the MNE-LSL callback interface.
 
         Returns:
             tuple[np.ndarray, np.ndarray]: The original data and timestamp
                 arrays required by the MNE-LSL callback interface.
         """
+
         # data: (n_samples, n_channels)
         # timestamps: (n_times,)
 
-        # TODO: check if with throws an error or correctly waits for the thread to finish & how self.lock works
+        # Hold the lock only while reading or updating shared state.
         with self.lock:
             if self.callback_error is not None:
                 return data, timestamps
@@ -167,18 +181,26 @@ class AcquisitionQueue:
 
             with self.lock:
                 self.acq_queue.put_nowait(queue_item)
-                self.last_enqueued_time = float(timestamps[-1])
+                if np.isfinite(timestamps[-1]):
+                    self.last_enqueued_time = float(timestamps[-1])
+                self.max_observed_size = max(
+                    self.max_observed_size, self.acq_queue.qsize()
+                )
 
-        except Exception as error:
-            self._store_callback_error(error)
+        except Full:
+            self.store_error(
+                StreamDataLagError("The bounded acquisition queue is full.")
+            )
+        except Exception as error:  # noqa: BLE001 - transport the original callback error
+            self.store_error(error)
 
         return data, timestamps
 
-    def _store_callback_error(
+    def store_error(
         self,
         error: Exception,
     ) -> None:
-        """Store the first error raised on the acquisition thread.
+        """Store the first error raised on the acquisition thread or its callback.
 
         Subsequent callback errors do not replace the first stored error.
 
@@ -191,7 +213,7 @@ class AcquisitionQueue:
             if self.callback_error is None:
                 self.callback_error = error
 
-    def _raise_callback_error(self) -> None:
+    def raise_error(self) -> None:
         """Raise an error previously stored by the acquisition callback.
 
         Raises:
@@ -239,7 +261,12 @@ class AcquisitionQueue:
 
         maximum_interval = (
             self.missed_sample_tolerance + 1
-        ) * expected_interval + TIMESTAMP_EPSILON
+        ) * expected_interval + self.timestamp_tolerance
+
+        if np.any(timestamp_intervals < expected_interval - self.timestamp_tolerance):
+            raise StreamDiscontinuityError(
+                "Samples are closer than the configured rate."
+            )
 
         if np.any(timestamp_intervals > maximum_interval):
             raise StreamDiscontinuityError("Missing samples detected inside the chunk.")
@@ -249,6 +276,10 @@ class AcquisitionQueue:
 
             if boundary_interval <= 0:
                 raise StreamDiscontinuityError("Overlapping chunks detected.")
+            if boundary_interval < expected_interval - self.timestamp_tolerance:
+                raise StreamDiscontinuityError(
+                    "Chunk timing does not match the source rate."
+                )
 
             if boundary_interval > maximum_interval:
                 raise StreamDiscontinuityError(
@@ -325,8 +356,9 @@ class AcquisitionQueue:
         if data.shape[0] <= 0:
             raise StreamDataValidityError("The received chunk contained no samples.")
 
-        self._check_chunk_values(data)
-        self._check_timestamp_continuity(timestamps)
+        if self.validate_signal:
+            self._check_chunk_values(data)
+            self._check_timestamp_continuity(timestamps)
 
     def _validate_consumer_lag(
         self,
@@ -357,6 +389,7 @@ class AcquisitionQueue:
         last_dequeued_time = float(timestamps[-1])
 
         lag = last_enqueued_time - last_dequeued_time
+        self.max_observed_lag = max(self.max_observed_lag, lag)
 
         if lag > self.max_allowed_lag:
             raise StreamDataLagError(
@@ -389,16 +422,28 @@ class AcquisitionQueue:
             StreamDataLagError: If processing is too far behind acquisition.
         """
 
-        self._raise_callback_error()
+        self.raise_error()
 
         try:
             data, timestamps = self.acq_queue.get(timeout=timeout)
 
         except Empty:
-            self._raise_callback_error()
+            self.raise_error()
             raise
 
-        self._raise_callback_error()
-        self._validate_consumer_lag(timestamps)
+        self.raise_error()
+
+        if self.validate_signal:
+            self._validate_consumer_lag(timestamps)
 
         return data, timestamps
+
+    def drain(self) -> list[tuple[np.ndarray, np.ndarray]]:
+        """Drain copied chunks after the worker stops, for complete recording."""
+
+        items = []
+        while True:
+            try:
+                items.append(self.acq_queue.get_nowait())
+            except Empty:
+                return items
