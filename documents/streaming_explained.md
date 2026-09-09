@@ -97,8 +97,8 @@ ASCII pipeline (time flows top to bottom for one run):
    CircularBuffer.push()          --> 0..N finished windows
         |
         v
-   StreamSession.gate()           --> drop warm-up windows and windows with
-        |                            quality faults
+   StreamSession.wrap()           --> EEGWindow with its verdict
+        |                            (data/eog split, warm-up + quality reasons)
         v
    Consumer: print, model, ...    --> runs in the loop, or on TaskOffloader
         |                            worker threads
@@ -112,7 +112,7 @@ The runtime ordering of one run:
 parse args  ->  start fake source  ->  connect inlet
            ->  define preprocessing chain (in the script!)
            ->  StreamSession(...)     [builds contract/recorder/acquire/buffer]
-           ->  while running:  read -> ingest -> process -> push -> gate -> consume
+           ->  while running:  read -> ingest -> process -> push -> wrap -> consume
            ->  finally:        close acquire, disconnect, close recorder
 ```
 
@@ -136,7 +136,7 @@ Run it from the repository root:
 The file has three layers: a docstring (the help text), helper functions, and
 `main()`. `main()` is numbered 1-8 in comments; we follow those numbers.
 
-### The docstring (lines 1-26)
+### The docstring
 
 Everything between the first `"""` and its closing `"""` is the **module
 docstring**. Python stores it in `__doc__`, and argparse prints it when you run
@@ -145,7 +145,7 @@ of truth. It shows the exact command, the pipeline, and how to compare
 "analysis in the loop" (`--workers 0`) with "offloaded to worker threads"
 (`--workers 2`).
 
-### Imports (lines 28-48)
+### Imports
 
 - `from time import monotonic, sleep` — `monotonic()` is a clock that only
   moves forward (for timing the loop and lag); `sleep()` simulates a slow
@@ -164,12 +164,12 @@ of truth. It shows the exact command, the pipeline, and how to compare
   unit_scaler` — the preprocessing parts, imported here on purpose: the demo
   wants you to *see* the chain being defined.
 
-### Constants (lines 53-56)
+### Constants
 
 - `CHANNELS` — the 8 channel names our fake device publishes, in column order.
 - `SOURCE_UNIT_EXPONENT = 0` — the source sends volts (`10^0`), not µV.
 
-### `synthetic_recording(seconds, sfreq)` (lines 59-74)
+### `synthetic_recording(seconds, sfreq)`
 
 Builds the fake data. One clean 10 Hz sine wave per channel; each channel has a
 slightly different amplitude (`(10 + index)` µV, i.e. 10..17 µV), so the
@@ -177,7 +177,7 @@ statistics printed later are easy to eyeball. Returns an `mne.io.RawArray`
 holding volts. In real life you would delete this function and point
 `PlayerLSL` (or the inlet) at the real amplifier.
 
-### `main()` — step 1, start the fake source (lines 82-95)
+### `main()` — step 1, start the fake source
 
 - `args = parse_args(description=__doc__)` — the bootstrap argument getter
   defines all command-line options (rates, window sizes, filter settings,
@@ -189,7 +189,7 @@ holding volts. In real life you would delete this function and point
   in chunks of `--chunk-size` (37 by default — deliberately uneven).
 - `--workers < 0` is rejected early.
 
-### Step 2, connect the inlet (lines 101-106)
+### Step 2, connect the inlet
 
 ```python
 stream = StreamLSL(bufsize=4.0, name=name)
@@ -200,7 +200,7 @@ stream.connect(acquisition_delay=None, processing_flags=["clocksync"], timeout=1
 `clocksync` = synchronize the device clock with ours. `bufsize=4.0` = the
 inlet keeps up to 4 seconds of buffered data.
 
-### Step 3a, define the preprocessing chain explicitly (lines 112-120)
+### Step 3a, define the preprocessing chain explicitly
 
 This is the heart of "the script owns the pipeline":
 
@@ -216,7 +216,7 @@ Every stage, its parameters, and its order are visible and editable here.
 `design_notch`/`design_bandpass` compute filter coefficients; `SosFilter`
 applies one filter continuously (it remembers its state between blocks).
 
-### Step 3b, assemble the rest via `StreamSession` (lines 126-137)
+### Step 3b, assemble the rest via `StreamSession`
 
 ```python
 session = StreamSession(stream, args, CHANNELS,
@@ -230,27 +230,27 @@ the `CircularBuffer`. It does **not** define the preprocessing; it only
 guarantees the order in which it will run them. If the source sent channels we
 do not want, the contract prints them here as "dropping ...".
 
-### Step 4, print the configuration (lines 142-152)
+### Step 4, print the configuration
 
 One block of `print()` that shows what will happen: source rate, chain
 settings, resampler target, window/hop/capacity in *samples at the output
 rate*, consumer mode, and the recording destination. Printing the plan makes
 every run self-explanatory.
 
-### Step 5, consumer state and helpers (lines 157-182)
+### Step 5, consumer state and helpers
 
 - `started = monotonic()` — the wall clock used to stop after `--duration`.
 - `valid_windows` / `rejected_windows` — counters for the final summary.
-- `report(window, start)` — prints one line per window: the peak-to-peak
-  amplitude (max - min, in µV) of each channel. This is our stand-in for
-  "a model".
-- `analyze(item)` — unpacks a submitted `(window, start)`, optionally
-  `sleep()`s to pretend analysis is slow, then reports.
+- `report(eeg_window)` — prints one line per window: the peak-to-peak
+  amplitude (max - min, in µV) of the window's EEG data. This is our
+  stand-in for "a model".
+- `analyze(item)` — receives an `EEGWindow`, optionally `sleep()`s to pretend
+  analysis is slow, then reports.
 - `offloader = TaskOffloader(analyze, workers=..., capacity=...)` — created
   *once*, only when `--workers > 0`. It is a bounded queue plus worker
-  threads; workers pick up `(window, start)` tasks and run `analyze`.
+  threads; workers pick up `EEGWindow` tasks and run `analyze`.
 
-### Step 6, the real-time loop (lines 188-212)
+### Step 6, the real-time loop
 
 ```text
 while monotonic() - started < args.duration:      # until time is up
@@ -258,18 +258,18 @@ while monotonic() - started < args.duration:      # until time is up
     (b) data, ts = session.ingest(data, ts)       # reorder + record raw
     (c) data, ts = session.process(data, ts)      # uV/quality/filters/resample
     (d) for window, w_times, start in session.buffer.push(data, ts):
-        (e) accepted, reasons = session.gate(start, w_times)
-            if not accepted: count & skip          # warm-up or bad quality
-        (f) analyze(window, start)                # or offloader.submit(...)
+        (e) eeg_window = session.wrap(window, w_times, start)  # -> EEGWindow
+            if not eeg_window.valid: count & skip  # warm-up or bad quality
+        (f) analyze(eeg_window)                    # or offloader.submit(...)
 ```
 
 Every iteration is one acquired block. `push()` returns the list of windows
-*completed by this block* — often empty, sometimes several. The gate decides
-which windows deserve the consumer: windows whose `start` is still inside the
-warm-up period, or that overlap a recorded quality fault, are rejected and
-counted.
+*completed by this block* — often empty, sometimes several. `wrap()` packages
+each window into an `EEGWindow` that carries its own verdict (`valid` +
+`reasons`, see `window.py`): warm-up windows and windows overlapping a
+recorded quality fault come out `valid=False` and are skipped.
 
-### Step 7, shutdown (lines 217-233)
+### Step 7, shutdown
 
 The `finally:` block always runs, whether the loop ended normally, the user
 pressed Ctrl+C (`KeyboardInterrupt`), or the lag guard raised `RuntimeError`.
@@ -281,7 +281,7 @@ Order matters:
 4. `offloader.close(drain=True)` — let queued analysis finish;
 5. `session.close(status="completed")` — locks the run, exports the `.fif`.
 
-### Step 8, summaries (lines 239-256)
+### Step 8, summaries
 
 Prints acquisition statistics (`input_samples`, `max_lag`, `gaps`), how many
 samples the resampler emitted, how many windows were valid/rejected, and the
@@ -289,7 +289,7 @@ offloader counters. `max_lag` is the oldest age of any consumed block — if it
 ever exceeds 3 s the lag guard stops the run instead of silently analysing
 stale data.
 
-### Entry point (lines 262-263)
+### Entry point
 
 ```python
 if __name__ == "__main__":
@@ -313,6 +313,7 @@ src/nova2026/streaming/
   circular_buffer.py         # CircularBuffer   - ring storage -> windows
   offload.py                 # TaskOffloader    - run analysis on workers
   recording.py               # RunSpec/RunRecorder + read-back helpers
+  window.py                  # EEGWindow        - window + verdict for consumers
   preprocess/
     __init__.py              # re-exports the preprocessing pieces
     units.py                 # unit_scaler      (stateless)
@@ -324,6 +325,11 @@ src/nova2026/streaming/
     args.py                  # make_parser / parse_args (argument getter)
     session.py               # StreamSession    (run-once assembly)
 ```
+
+Companion scripts and tests live next to the package: `scripts/streaming_demo.py`
+(the runnable walkthrough), `scripts/benchmark_streaming.py` (per-stage
+micro-benchmark), and `tests/streaming/test_*.py` (unit + end-to-end tests,
+106 in total).
 
 Rule of thumb used everywhere: **stateless -> function, stateful -> class**.
 Classes hold their own state, validate arguments in the constructor, expose a
@@ -439,7 +445,7 @@ timestamp pushed. Pure storage only: no units, filters or validity decisions.
 ```python
 windows = buffer.push(data, timestamps)
 for window, window_times, start in windows:
-    ...  # e.g. session.gate(start, window_times)
+    ...  # e.g. eeg_window = session.wrap(window, window_times, start)
 ```
 
 ---
@@ -478,7 +484,7 @@ up; the only question is what you drop.
 
 ```python
 offloader = TaskOffloader(analyze_window, workers=2, capacity=8)
-offloader.submit((window, start))       # non-blocking
+offloader.submit(eeg_window)            # non-blocking; EEGWindow is a copy
 ...
 offloader.raise_error()                 # surface worker failures
 offloader.close(drain=True, timeout=5.0)
@@ -486,7 +492,40 @@ offloader.close(drain=True, timeout=5.0)
 
 ---
 
-### 5.6 `recording.py` — `RunSpec`, `RunRecorder` and read-back helpers
+### 5.6 `window.py` — `EEGWindow`
+
+**Problem.** A window leaves the ring buffer as a raw tuple
+`(data, window_times, start_sample)`. Whoever consumes it (a model, a
+recorder) would have to re-derive "may I use this window and why?". Bundle
+the data with that verdict once, at the buffer boundary.
+
+**Why a class.** It is a value object with fixed semantics: validated shapes,
+EEG/EOG split, and a verdict (`valid`/`reasons`) that travels with the data.
+
+**Public surface.**
+
+| Member | Purpose |
+| --- | --- |
+| `EEGWindow(data, eog, timestamps, valid, reasons, start_sample, segment=0, artifact_id=None, channel_names=(), contract=None, available_at=None)` | One window. Arrays are **copied** on construction, so the object is safe to hand to worker threads. |
+| `len(window)` | Number of samples. |
+| `.data`, `.eog` | µV samples: EEG columns and auxiliary columns separately. |
+| `.valid`, `.reasons` | Verdict: valid windows have empty reasons. |
+| `.timestamps`, `.start_sample`, `.segment`, `.channel_names`, `.contract`, `.available_at` | Provenance for models and recording. |
+
+**Expected usage** — never constructed by hand in a script;
+`StreamSession.wrap()` builds it:
+
+```python
+eeg_window = session.wrap(window, window_times, start)   # gates + splits
+if eeg_window.valid:
+    model(eeg_window.data)
+else:
+    log(eeg_window.reasons)
+```
+
+---
+
+### 5.7 `recording.py` — `RunSpec`, `RunRecorder` and read-back helpers
 
 **Problem.** Keep the raw data (before any filtering) so that a run can be
 re-analysed later, survives a crash, and carries enough context (who, when,
@@ -528,7 +567,7 @@ rec.close(status="completed")
 
 ---
 
-### 5.7 `preprocess/` — the preprocessing package
+### 5.8 `preprocess/` — the preprocessing package
 
 Shared contract for transform stages:
 `stage(data, timestamps) -> (data, timestamps)`, called once per block,
@@ -570,7 +609,7 @@ filtering, so filters cannot hide a stuck electrode. Reports faults by
 `feed(data_uv, timestamps)` (observer, per block); `reasons(start, end) ->
 tuple[str, ...]` (ask about a finished window); `reset()`.
 
-**Expected usage** (wired by `StreamSession` as `session.quality`; the gate
+**Expected usage** (wired by `StreamSession` as `session.quality`; `wrap`
 uses `reasons`): feed every block after scaling and before filters; when a
 window is finished, ask `reasons(window_start_time, window_end_time)`.
 
@@ -593,7 +632,7 @@ public `in_sfreq`, `out_sfreq`.
 
 ---
 
-### 5.8 `bootstrap/` — start-up helpers so scripts stay small
+### 5.9 `bootstrap/` — start-up helpers so scripts stay small
 
 #### `bootstrap/args.py` — the argument getter
 
@@ -624,12 +663,12 @@ Constructor:
 ```python
 StreamSession(stream, args, channels, *,
               scale=None, quality=None, filters=(), resample=None,
-              source_unit_exponent=0, role="run", ch_types=None)
+              source_unit_exponent=0, role="run", ch_types=None, n_eeg=None)
 ```
 
 Attributes: `contract`, `recorder`, `acquire`, `buffer`, `scale`, `quality`,
-`filters`, `resample`, `n_channels`, `out_sfreq`, `window_samples`,
-`hop_samples`, `capacity_samples`, `warmup_samples`.
+`filters`, `resample`, `eeg_count`, `n_channels`, `out_sfreq`,
+`window_samples`, `hop_samples`, `capacity_samples`, `warmup_samples`.
 
 Methods:
 
@@ -637,7 +676,7 @@ Methods:
 | --- | --- |
 | `ingest(data, ts)` | Contract reorder + write raw block to the recorder (if any). |
 | `process(data, ts)` | Run the chain in the fixed order: scale -> quality.feed -> each filter -> resample. |
-| `gate(start_sample, window_times) -> (accepted, reasons)` | Warm-up + quality gating for one finished window. |
+| `wrap(window, window_times, start) -> EEGWindow` | Package one window with its verdict (warm-up + quality) and split EEG/EOG. |
 | `close(status, error)` | Finalize the recorder (lock run + export FIF). |
 
 What it does NOT do: connect the stream, start threads, consume windows, or
@@ -656,8 +695,9 @@ while running:
     data, ts = session.ingest(data, ts)
     data, ts = session.process(data, ts)
     for w, w_ts, start in session.buffer.push(data, ts):
-        if session.gate(start, w_ts)[0]:
-            consume(w, start)
+        eeg_window = session.wrap(w, w_ts, start)   # verdict included
+        if eeg_window.valid:
+            consume(eeg_window)
 session.close()
 ```
 
@@ -682,7 +722,7 @@ BLOCK level (inside the loop):
   ingest()    -> reorder; recorder.write(raw)    # raw volts are kept
   process()   -> uV; quality.feed; filters; resample
   buffer.push() -> list of windows completed by this block
-  per window: gate(start, w_ts) -> consume or reject
+  per window: wrap(w, w_ts, start) -> EEGWindow; consume or reject by .valid
 ```
 
 Invariants to respect when writing a new script:
@@ -699,21 +739,31 @@ Invariants to respect when writing a new script:
 
 ---
 
-## 7. Where will `EEGWindow` live (next step)?
+## 7. Where `EEGWindow` lives (implemented)
 
-Today `CircularBuffer.push()` returns plain tuples
-`(window, window_times, start_sample)` and the script performs gating by hand
-with `session.gate`. The old dataproc code packaged one window together with
-its verdict: data, µV EEG vs EOG, timestamps, `valid`, rejection `reasons`,
-`start_sample`, `segment`, `channel_names`, `contract`, ...
+`CircularBuffer.push()` still returns plain tuples
+`(window, window_times, start_sample)` — the buffer stays pure storage.
+Between the buffer and the consumer, `StreamSession.wrap()` packages each
+tuple into an `EEGWindow` (defined in `src/nova2026/streaming/window.py`, at
+the top level of the package: it is about the consumer boundary, not
+preprocessing). The class bundles the data with its verdict:
 
-When we add that layer it will be a small value class, naturally placed at
-`src/nova2026/streaming/window.py` (top level of the package — it is about the
-consumer boundary, not preprocessing), produced between the buffer and the
-consumer (by `StreamSession` or a tiny assembler). `session.gate` would then
-*create* an `EEGWindow` instead of returning `(accepted, reasons)`, so the
-consumer receives one object that already knows whether it may be used and
-why.
+- µV EEG columns (`data`) and auxiliary columns (`eog`) split apart;
+- `valid` plus rejection `reasons` (warm-up, quality faults);
+- provenance: `start_sample`, `segment`, `channel_names`, `timestamps`,
+  optional `contract` and `available_at`.
+
+Arrays are copied on construction, so an `EEGWindow` can be handed straight to
+`TaskOffloader` workers without ever being corrupted by later ring writes.
+Consumers only need to check `window.valid` once.
+
+```python
+eeg_window = session.wrap(window, window_times, start)
+if eeg_window.valid:
+    model(eeg_window.data)
+else:
+    reject(eeg_window.reasons)
+```
 
 ---
 
@@ -727,13 +777,18 @@ python -B -m scripts.streaming_demo --duration 8 --record records
 python -B -m scripts.streaming_demo --duration 8 --compute 0.8 --workers 0
 python -B -m scripts.streaming_demo --duration 8 --compute 0.8 --workers 2
 
-# Full test suite for the package:
+# Full test suite for the package (106 tests):
 python -B -m unittest discover -s tests/streaming -t .
+
+# Micro-benchmark (no LSL needed):
+python -B -m scripts.benchmark_streaming
 ```
 
-Tests live in `tests/streaming/` (one file per module). They run fast and need
-no LSL except a few PlayerLSL end-to-end tests. If MNE complains about its
-config directory, point it somewhere writable first:
+Tests live in `tests/streaming/` (one file per module, plus end-to-end tests
+in `test_e2e.py` that stream a real PlayerLSL outlet, record the run, and
+replay it offline to confirm identical windows). They run fast and need no
+LSL except those PlayerLSL end-to-end tests. If MNE complains about its config
+directory, point it somewhere writable first:
 `$env:_MNE_FAKE_HOME_DIR = "path/to/a/writable/.mne"`.
 
 ---
