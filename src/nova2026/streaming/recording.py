@@ -81,17 +81,27 @@ class RunRecorder:
         dtype: Storage dtype for chunk data; ``"float32"`` halves the file
             size with negligible precision loss for raw EEG.
         export_fif: Write ``<run>_raw.fif`` next to the database on ``close``.
+        config: Optional serializable description of the whole run (rates,
+            filters, geometry). Stored verbatim as the ``"config"`` metadata
+            key so a later replay knows what produced this run.
+        files: Optional ``{role: path}`` provenance inputs (e.g. the selected
+            artifact operator or baseline file). Each file is copied into the
+            run folder and its original path + SHA-256 are stored, so the run
+            is auditable and reproducible.
+        track_windows: Create the ``windows`` table and enable
+            ``log_window()``; used for per-window event logging.
 
     Notes:
         ``write()`` commits one transaction per chunk, so a crash never loses
         already-acknowledged data. ``mark()`` is thread-safe and meant to be
         called from a task/controller thread. Calling ``close()`` more than
         once is a no-op. Use the module-level ``iter_chunks``/``iter_events``/
-        ``read_metadata`` to read a run back.
+        ``iter_windows``/``read_metadata`` to read a run back.
 
     Attributes:
         samples: Rows recorded so far.
         chunks: Chunks recorded so far.
+        track_windows: Whether ``log_window()`` is enabled for this run.
     """
 
     def __init__(
@@ -105,6 +115,9 @@ class RunRecorder:
         unit_exponent: int = 0,
         dtype: type = np.float32,
         export_fif: bool = True,
+        config: dict | None = None,
+        files: dict | None = None,
+        track_windows: bool = False,
     ) -> None:
         """Create the run directory and an empty database."""
 
@@ -119,6 +132,19 @@ class RunRecorder:
             raise ValueError("ch_types must match the channel count.")
         if unit_exponent not in (0, -3, -6, -9):
             raise ValueError("Supported unit exponents are 0, -3, -6, -9.")
+
+        # Resolve provenance inputs up front: a missing file fails the run
+        # before any database or directory is created.
+        provenance = []
+        for role, source in (files or {}).items():
+            role = str(role).translate(_SAFE_NAME)
+            if not role:
+                raise ValueError("Provenance roles must be non-empty names.")
+            path = Path(source)
+            if not path.is_file():
+                raise ValueError(f"Provenance input does not exist: {path}")
+            stored = self._snapshot_name(role, path)
+            provenance.append((role, path, stored))
 
         subject, session, run = spec.directory
         self.directory = root / subject / session / run
@@ -142,6 +168,7 @@ class RunRecorder:
         self.samples = 0
         self.chunks = 0
         self._closed = False
+        self.track_windows = bool(track_windows)
         # Serialize writes because mark() may come from another thread.
         self._lock = threading.Lock()
 
@@ -174,7 +201,57 @@ class RunRecorder:
         self._set_meta("session", spec.session)
         self._set_meta("run", spec.run)
         self._set_meta("role", spec.role)
+        if config is not None:
+            self._set_meta("config", json.dumps(config))
+        if track_windows:
+            self._connection.execute(
+                "CREATE TABLE windows("
+                "rowid INTEGER PRIMARY KEY AUTOINCREMENT,"
+                "ts REAL NOT NULL,"
+                "valid INTEGER NOT NULL,"
+                "reasons TEXT,"
+                "segment INTEGER NOT NULL,"
+                "artifact_id TEXT)"
+            )
         self._connection.commit()
+
+        # Copy each provenance input into the run folder and record its hash.
+        for role, source, stored in provenance:
+            destination = self.directory / stored
+            digest = self._copy_and_hash(source, destination)
+            self._set_meta(
+                f"input:{role}",
+                json.dumps(
+                    {
+                        "original": str(source),
+                        "sha256": digest,
+                        "stored": stored,
+                    }
+                ),
+            )
+        self._connection.commit()
+
+    @staticmethod
+    def _snapshot_name(role: str, source: Path) -> str:
+        """Build a safe stored filename for a provenance input."""
+
+        suffix = source.suffix if source.suffix else ".bin"
+        return f"{role}{suffix}"
+
+    @staticmethod
+    def _copy_and_hash(source: Path, destination: Path) -> str:
+        """Copy a file while hashing it, refusing to overwrite anything."""
+
+        import hashlib
+
+        if destination.exists():
+            raise FileExistsError(f"Snapshot already exists: {destination}")
+        hasher = hashlib.sha256()
+        with source.open("rb") as src, destination.open("xb") as dst:
+            for block in iter(lambda: src.read(1 << 20), b""):
+                hasher.update(block)
+                dst.write(block)
+        return hasher.hexdigest()
 
     def _set_meta(self, key: str, value: str) -> None:
         """Upsert one metadata key without touching the commit boundary."""
@@ -240,6 +317,43 @@ class RunRecorder:
             self._connection.execute(
                 "INSERT INTO events(ts, label) VALUES (?, ?)",
                 (float(timestamp), str(label)),
+            )
+            self._connection.commit()
+
+    def log_window(
+        self,
+        timestamp: float,
+        valid: bool,
+        reasons: tuple[str, ...] = (),
+        segment: int = 0,
+        artifact_id: str | None = None,
+    ) -> None:
+        """Record one delivered window when window tracking is enabled.
+
+        Args:
+            timestamp: Delivery time of the window (source clock).
+            valid: Whether the window passed the gate.
+            reasons: Rejection reasons of the window.
+            segment: Processing segment the window came from.
+            artifact_id: Applied spatial operator, when one was used.
+        """
+
+        if not self.track_windows:
+            raise RuntimeError("This run does not track windows.")
+        if self._closed:
+            raise RuntimeError("This RunRecorder is closed.")
+
+        with self._lock:
+            self._connection.execute(
+                "INSERT INTO windows(ts, valid, reasons, segment, artifact_id) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (
+                    float(timestamp),
+                    int(bool(valid)),
+                    json.dumps(list(reasons)),
+                    int(segment),
+                    artifact_id,
+                ),
             )
             self._connection.commit()
 
@@ -357,6 +471,40 @@ def iter_events(path: str | Path) -> list[tuple[float, str]]:
     try:
         rows = connection.execute("SELECT ts, label FROM events ORDER BY rowid")
         return [(float(ts), str(label)) for ts, label in rows]
+    finally:
+        connection.close()
+
+
+def iter_windows(
+    path: str | Path,
+) -> list[tuple[float, bool, tuple[str, ...], int, str | None]]:
+    """Return logged windows as ``(ts, valid, reasons, segment, artifact_id)``.
+
+    Runs recorded without window tracking have no ``windows`` table; reading
+    them yields an empty list.
+    """
+
+    connection = _read_connection(path)
+    try:
+        exists = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='windows'"
+        ).fetchone()
+        if exists is None:
+            return []
+        rows = connection.execute(
+            "SELECT ts, valid, reasons, segment, artifact_id "
+            "FROM windows ORDER BY rowid"
+        )
+        return [
+            (
+                float(ts),
+                bool(valid),
+                tuple(json.loads(reasons)) if reasons else (),
+                int(segment),
+                artifact_id,
+            )
+            for ts, valid, reasons, segment, artifact_id in rows
+        ]
     finally:
         connection.close()
 

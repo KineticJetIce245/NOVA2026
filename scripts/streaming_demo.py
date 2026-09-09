@@ -7,6 +7,7 @@ Run from the repository root:
 It publishes a synthetic 8-channel recording in volts through PlayerLSL with an
 uneven chunk size, then runs the whole chain in one loop:
 
+    connect + validate_source(...)    check rate/units/labels/types (B)
     Acquire.read()                     (built by StreamSession)
       -> StreamSession.ingest()        channel reorder + raw recording
       -> STAGES (this script's tuple)  repair, V->uV, quality observer, notch,
@@ -14,6 +15,9 @@ uneven chunk size, then runs the whole chain in one loop:
       -> CircularBuffer.push()         2 s windows @ 128 Hz
       -> StreamSession.wrap()          warm-up + judge (quality/repair) gating
       -> TaskOffloader (or in-loop) analysis
+
+Each recorded run keeps a config snapshot and one line per delivered window
+(D). Pass --record to keep the raw run.
 
 Compare consumer modes with a simulated slow analysis:
 
@@ -35,7 +39,11 @@ from mne_lsl.player import PlayerLSL  # fake EEG source (outlet)
 from mne_lsl.stream import StreamLSL  # our reader (inlet)
 
 # Reusable start-up helpers: argument getter + one-shot session assembly.
-from nova2026.streaming import TaskOffloader  # runs per-window analysis
+from nova2026.streaming import (  # runs per-window analysis
+    TaskOffloader,  # runs per-window analysis on worker threads
+    processing_contract,  # serializable description of this run's chain
+    validate_source,  # check the connected outlet's metadata (B)
+)
 from nova2026.streaming.bootstrap import StreamSession, parse_args
 
 # Preprocessing building blocks are DEFINED here, in this script, on purpose.
@@ -107,6 +115,22 @@ def main() -> None:
         timeout=10,
     )
 
+    # 2b) Validate the source BEFORE any sample is read: identity, sampling
+    #     rate, numeric dtype, untouched state, labels, types and units (B).
+    try:
+        validate_source(
+            stream,
+            sfreq=args.sfreq,
+            channels=CHANNELS,
+            source_unit_exponent=SOURCE_UNIT_EXPONENT,
+            n_eeg=len(CHANNELS),
+            stream_name=name,
+        )
+    except RuntimeError as error:
+        stream.disconnect()
+        player.stop()
+        raise SystemExit(f"source rejected: {error}") from None
+
     # ------------------------------------------------------------------
     # 3a) Define the preprocessing chain EXPLICITLY, right here in the script.
     #     Every stage has the same shape (data, ts) -> (data, ts), and the
@@ -133,6 +157,19 @@ def main() -> None:
     # after scaling so quality sees raw uV, filters, resampling last.
     STAGES = (repair, scaler, observe, notch, bandpass, resampler)
 
+    # Serialized description of exactly this chain: the recorder stores it as
+    # provenance so a later replay knows what produced this run (D).
+    contract = processing_contract(
+        eeg_channels=CHANNELS,
+        eog_channels=(),
+        out_sfreq=resampler.out_sfreq,
+        stamp=(
+            f"notch{args.notch:g}-q{args.notch_q:g}/"
+            f"band{args.lpass:g}-{args.hpass:g}-o{args.order}/"
+            f"soxr-{args.resample_quality}"
+        ),
+    )
+
     # ------------------------------------------------------------------
     # 3b) StreamSession assembles the REST (contract, recorder, acquire,
     #     buffer). It never runs STAGES: the loop below does. judges are
@@ -145,6 +182,8 @@ def main() -> None:
         judges=(quality, repair),
         out_sfreq=resampler.out_sfreq,
         source_unit_exponent=SOURCE_UNIT_EXPONENT,
+        recorder_config=contract,
+        recorder_track_windows=True,
     )
     if session.contract.dropped_channels:
         print(f"channel contract: dropping {session.contract.dropped_channels}")
@@ -213,8 +252,17 @@ def main() -> None:
 
             # (d) Collect any windows this block completed.
             for window, window_times, start in session.buffer.push(data, timestamps):
-                # (e) Package the window with its verdict (warm-up + quality).
+                # (e) Package the window with its verdict (warm-up + judges).
                 eeg_window = session.wrap(window, window_times, start)
+                if session.recorder is not None:
+                    # (e2) One provenance line per delivered window (D).
+                    session.recorder.log_window(
+                        float(window_times[-1]),
+                        eeg_window.valid,
+                        eeg_window.reasons,
+                        eeg_window.segment,
+                        eeg_window.artifact_id,
+                    )
                 if not eeg_window.valid:
                     rejected_windows += 1
                     continue

@@ -41,6 +41,12 @@ class StreamSession:
         ch_types: Optional per-channel MNE types; defaults to all EEG.
         n_eeg: Number of leading EEG columns; auxiliary columns are kept
             separately in each :class:`~..window.EEGWindow`.
+        recorder_config: Optional serializable run description (rates, chain,
+            geometry) stored in the run metadata for later replay/audit.
+        recorder_files: Optional ``{role: path}`` provenance inputs copied and
+            hashed into the run folder at open.
+        recorder_track_windows: Whether the recorder logs every delivered
+            window (see :meth:`~..recording.RunRecorder.log_window`).
 
     Notes:
         Preprocessing is fully owned by the script: no stage is built or run
@@ -67,6 +73,9 @@ class StreamSession:
         role: str = "run",
         ch_types: tuple[str, ...] | None = None,
         n_eeg: int | None = None,
+        recorder_config: dict | None = None,
+        recorder_files: dict | None = None,
+        recorder_track_windows: bool = False,
     ) -> None:
         """Build the contract, recorder, acquire, buffer and window gate."""
 
@@ -105,6 +114,9 @@ class StreamSession:
                 sfreq,
                 ch_types=self.ch_types,
                 unit_exponent=source_unit_exponent,
+                config=recorder_config,
+                files=recorder_files,
+                track_windows=recorder_track_windows,
             )
 
         # Verdict providers; the session only asks them, never orders them.

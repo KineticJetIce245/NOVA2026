@@ -329,12 +329,15 @@ src/nova2026/streaming/
   circular_buffer.py         # CircularBuffer   - ring storage -> windows
   offload.py                 # TaskOffloader    - run analysis on workers
   recording.py               # RunSpec/RunRecorder + read-back helpers
+  source.py                  # validate_source  - check an outlet (B)
+  spatial.py                 # SpatialOperator, fit_ssp, processing_contract (C)
   window.py                  # EEGWindow        - window + verdict for consumers
   preprocess/
     __init__.py              # re-exports the preprocessing pieces
     units.py                 # unit_scaler      (stateless)
     filters.py               # design_* + SosFilter (stateful)
     quality.py               # QualityMonitor   (stateful observer)
+    repair.py                # Repair           (stateful, stage + judge)
     resample.py              # Resampler        (stateful, soxr)
   bootstrap/
     __init__.py              # re-exports
@@ -345,7 +348,7 @@ src/nova2026/streaming/
 Companion scripts and tests live next to the package: `scripts/streaming_demo.py`
 (the runnable walkthrough), `scripts/benchmark_streaming.py` (per-stage
 micro-benchmark), and `tests/streaming/test_*.py` (unit + end-to-end tests,
-118 in total).
+144 in total).
 
 Rule of thumb used everywhere: **stateless -> function, stateful -> class**.
 Classes hold their own state, validate arguments in the constructor, expose a
@@ -556,13 +559,15 @@ by stateless module functions.
 | Name | Purpose |
 | --- | --- |
 | `RunSpec(subject, session, run, role="run")` | Identity; unsafe characters stripped so a name can never escape the folder tree. |
-| `RunRecorder(root, spec, channels, sfreq, *, ch_types, unit_exponent, dtype, export_fif)` | Creates `root/subject/session/run/run.sqlite`; refuses to overwrite an existing run. |
+| `RunRecorder(root, spec, channels, sfreq, *, ch_types, unit_exponent, dtype, export_fif, config=None, files=None, track_windows=False)` | Creates `root/subject/session/run/run.sqlite`; refuses to overwrite an existing run. `config` stores a serializable run description; `files` copies + SHA-256-hashes provenance inputs; `track_windows` enables the window log. |
 | `recorder.write(data, timestamps)` | Commit one chunk (data BLOB + row count + first timestamp) in its own transaction — crash-safe. |
 | `recorder.mark(label, timestamp=None)` | Thread-safe task event (e.g. `"blink"`), for the controller thread. |
+| `recorder.log_window(ts, valid, reasons, segment, artifact_id)` | One line per delivered window, when `track_windows=True`. |
 | `recorder.close(status="completed", error=None, stats=None)` | Lock the run; if `export_fif`, read the DB back and write `<run>_raw.fif` next to it; write a JSON sidecar. |
-| `read_metadata(path)` | All metadata as a dict. |
+| `read_metadata(path)` | All metadata as a dict (includes `config` and `input:<role>` entries when provided). |
 | `iter_chunks(path)` | Yield `(data, first_timestamp)` for every chunk in order. |
 | `iter_events(path)` | Event list `(timestamp, label)`. |
+| `iter_windows(path)` | Window log as `(ts, valid, reasons, segment, artifact_id)`; empty for runs without tracking. |
 | `chunk_timestamps(first, n, sfreq)` | Rebuild a uniform time grid from a chunk's anchor. |
 | `replay_chunks(path)` | Yield `(data, timestamps)` — feed a recorded run through the same chain later (offline evaluation). |
 
@@ -747,6 +752,56 @@ session.close()
 
 ---
 
+### 5.10 `source.py` — validate the connected outlet before use (B)
+
+**Why.** The pipeline trusts whatever outlet it connects to; connecting to the
+wrong stream, or to the right stream with a different rate, units or channel
+types, quietly records plausible but wrong data. Validation must run right
+after `connect()` and before the first `read()`.
+
+**Public surface.** `validate_source(stream, *, sfreq, channels,
+source_unit_exponent, n_eeg=None, stream_name=None, source_id=None,
+stream_type=None)` — a stateless function that raises `RuntimeError` on any
+mismatch: connected identity, sampling rate, numeric dtype, untouched state
+(no filters/callbacks/unread samples), unique labels containing the required
+set, channel types (EEG vs EOG), and each channel's declared voltage units
+against the configured exponent.
+
+**Expected usage** (right after the manual connect):
+
+```python
+validate_source(stream, sfreq=args.sfreq, channels=CHANNELS,
+                source_unit_exponent=SOURCE_UNIT_EXPONENT,
+                n_eeg=len(CHANNELS), stream_name=name)
+```
+
+### 5.11 `spatial.py` — eye-artefact projection (C)
+
+**Why.** Blinks and eye movements share a spatial direction across frontal EEG
+channels. A fixed projector `P = I - U @ U.T` learned from marked EOG
+calibration removes that direction from the EEG columns without touching EOG,
+timing or validity. Pure NumPy; no LSL, threads or files except the operator
+`.npz`.
+
+**Public surface.**
+
+| Name | Purpose |
+| --- | --- |
+| `processing_contract(eeg_channels, eog_channels, out_sfreq, units="uV", stamp="")` | JSON-safe description of the chain an operator is calibrated/applied under; exact equality decides compatibility. |
+| `fit_ssp(eeg, eog, contract, n_components=1, ...)` | Offline fit from marked epochs (events × samples × channels, in uV): mean-subtract, fit on the first events, hold the last third out, fail unless held-out EEG–EOG coupling drops by at least half. |
+| `SpatialOperator(matrix, contract, report)` | Validates symmetry/idempotence/rank, derives `artifact_id`, applies per window, saves/loads `.npz` without pickle (never overwrites). |
+| `operator.apply_window(window)` | Project the window's EEG columns once (`artifact_id` prevents a second correction), preserve EOG/verdict/timestamps. |
+
+**Where it plugs in:** after `wrap()` and before the consumer — `P` is linear
+and time-invariant, so per-window projection equals projecting the continuous
+signal first. The script loads an operator and checks `operator.validate(
+processing_contract(...))` once before the loop, then calls `apply_window` on
+every finished window. Cutting calibration epochs out of a recorded run (raw
+chunks -> the same chain -> one-second windows around `blink` events) is an
+integration step that uses the recorder's events and window log (Section 9, D).
+
+---
+
 ## 6. Data-flow recap and the ordering rules
 
 Who calls what, per run and per block:
@@ -825,7 +880,7 @@ python -B -m scripts.streaming_demo --duration 8 --record records
 python -B -m scripts.streaming_demo --duration 8 --compute 0.8 --workers 0
 python -B -m scripts.streaming_demo --duration 8 --compute 0.8 --workers 2
 
-# Full test suite for the package (118 tests):
+# Full test suite for the package (144 tests):
 python -B -m unittest discover -s tests/streaming -t .
 
 # Micro-benchmark (no LSL needed):
@@ -841,13 +896,16 @@ directory, point it somewhere writable first:
 
 ---
 
-## 9. Robustness: what can go wrong, and the planned guardrails (A–D)
+## 9. Robustness: what can go wrong, and the guardrails (A–D)
 
-> **Status: partial.** A1 (short-span repair, `Repair` in
-> `preprocess/repair.py`) is implemented and sits first in the demo chain.
-> A2 (bounded recovery), B, C and D are still design only: they describe
-> failure modes and *where* each guardrail will plug in. When a guardrail
-> ships, this section is updated to match.
+> **Status: mostly implemented.** A1 (`Repair` in `preprocess/repair.py`),
+> B (`source.validate_source`), C (`spatial.SpatialOperator` / `fit_ssp` /
+> `processing_contract`) and D (recorder `config` snapshot, provenance file
+> hashes, per-window log) are implemented and covered by tests. Still planned:
+> A2 (bounded recovery) — until it lands, `Repair` raises on unrecoverable
+> damage instead of restarting — and B1 (optional pre-connect outlet
+> resolution). The demo wires A1, B and D; C is library + tests until a run
+> with a real EOG channel exercises the calibration workflow.
 
 A live stream is fragile in ways an offline file is not. The sender can stall,
 skip samples, emit `NaN`, send the wrong metadata, or degrade slowly over time.
@@ -861,9 +919,9 @@ source; the guardrails below close the failure classes one by one:
 | Broken values, short | isolated `NaN`/`Inf`, a few ms of missing samples | **A1** — repair short spans by interpolation (**implemented**) |
 | Broken values / timing, severe | a whole damaged chunk, gaps > 0.5 s, overlapping or irregular timestamps | **A2** — bounded recovery: discard and restart, or fail |
 | Slow decay | minutes of near-flat or saturated signal | **A2** — persistent-fault watch on windows |
-| Wrong source | wrong sampling rate, units, channel labels/types | **B** — validate the source before the first sample |
-| Eye artefacts | blinks/saccades leaking into frontal EEG | **C** — calibrated spatial projection (EOG-guided SSP) |
-| No provenance | cannot replay a run, cannot tell which operator/files were used | **D** — richer run metadata and snapshots |
+| Wrong source | wrong sampling rate, units, channel labels/types | **B** — validate the source before the first sample (**implemented**) |
+| Eye artefacts | blinks/saccades leaking into frontal EEG | **C** — calibrated spatial projection (EOG-guided SSP) (**implemented**) |
+| No provenance | cannot replay a run, cannot tell which operator/files were used | **D** — richer run metadata and snapshots (**implemented**) |
 
 The letters A–D match the design discussion. Each guardrail below follows the
 same format: *the problem*, *where it plugs into the Section 3 pipeline*, *why
@@ -873,7 +931,7 @@ Where the guardrails sit, on the Section 3 diagram:
 
 ```text
    outlet -> StreamLSL
-              |   [B] validate the source before any sample  (planned)
+              |   [B] validate_source()        (implemented; B1 planned)
               v
    read() -> ingest()                 # reorder + record RAW volts
               |                       #   (raw damage is kept on purpose)
@@ -885,10 +943,11 @@ Where the guardrails sit, on the Section 3 diagram:
               v
    STAGES (the script's tuple)       # scale -> quality -> filters -> resample
               v
-   push() -> wrap() -> EEGWindow     # [A2 watch] persistent faults (planned)
-              |                      # [D3] one log line per window (planned)
+   push() -> wrap() -> EEGWindow     # [D3] window log (implemented)
+              |                      # [A2 watch] persistent faults (planned)
               v
-   [C2] spatial operator.apply()     # planned; only with a calibration
+   [C2] operator.apply_window()      # implemented; the script wires it between
+              |                      #   wrap() and the consumer
               v
    consumer
 ```
@@ -968,27 +1027,30 @@ fresh processing **segment**, and beyond that it stops loudly. Until A2 lands,
 
 ---
 
-### B. Validate the source before the first sample
+### B. Validate the source before the first sample (implemented: B2; B1 planned)
 
 **The problem.** The pipeline trusts whatever outlet it connects to. Connect to
 the wrong stream, or to the right stream with a different sampling rate or
 different declared units, and the run records plausible-looking but wrong data
 — the worst kind of corruption, because nothing complains later.
 
-**Where:** in two phases, both before any sample is read or recorded.
+**Where:** in two phases, both before any sample is read or recorded. The
+second phase is implemented (`nova2026.streaming.source.validate_source`);
+the first is an optional refinement still on the shelf.
 
-- **B1, before connecting:** resolve the available outlets and require one
-  whose `name` / `source_id` / `stype` match the configuration. This fails fast
-  instead of timing out while connected to an unrelated stream.
-- **B2, right after connecting:** check, from the connected inlet's metadata:
-  the sampling rate matches the configured `sfreq`; every required channel
-  declares voltage units consistent with the configured source exponent
-  (V / mV / µV / nV); labels are unique and contain the required set (this is
-  today's `ChannelContract`); the channel types identify EEG and EOG
-  correctly; samples are numeric; and no filters, callbacks or unread samples
-  exist before setup. The reference and upstream-processing descriptions cannot
-  be verified automatically — they are recorded as operator assertions and
-  stored in the run metadata for later audits.
+- **B1, before connecting (planned):** resolve the available outlets and
+  require one whose `name` / `source_id` / `stype` match the configuration.
+  This fails fast instead of timing out while connected to an unrelated
+  stream.
+- **B2, right after connecting (implemented):** check, from the connected
+  inlet's metadata: the sampling rate matches the configured `sfreq`; every
+  required channel declares voltage units consistent with the configured
+  source exponent (V / mV / µV / nV); labels are unique and contain the
+  required set; the channel types identify EEG and EOG correctly; samples are
+  numeric; and no filters, callbacks or unread samples exist before setup.
+  The reference and upstream-processing descriptions cannot be verified
+  automatically — they are carried by the run's config snapshot (D1) as
+  operator assertions for later audits.
 
 **Why both phases:** the pre-connect check answers "is this the outlet we
 mean?", the post-connect check answers "does this outlet deliver what we
@@ -997,7 +1059,7 @@ cannot be moved earlier.
 
 ---
 
-### C. Eye-artefact removal by calibrated projection
+### C. Eye-artefact removal by calibrated projection (implemented as `spatial.py`)
 
 **The problem.** Blinks and eye movements produce voltages that spread to
 frontal EEG channels. A classifier trained on clean windows would treat these
@@ -1012,25 +1074,27 @@ removes that direction from the EEG while leaving everything orthogonal to it
 untouched. With a single EOG channel this supports removing one direction.
 This is not ICA and not interpolation — it is a fixed linear projection.
 
-**C1 — calibration (offline, once per operator).** A recorded run with role
-`artifact_calibration`, a real EOG channel, and clean `blink` / `eyes_*`
-events. The recorded raw chunks are replayed through the *same* chain the live
-run used (including A1/A2 once they exist), epochs of about one second are cut
-around each event, the first events fit `U`, and the last third is held out to
-verify that EEG–EOG coupling actually drops by at least half. The result is
-saved as an operator file (`.npz`) plus a report and an inspection plot.
-Calibration needs events that line up with windows — one reason the window
-event log (D3) exists.
+**C1 — calibration (offline).** `fit_ssp(eeg, eog, contract, n_components=1)`
+fits the projector from marked epochs already cut at the chain's output rate
+(events × samples × channels, in uV). It mean-subtracts each epoch, fits on
+the first events and holds the last third out, and raises unless the held-out
+EEG–EOG coupling drops by at least half; the returned operator carries a
+report with the coupling ratio, retained energy and the fitted directions.
+Cutting those epochs out of a recorded calibration run (raw chunks -> the same
+chain -> one-second windows around `blink` / `eyes_*` events) is an
+integration step that lines up events and windows via the recorder (D3), and
+needs a run with a real EOG channel to be exercised end to end.
 
 **C2 — application (online, per window).** When a run selects a saved operator
-(`artifact_path` on the run spec), every finished window passes through it
-between `wrap()` and the consumer. Because `P` is linear and time-invariant,
-projecting each window equals projecting the continuous signal and then
-windowing, so the ring buffer stays pure storage. The operator:
+(`SpatialOperator.load(path)` plus `operator.validate(processing_contract(...))`
+before the loop), every finished window passes through it between `wrap()` and
+the consumer. Because `P` is linear and time-invariant, projecting each window
+equals projecting the continuous signal and then windowing, so the ring buffer
+stays pure storage. The operator:
 
-- checks its contract against the run: channel order (EEG then EOG), rates,
-  reference, upstream description, filter/resampler settings, units — a
-  mismatch is an error, not a silent skip;
+- checks its contract against the run: EEG/EOG channel order and counts, the
+  output rate, units and a user-supplied preprocessing `stamp` — a mismatch is
+  an error, not a silent skip;
 - multiplies only the EEG columns; EOG is left alone;
 - stamps `artifact_id` on the window so a window can never be corrected twice;
 - preserves the window's existing `valid` / `reasons` — correction never turns
@@ -1044,38 +1108,40 @@ it can be audited (D2 records the exact file that was used).
 
 ---
 
-### D. Run provenance: what happened, exactly
+### D. Run provenance: what happened, exactly (implemented)
 
 **The problem.** A recorded run is only science if someone can later answer:
 what settings produced it, which operator/baseline/model files went in, which
-windows were actually delivered, and did it finish. Today's recorder stores
-channel names, rates and identity but not the processing chain, does not
-snapshot external files, and does not log delivered windows.
+windows were actually delivered, and did it finish. The recorder now stores
+these.
 
-- **D1 — configuration snapshot.** When a run opens, the whole chain
-  configuration (rates, notch/band-pass settings, filter order, resampling
-  quality, window geometry, units, and later the A1/A2 limits) is serialized
-  into the run metadata. Without it, offline replay cannot know what
+- **D1 — configuration snapshot (implemented).** The recorder accepts a
+  `config` dict (`RunRecorder(..., config=...)`; `StreamSession` forwards
+  `recorder_config=`) and stores it under the `config` metadata key — the
+  script describes its own chain (rates, notch/band-pass settings, order,
+  resampling quality, window geometry, units) via
+  `spatial.processing_contract`. Without it, offline replay cannot know what
   processing a run went through.
-- **D2 — selected-input snapshots.** The run spec optionally names external
-  files (`artifact_path`, `baseline_path`, `model_path`). The recorder copies
-  each file into the run folder and records its original path and SHA-256
-  hash. A missing file fails the run at open. Nothing selects the newest file
-  automatically — the choice is explicit and auditable.
-- **D3 — window event log.** One line per delivered window (timestamp, `valid`,
-  reasons, segment, `artifact_id`), written at `wrap()` time. This is what
-  lets an offline replay reproduce exactly which windows were delivered, and
-  what calibration (C1) aligns its epochs against.
-- **D4 — honest endings.** When the loop stops, any tail still buffered in the
-  acquire handle is saved with a `not_processed` mark instead of being
-  silently dropped, and the run is locked as `completed` or `failed` with the
-  error text. A crash mid-run leaves a clearly `recording`-status database that
-  cannot be mistaken for a finished one.
+- **D2 — selected-input snapshots (implemented).** The recorder accepts
+  `files={"artifact": path, ...}`; each file is copied into the run folder and
+  its original path and SHA-256 hash are stored as `input:<role>` metadata. A
+  missing file fails the run before the run folder is created. Nothing
+  auto-selects the newest file — the choice is explicit and auditable.
+- **D3 — window event log (implemented).** With `track_windows=True`, one line
+  per delivered window (timestamp, `valid`, reasons, segment, `artifact_id`)
+  is written by `recorder.log_window(...)` and read back with
+  `iter_windows(path)`. This is what lets an offline replay reproduce exactly
+  which windows were delivered, and what calibration (C1) aligns its epochs
+  against. The demo logs every window after `wrap()`.
+- **D4 — honest endings (partial).** The run is locked as `completed` or
+  `failed` with the error text at `close()`, and a crash leaves a clearly
+  `recording`-status database that cannot be mistaken for a finished one. The
+  remaining piece — marking a buffered tail as `not_processed` instead of
+  silently dropping it — is still planned.
 
-**Where:** all of D lives in the recorder plus one reporting hook after
-`wrap()`; D1 additionally needs the assembly point (the script, or the session
-once it collects the chain) to hand the recorder a serializable description of
-the chain it actually ran.
+**Where:** all of D lives in the recorder; the config snapshot and provenance
+files are passed at construction (through `StreamSession` when a script uses
+it), and the per-window log is written right after `wrap()` in the loop.
 
 ---
 

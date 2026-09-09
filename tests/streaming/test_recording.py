@@ -1,5 +1,6 @@
 """Tests for the SQLite run recorder and its read-back helpers."""
 
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,6 +13,7 @@ from nova2026.streaming.recording import (
     chunk_timestamps,
     iter_chunks,
     iter_events,
+    iter_windows,
     read_metadata,
     replay_chunks,
 )
@@ -154,6 +156,92 @@ class RunRecorderTests(unittest.TestCase):
         self.assertTrue(np.allclose(np.diff(grid), 1.0 / SFREQ))
         self.assertEqual(grid[0], 1000.0)
         self.assertTrue(np.all(np.isnan(chunk_timestamps(None, 4, SFREQ))))
+
+
+class ProvenanceTests(unittest.TestCase):
+    def setUp(self) -> None:
+        scratch = Path.cwd() / ".tmp_tests"
+        scratch.mkdir(exist_ok=True)
+        self.temporary = tempfile.TemporaryDirectory(dir=str(scratch))
+        self.root = Path(self.temporary.name)
+        self.spec = RunSpec("s1", "a", "prov01", role="trial")
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def test_config_snapshot_is_stored(self) -> None:
+        config = {
+            "sfreq": 500.0,
+            "out_sfreq": 128.0,
+            "stamp": "notch60/band1-45-o3/soxr-LQ",
+            "channels": list(CHANNELS),
+        }
+        recorder = RunRecorder(self.root, self.spec, CHANNELS, SFREQ, config=config)
+        path = recorder.close()
+        self.assertEqual(read_metadata(path)["config"], config)
+
+    def test_provenance_files_are_copied_and_hashed(self) -> None:
+        source = Path(self.temporary.name) / "eye_operator.npz"
+        source.write_bytes(b"fake-operator-bytes-v1")
+        expected = hashlib.sha256(b"fake-operator-bytes-v1").hexdigest()
+
+        recorder = RunRecorder(
+            self.root, self.spec, CHANNELS, SFREQ,
+            files={"artifact": source},
+        )
+        path = recorder.close()
+
+        stored = read_metadata(path)["input:artifact"]
+        self.assertEqual(stored["original"], str(source))
+        self.assertEqual(stored["sha256"], expected)
+        self.assertTrue((recorder.directory / stored["stored"]).exists())
+        self.assertEqual(
+            (recorder.directory / stored["stored"]).read_bytes(),
+            b"fake-operator-bytes-v1",
+        )
+
+    def test_missing_provenance_file_fails_before_creating_the_run(self) -> None:
+        missing = Path(self.temporary.name) / "absent.npz"
+        with self.assertRaises(ValueError):
+            RunRecorder(
+                self.root, self.spec, CHANNELS, SFREQ, files={"artifact": missing}
+            )
+        run_dir = self.root / "s1" / "a" / "prov01"
+        self.assertFalse(run_dir.exists())
+
+    def test_window_log_round_trip(self) -> None:
+        recorder = RunRecorder(
+            self.root, self.spec, CHANNELS, SFREQ, track_windows=True
+        )
+        recorder.log_window(1000.0, True, (), segment=0)
+        recorder.log_window(1000.5, False, ("warmup",), segment=0,
+                            artifact_id="abc123")
+        path = recorder.close()
+
+        windows = iter_windows(path)
+        self.assertEqual(
+            windows,
+            [
+                (1000.0, True, (), 0, None),
+                (1000.5, False, ("warmup",), 0, "abc123"),
+            ],
+        )
+
+    def test_window_log_requires_tracking_and_open_run(self) -> None:
+        recorder = RunRecorder(self.root, self.spec, CHANNELS, SFREQ)
+        with self.assertRaises(RuntimeError):
+            recorder.log_window(1.0, True)
+        # Runs without tracking read back as an empty window list.
+        path = recorder.close()
+        self.assertEqual(iter_windows(path), [])
+
+    def test_failed_close_still_keeps_provenance(self) -> None:
+        recorder = RunRecorder(self.root, self.spec, CHANNELS, SFREQ,
+                               config={"stamp": "x"})
+        path = recorder.close(status="failed", error="calibration aborted")
+        metadata = read_metadata(path)
+        self.assertEqual(metadata["status"], "failed")
+        self.assertEqual(metadata["config"], {"stamp": "x"})
 
 
 if __name__ == "__main__":
