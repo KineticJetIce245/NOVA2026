@@ -4,6 +4,7 @@ from pipelines import AttUPipeline
 
 from nova2026.config import DATA_DIR, SAMPLE_RATE, SAMPLE_SIZE, WINDOW_SIZE
 from nova2026.data.eeg import Loader, save_chkpt
+from nova2026.data.pipeline import DefaultPipe
 
 OUTPUT_DIR = DATA_DIR / "COG-BCI" / "outputs"
 DIR_MASK = (DATA_DIR / "COG-BCI").parts

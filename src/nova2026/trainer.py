@@ -3,9 +3,12 @@ from collections.abc import Callable
 from pathlib import Path
 
 import torch
+from sklearn.metrics import f1_score
 from torch import nn
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader, TensorDataset
+
+from nova2026.metrics import Metric
 
 
 def load_chkpt(dataset: Path) -> dict:
@@ -15,6 +18,11 @@ def load_chkpt(dataset: Path) -> dict:
 class SupervisedTrainer:
     def __init__(self):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model: nn.Module | None = None
+        self.optimizer: Optimizer | None = None
+        self.criterion: nn.Module | None = None
+        self.regularizer: Callable | None = None
+        self.data: dict | None = None
 
     def fetch(self, dataset: Path) -> None:
         self.chkpt = load_chkpt(dataset)
@@ -28,7 +36,10 @@ class SupervisedTrainer:
         model: nn.Module,
         optimizer: Optimizer,
         criterion: nn.Module,
-        regularizer: Callable,
+        regularizer: Callable | None,
+        *,
+        predict_func: Callable | None = None,
+        metric: Metric | None = None,
     ) -> None:
         if model is None:
             raise ValueError("Model must be provided")
@@ -40,6 +51,12 @@ class SupervisedTrainer:
             raise ValueError("Criterion must be provided")
         self.criterion = criterion
         self.regularizer = regularizer
+        self.predict_func: Callable = predict_func or (
+            lambda out: torch.argmax(out, dim=1)
+        )
+        self.metric: Metric = metric or Metric(
+            lambda yt, yp: f1_score(yt, yp, average="macro"), name="macro_f1"
+        )
 
     def _ensure(self):
         if self.model is None:
@@ -130,7 +147,7 @@ class SupervisedTrainer:
             )
 
         history = []
-        best_val_loss, best_epoch, best_state = float("inf"), -1, None
+        best_metric, best_epoch, best_state = self.metric.get_worse(), -1, None
 
         for epoch in range(epochs):
             # train once
@@ -139,10 +156,11 @@ class SupervisedTrainer:
 
             # perform evaluation if needed
             if val_loader is not None:
-                val_loss = self._evaluate_loss(val_loader)
-                log["val_loss"] = val_loss
-                if val_loss < best_val_loss:
-                    best_val_loss = val_loss
+                val_preds, val_targets = self._predict(val_loader, self.predict_func)
+                val_metric = self.metric(val_targets, val_preds)
+                log["metric"] = val_metric
+                if self.metric.is_better(val_metric, best_metric):
+                    best_metric = val_metric
                     best_state = copy.deepcopy(self.model.state_dict())
                     best_epoch = epoch
 
@@ -156,7 +174,7 @@ class SupervisedTrainer:
                 {
                     "epoch": epoch,
                     "train_loss": train_loss,
-                    "best_so_far": best_val_loss,
+                    "best_metric": best_metric,
                     "best_epoch": best_epoch,
                     "best_state": best_state,
                 }
@@ -167,11 +185,11 @@ class SupervisedTrainer:
         self.model.load_state_dict(state_to_use)
         if test_loader is not None:
             test_preds, test_targets = self._predict(
-                test_loader, permutates.get("test_output", lambda x: x)
+                test_loader, permutates.get("test_output", self.predict_func)
             )
         return {
             "history": history,
-            "best_val_loss": best_val_loss,
+            "best_metric": best_metric,
             "best_epoch": best_epoch,
             "test_preds": test_preds,
             "test_targets": test_targets,

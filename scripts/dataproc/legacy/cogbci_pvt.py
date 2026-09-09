@@ -39,7 +39,6 @@ import mne
 import numpy as np
 import torch
 from pipelines import AttUPipeline
-from save_pt import save_chkpt
 
 from nova2026.config import DATA_DIR, SAMPLE_RATE, WINDOW_SIZE
 from nova2026.data.eeg import Loader
@@ -111,6 +110,10 @@ EEG_CHANNELS = [
     "AF4",
     "F2",
 ]
+
+
+def save_chkpt(checkpoint, location):
+    torch.save(checkpoint, location / "old_PVT_chkpt.pt")
 
 
 def tagging_cogbci(datarf: Loader.DataFileRef) -> list[str]:
