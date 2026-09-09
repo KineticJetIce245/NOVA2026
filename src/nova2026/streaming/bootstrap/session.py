@@ -16,6 +16,7 @@ from ..channels import ChannelContract
 from ..circular_buffer import CircularBuffer
 from ..preprocess import QualityMonitor, unit_scaler
 from ..recording import RunRecorder, RunSpec
+from ..window import EEGWindow
 
 
 class StreamSession:
@@ -38,17 +39,20 @@ class StreamSession:
         source_unit_exponent: Power of ten of the source unit (0 = volts).
         role: Run role recorded in the metadata.
         ch_types: Optional per-channel MNE types; defaults to all EEG.
+        n_eeg: Number of leading EEG columns; auxiliary columns are kept
+            separately in each :class:`~..window.EEGWindow`.
 
     Notes:
         The execution order of preprocessing is fixed and owned here:
         ``scale -> quality.feed -> each filter -> resample``. The session does
         NOT connect the stream, start threads or consume windows; it only
-        builds the run-once pieces and exposes the loop helpers.
+        builds the run-once pieces and exposes the loop helpers
+        ``ingest`` / ``process`` / ``wrap``.
 
     Attributes:
         contract, recorder, acquire, buffer: The built components.
         scale, quality, filters, resample: The preprocessing stages as passed.
-        n_channels, out_sfreq, warmup_samples: Geometry used by the loop.
+        eeg_count, n_channels, out_sfreq, warmup_samples: Geometry used here.
     """
 
     def __init__(
@@ -64,12 +68,17 @@ class StreamSession:
         source_unit_exponent: int = 0,
         role: str = "run",
         ch_types: tuple[str, ...] | None = None,
+        n_eeg: int | None = None,
     ) -> None:
         """Build the contract, recorder, acquire, buffer and chain defaults."""
 
         self.args = args
         self.channels = tuple(str(name) for name in channels)
         self.n_channels = len(self.channels)
+        # EEG columns come first; the rest are auxiliary (EOG) channels.
+        self.eeg_count = self.n_channels if n_eeg is None else int(n_eeg)
+        if not 1 <= self.eeg_count <= self.n_channels:
+            raise ValueError("n_eeg must be between 1 and the channel count.")
         if ch_types is None:
             ch_types = ("eeg",) * self.n_channels
         self.ch_types = tuple(ch_types)
@@ -108,7 +117,9 @@ class StreamSession:
         self.quality = (
             quality
             if quality is not None
-            else QualityMonitor(n_eeg=self.n_channels, sfreq=sfreq, warmup_seconds=0.0)
+            else QualityMonitor(
+                n_eeg=self.eeg_count, sfreq=sfreq, warmup_seconds=0.0
+            )
         )
         self.filters = tuple(filters)
         self.resample = resample
@@ -174,20 +185,39 @@ class StreamSession:
             data, timestamps = self.resample(data, timestamps)
         return data, timestamps
 
-    def gate(self, start_sample: int, window_times: np.ndarray):
-        """Decide whether one finished window may reach the consumer.
+    def wrap(
+        self,
+        window: np.ndarray,
+        window_times: np.ndarray,
+        start_sample: int,
+    ) -> EEGWindow:
+        """Package one finished window into an :class:`EEGWindow`.
+
+        This replaces hand-written gating: the returned object carries its own
+        verdict (``valid``/``reasons``) and splits EEG from auxiliary columns.
 
         Returns:
-            ``(accepted, reasons)`` where ``accepted`` is False for warm-up
-            windows or windows overlapped by a quality fault, and ``reasons``
-            names the faults (empty when accepted).
+            An EEGWindow whose ``valid`` is False for warm-up windows or
+            windows overlapped by a quality fault.
         """
 
         reasons = self.quality.reasons(
             float(window_times[0]), float(window_times[-1])
         )
-        accepted = start_sample >= self.warmup_samples and not reasons
-        return accepted, reasons
+        valid = start_sample >= self.warmup_samples and not reasons
+
+        return EEGWindow(
+            data=window[:, : self.eeg_count],
+            eog=window[:, self.eeg_count :],
+            timestamps=window_times,
+            valid=valid,
+            reasons=reasons,
+            start_sample=start_sample,
+            segment=0,
+            channel_names=self.channels[: self.eeg_count],
+            contract=None,
+            available_at=float(window_times[-1]),
+        )
 
     def close(self, status: str = "completed", error: str | None = None) -> None:
         """Finalize the recorder (locks the run and exports the FIF)."""

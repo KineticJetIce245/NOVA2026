@@ -75,10 +75,12 @@ class SessionTests(unittest.TestCase):
         processed, _ = session.process(reordered, times)
         self.assertIsNotNone(processed)
 
-        # Warm-up gate rejects the very first windows.
-        accepted, reasons = session.gate(0, np.arange(10) / 128.0 + 1000.0)
-        self.assertFalse(accepted)
-        self.assertEqual(reasons, ())
+        # wrap() packages a window with its verdict: warm-up windows rejected.
+        eeg_window = session.wrap(reordered, times, start_sample=0)
+        self.assertFalse(eeg_window.valid)
+        self.assertEqual(eeg_window.reasons, ())
+        eeg_window = session.wrap(reordered, times, start_sample=session.warmup_samples)
+        self.assertTrue(eeg_window.valid)
 
         session.close()
         metadata = read_metadata(session.recorder.path)

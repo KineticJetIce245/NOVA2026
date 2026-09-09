@@ -159,20 +159,21 @@ def main() -> None:
     rejected_windows = 0  # warm-up or bad-quality windows dropped
 
     # Display one line per window: peak-to-peak amplitude per channel (uV).
-    def report(window: np.ndarray, start: int) -> None:
-        peak_to_peak_uv = np.ptp(window, axis=0)
+    def report(eeg_window) -> None:
+        peak_to_peak_uv = np.ptp(eeg_window.data, axis=0)
         print(
-            f"window start={start:6d}  at={monotonic() - started:7.3f}s  "
+            f"window start={eeg_window.start_sample:6d}  "
+            f"at={monotonic() - started:7.3f}s  "
             f"ptp_uV={np.round(peak_to_peak_uv, 1)}"
         )
 
     # The "analysis" task: optionally sleep to simulate a slow model, then
     # report. This function runs in worker threads when workers > 0.
     def analyze(item) -> None:
-        window, start = item
+        eeg_window = item
         if args.compute > 0:
             sleep(args.compute)
-        report(window, start)
+        report(eeg_window)
 
     # Offloader created once before the loop; workers pick tasks off a queue.
     offloader = (
@@ -198,18 +199,18 @@ def main() -> None:
 
             # (d) Collect any windows this block completed.
             for window, window_times, start in session.buffer.push(data, timestamps):
-                # (e) Gate: skip warm-up windows and quality-fault windows.
-                accepted, reasons = session.gate(start, window_times)
-                if not accepted:
+                # (e) Package the window with its verdict (warm-up + quality).
+                eeg_window = session.wrap(window, window_times, start)
+                if not eeg_window.valid:
                     rejected_windows += 1
                     continue
                 valid_windows += 1
 
                 # (f) Run the analysis in the loop, or hand it to workers.
                 if offloader is None:
-                    analyze((window, start))
+                    analyze(eeg_window)
                 else:
-                    offloader.submit((window, start))
+                    offloader.submit(eeg_window)
 
     # ------------------------------------------------------------------
     # 7) Shutdown: release everything in the right order.

@@ -7,6 +7,7 @@ from .circular_buffer import CircularBuffer   # ring storage -> overlapping wind
 from .offload import TaskOffloader       # run per-window analysis on workers
 from .preprocess.resample import Resampler   # stateful 500->128 Hz (SoXR)
 from .recording import RunRecorder, RunSpec  # per-run SQLite recording + identity
+from .window import EEGWindow            # one window + verdict, for consumers
 
 __all__ = [
     "Acquire",
@@ -16,4 +17,5 @@ __all__ = [
     "Resampler",
     "RunRecorder",
     "RunSpec",
+    "EEGWindow",
 ]
