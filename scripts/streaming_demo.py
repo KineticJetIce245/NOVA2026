@@ -7,7 +7,7 @@ Run from the repository root:
 It publishes a synthetic 8-channel recording in volts through PlayerLSL with an
 uneven chunk size, then runs the whole chain in one loop:
 
-    connect + validate_source(...)    check rate/units/labels/types (B)
+    connect + preflight.prepare(...)  check rate/units/labels/types (B)
     Acquire.read()                     (built by StreamSession)
       -> StreamSession.ingest()        channel reorder + raw recording
       -> STAGES (this script's tuple)  repair, V->uV, quality observer, notch,
@@ -41,8 +41,8 @@ from mne_lsl.stream import StreamLSL  # our reader (inlet)
 # Reusable start-up helpers: argument getter + one-shot session assembly.
 from nova2026.streaming import (  # runs per-window analysis
     TaskOffloader,  # runs per-window analysis on worker threads
+    prepare,  # pre-flight source check -> the run's channel contract (B)
     processing_contract,  # serializable description of this run's chain
-    validate_source,  # check the connected outlet's metadata (B)
 )
 from nova2026.streaming.bootstrap import StreamSession, parse_args
 
@@ -115,10 +115,12 @@ def main() -> None:
         timeout=10,
     )
 
-    # 2b) Validate the source BEFORE any sample is read: identity, sampling
+    # 2b) Pre-flight the source BEFORE any sample is read: identity, sampling
     #     rate, numeric dtype, untouched state, labels, types and units (B).
+    #     prepare() validates everything AND returns the channel contract the
+    #     session will use to reorder every block.
     try:
-        validate_source(
+        contract = prepare(
             stream,
             sfreq=args.sfreq,
             channels=CHANNELS,
@@ -159,7 +161,7 @@ def main() -> None:
 
     # Serialized description of exactly this chain: the recorder stores it as
     # provenance so a later replay knows what produced this run (D).
-    contract = processing_contract(
+    chain_config = processing_contract(
         eeg_channels=CHANNELS,
         eog_channels=(),
         out_sfreq=resampler.out_sfreq,
@@ -182,7 +184,8 @@ def main() -> None:
         judges=(quality, repair),
         out_sfreq=resampler.out_sfreq,
         source_unit_exponent=SOURCE_UNIT_EXPONENT,
-        recorder_config=contract,
+        contract=contract,  # ChannelContract from prepare() (step 2b)
+        recorder_config=chain_config,  # processing_contract snapshot (D1)
         recorder_track_windows=True,
     )
     if session.contract.dropped_channels:

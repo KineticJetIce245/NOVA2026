@@ -2,12 +2,15 @@
 
 # Public entry points, re-exported so callers use one import line.
 from .acquire import Acquire             # fixed-size blocks from the LSL inlet
-from .channels import ChannelContract    # validate + reorder source channels
 from .circular_buffer import CircularBuffer   # ring storage -> overlapping windows
 from .offload import TaskOffloader       # run per-window analysis on workers
+from .preflight import (
+    ChannelContract,  # validate + reorder source channels
+    prepare,  # pre-flight check -> the run's channel contract
+    validate_source,  # check a connected inlet's metadata
+)
 from .preprocess.resample import Resampler   # stateful 500->128 Hz (SoXR)
 from .recording import RunRecorder, RunSpec  # per-run SQLite recording + identity
-from .source import validate_source      # check a connected inlet's metadata
 from .spatial import SpatialOperator, fit_ssp, processing_contract
 from .window import EEGWindow            # one window + verdict, for consumers
 
@@ -22,6 +25,7 @@ __all__ = [
     "SpatialOperator",
     "EEGWindow",
     "fit_ssp",
+    "prepare",
     "processing_contract",
     "validate_source",
 ]

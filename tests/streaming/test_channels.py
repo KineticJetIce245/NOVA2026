@@ -4,7 +4,7 @@ import unittest
 
 import numpy as np
 
-from nova2026.streaming.channels import ChannelContract
+from nova2026.streaming.preflight import ChannelContract
 
 EXPECTED = ("F3", "Cz", "P3", "EOG")
 

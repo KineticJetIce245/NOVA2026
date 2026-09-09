@@ -1,11 +1,11 @@
-"""Tests for source validation (B): metadata checks before the first sample."""
+"""Tests for source pre-flight validation (B): metadata checks + prepare()."""
 
 import unittest
 from types import SimpleNamespace
 
 import numpy as np
 
-from nova2026.streaming import validate_source
+from nova2026.streaming import prepare, validate_source
 
 CHANNELS = ("F3", "C3", "EOG")  # EEG, EEG, EOG
 
@@ -142,6 +142,42 @@ class SourceValidationTests(unittest.TestCase):
             self.validate(source, n_eeg=0)
         with self.assertRaises(ValueError):
             self.validate(source, n_eeg=4)
+
+    def test_prepare_returns_a_working_channel_contract(self) -> None:
+        # The source publishes EOG first; prepare must validate the outlet and
+        # hand back a contract that reorders every block to the expected order.
+        source = FakeSource(("EOG", "C3", "F3"), types=["eog", "eeg", "eeg"])
+        contract = prepare(
+            source, sfreq=500.0, channels=CHANNELS,
+            source_unit_exponent=0, n_eeg=2,
+        )
+        self.assertEqual(contract.expected_channels, CHANNELS)
+        self.assertEqual(contract.dropped_channels, ())
+        data = np.zeros((3, 3))
+        data[:, 0] = 1.0  # EOG
+        data[:, 1] = 2.0  # C3
+        data[:, 2] = 3.0  # F3
+        reordered = contract.reorder(data)
+        self.assertTrue(np.allclose(reordered[:, 0], 3.0))  # F3 first
+        self.assertTrue(np.allclose(reordered[:, 1], 2.0))  # C3
+        self.assertTrue(np.allclose(reordered[:, 2], 1.0))  # EOG last
+
+    def test_prepare_raises_runtime_error_on_any_mismatch(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "sampling rate"):
+            prepare(FakeSource(CHANNELS, sfreq=250.0,
+                               types=["eeg", "eeg", "eog"]),
+                    sfreq=500.0, channels=CHANNELS,
+                    source_unit_exponent=0, n_eeg=2)
+        with self.assertRaisesRegex(RuntimeError, "duplicated"):
+            prepare(FakeSource(("F3", "F3", "EOG"),
+                               types=["eeg", "eeg", "eog"]),
+                    sfreq=500.0, channels=CHANNELS,
+                    source_unit_exponent=0, n_eeg=2)
+        with self.assertRaisesRegex(RuntimeError, "missing"):
+            prepare(FakeSource(("F3", "P3", "EOG"),
+                               types=["eeg", "eeg", "eog"]),
+                    sfreq=500.0, channels=CHANNELS,
+                    source_unit_exponent=0, n_eeg=2)
 
 
 if __name__ == "__main__":

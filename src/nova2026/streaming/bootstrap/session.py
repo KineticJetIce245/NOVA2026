@@ -14,8 +14,8 @@ from datetime import datetime
 import numpy as np
 
 from ..acquire import Acquire
-from ..channels import ChannelContract
 from ..circular_buffer import CircularBuffer
+from ..preflight import ChannelContract
 from ..recording import RunRecorder, RunSpec
 from ..window import EEGWindow
 
@@ -29,6 +29,9 @@ class StreamSession:
         args: Parsed namespace (geometry + recording identity + consumer
             knobs). See :func:`~.args.parse_args` for the expected fields.
         channels: Canonical channel names, EEG first then auxiliary.
+        contract: Optional pre-built :class:`~..preflight.ChannelContract`
+            (normally the return value of :func:`~..preflight.prepare`). When
+            omitted the session builds one from ``stream.ch_names`` itself.
         judges: Verdict providers queried by ``wrap()``; each must expose
             ``reasons(start, end) -> tuple[str, ...]`` (for example a
             :class:`~..preprocess.QualityMonitor`). Their reasons are unioned,
@@ -73,6 +76,7 @@ class StreamSession:
         role: str = "run",
         ch_types: tuple[str, ...] | None = None,
         n_eeg: int | None = None,
+        contract=None,
         recorder_config: dict | None = None,
         recorder_files: dict | None = None,
         recorder_track_windows: bool = False,
@@ -92,8 +96,15 @@ class StreamSession:
 
         sfreq = float(getattr(args, "sfreq", 500.0))
 
-        # Channel contract: fail here if a required label is missing.
-        self.contract = ChannelContract(stream.ch_names, self.channels)
+        # Channel contract: reuse the caller's pre-flight contract when one
+        # was prepared; otherwise build it from the connected labels. Either
+        # way a missing required label fails before any data is handled.
+        if contract is not None:
+            if tuple(contract.expected_channels) != self.channels:
+                raise ValueError("The provided contract does not match channels.")
+            self.contract = contract
+        else:
+            self.contract = ChannelContract(stream.ch_names, self.channels)
 
         # Optional per-run recorder (raw volts, before any transformation).
         self.recorder = None

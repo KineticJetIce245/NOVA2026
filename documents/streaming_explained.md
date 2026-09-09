@@ -325,11 +325,10 @@ Layout:
 src/nova2026/streaming/
   __init__.py                # public exports (one import line)
   acquire.py                 # Acquire          - pull fixed-size blocks
-  channels.py                # ChannelContract  - check/reorder channels
   circular_buffer.py         # CircularBuffer   - ring storage -> windows
   offload.py                 # TaskOffloader    - run analysis on workers
+  preflight.py               # ChannelContract + validate_source/prepare (B)
   recording.py               # RunSpec/RunRecorder + read-back helpers
-  source.py                  # validate_source  - check an outlet (B)
   spatial.py                 # SpatialOperator, fit_ssp, processing_contract (C)
   window.py                  # EEGWindow        - window + verdict for consumers
   preprocess/
@@ -348,7 +347,7 @@ src/nova2026/streaming/
 Companion scripts and tests live next to the package: `scripts/streaming_demo.py`
 (the runnable walkthrough), `scripts/benchmark_streaming.py` (per-stage
 micro-benchmark), and `tests/streaming/test_*.py` (unit + end-to-end tests,
-144 in total).
+146 in total).
 
 Rule of thumb used everywhere: **stateless -> function, stateful -> class**.
 Classes hold their own state, validate arguments in the constructor, expose a
@@ -407,11 +406,11 @@ data, timestamps = acquire.read()          # (50, n_ch)
 
 ---
 
-### 5.3 `channels.py` — `ChannelContract`
+### 5.3 `preflight.py` — the source contract and its validation (B)
 
-**Problem.** The device publishes channels in *its* order and set; our
-pipeline/recording expects channels in *our* order (EEG first, aux like EOG
-after). If we silently paired columns with the wrong names, every number
+**Problem (channels).** The device publishes channels in *its* order and set;
+our pipeline/recording expects channels in *our* order (EEG first, aux like
+EOG after). If we silently paired columns with the wrong names, every number
 downstream would be attached to the wrong electrode — a quiet, hard-to-find
 bug.
 
@@ -428,11 +427,30 @@ startup, not mid-recording), and computes the column permutation. `reorder`
 takes the requested columns in canonical order; when the source already
 matches exactly it returns the array untouched (zero copy on the hot path).
 
-**Expected usage** (usually inside `StreamSession`):
+**Problem (validation).** The pipeline trusts whatever outlet it connects to;
+connecting to the wrong stream, or to the right stream with a different rate,
+units or channel types, quietly records plausible but wrong data. Validation
+must run right after `connect()` and before the first `read()`.
+
+**Public surface (validation).** `validate_source(stream, *, sfreq, channels,
+source_unit_exponent, n_eeg=None, stream_name=None, source_id=None,
+stream_type=None)` — a stateless function that raises `RuntimeError` on any
+mismatch: connected identity, sampling rate, numeric dtype, untouched state
+(no filters/callbacks/unread samples), duplicate/missing labels (reusing the
+constructor's rules), channel types (EEG vs EOG), and each channel's declared
+voltage units against the configured exponent. `prepare(...)` is the same
+check but *returns* the `ChannelContract` for the run — the one-call entry
+point.
+
+**Expected usage** (at run start; `StreamSession` accepts the pre-built
+contract so nothing is checked twice):
 
 ```python
-contract = ChannelContract(stream.ch_names, EXPECTED)
-data = contract.reorder(data)     # every block
+from nova2026.streaming import prepare
+contract = prepare(stream, sfreq=args.sfreq, channels=EXPECTED,
+                   source_unit_exponent=0, n_eeg=len(EXPECTED))
+session = StreamSession(stream, args, EXPECTED, ..., contract=contract)
+data = contract.reorder(data)     # every block (inside session.ingest)
 ```
 
 ---
@@ -752,30 +770,7 @@ session.close()
 
 ---
 
-### 5.10 `source.py` — validate the connected outlet before use (B)
-
-**Why.** The pipeline trusts whatever outlet it connects to; connecting to the
-wrong stream, or to the right stream with a different rate, units or channel
-types, quietly records plausible but wrong data. Validation must run right
-after `connect()` and before the first `read()`.
-
-**Public surface.** `validate_source(stream, *, sfreq, channels,
-source_unit_exponent, n_eeg=None, stream_name=None, source_id=None,
-stream_type=None)` — a stateless function that raises `RuntimeError` on any
-mismatch: connected identity, sampling rate, numeric dtype, untouched state
-(no filters/callbacks/unread samples), unique labels containing the required
-set, channel types (EEG vs EOG), and each channel's declared voltage units
-against the configured exponent.
-
-**Expected usage** (right after the manual connect):
-
-```python
-validate_source(stream, sfreq=args.sfreq, channels=CHANNELS,
-                source_unit_exponent=SOURCE_UNIT_EXPONENT,
-                n_eeg=len(CHANNELS), stream_name=name)
-```
-
-### 5.11 `spatial.py` — eye-artefact projection (C)
+### 5.10 `spatial.py` — eye-artefact projection (C)
 
 **Why.** Blinks and eye movements share a spatial direction across frontal EEG
 channels. A fixed projector `P = I - U @ U.T` learned from marked EOG
@@ -880,7 +875,7 @@ python -B -m scripts.streaming_demo --duration 8 --record records
 python -B -m scripts.streaming_demo --duration 8 --compute 0.8 --workers 0
 python -B -m scripts.streaming_demo --duration 8 --compute 0.8 --workers 2
 
-# Full test suite for the package (144 tests):
+# Full test suite for the package (146 tests):
 python -B -m unittest discover -s tests/streaming -t .
 
 # Micro-benchmark (no LSL needed):
@@ -899,7 +894,7 @@ directory, point it somewhere writable first:
 ## 9. Robustness: what can go wrong, and the guardrails (A–D)
 
 > **Status: mostly implemented.** A1 (`Repair` in `preprocess/repair.py`),
-> B (`source.validate_source`), C (`spatial.SpatialOperator` / `fit_ssp` /
+> B (`preflight.validate_source` / `prepare`), C (`spatial.SpatialOperator` / `fit_ssp` /
 > `processing_contract`) and D (recorder `config` snapshot, provenance file
 > hashes, per-window log) are implemented and covered by tests. Still planned:
 > A2 (bounded recovery) — until it lands, `Repair` raises on unrecoverable
@@ -1035,7 +1030,7 @@ different declared units, and the run records plausible-looking but wrong data
 — the worst kind of corruption, because nothing complains later.
 
 **Where:** in two phases, both before any sample is read or recorded. The
-second phase is implemented (`nova2026.streaming.source.validate_source`);
+second phase is implemented (`nova2026.streaming.preflight.prepare`);
 the first is an optional refinement still on the shelf.
 
 - **B1, before connecting (planned):** resolve the available outlets and
