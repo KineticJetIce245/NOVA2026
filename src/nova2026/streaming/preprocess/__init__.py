@@ -1,0 +1,23 @@
+"""Composable preprocessing stages for streamed EEG.
+
+Transform stages share the contract ``stage(data, timestamps) ->
+(data, timestamps)`` and keep their state across variable-size chunks.
+``QualityMonitor`` is an observer, not a transform: feed it raw samples and ask
+about a window later. Nothing here touches LSL, threads or the buffer; only
+``Resampler`` requires the optional ``soxr`` dependency.
+"""
+
+# Re-export every public preprocessing piece from one import location.
+from .filters import SosFilter, design_bandpass, design_notch
+from .quality import QualityMonitor
+from .resample import Resampler
+from .units import unit_scaler
+
+__all__ = [
+    "QualityMonitor",
+    "Resampler",
+    "SosFilter",
+    "design_bandpass",
+    "design_notch",
+    "unit_scaler",
+]

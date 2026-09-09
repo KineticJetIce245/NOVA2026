@@ -17,3 +17,14 @@ __pycache__/
 *.pyc
 *.pyo
 dist/
+
+# local scratch
+.tmp_mne_home/
+.tmp_tests/
+.tmp_uv_cache/
+
+# recorded runs and generated outputs (keep the folders, not their content)
+records/*
+!records/.gitkeep
+results/*
+!results/.gitkeep

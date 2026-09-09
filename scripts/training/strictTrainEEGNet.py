@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from nova2026.architecture.cnn import EEGNet
 from nova2026.architecture.lossfun import FocalLoss
 from nova2026.config import DATA_DIR
-from nova2026.trainer import SupervisedTrainer
+from nova2026.training import Metric, SupervisedTrainer
 
 ROOT = DATA_DIR / "COG-BCI"
 DATASET = ROOT / "outputs/PVT_128Hz_AttUPipeline.pt"
@@ -24,7 +24,7 @@ SEED = 0
 # model hyperparameters
 # criterion = torch.nn.CrossEntropyLoss()
 criterion = FocalLoss(gamma=3.0, alpha=[1, 3.5], reduction="mean")
-permutates = {
+callbacks = {
     "epoch": lambda d: print(
         f"At epoch {d['epoch']}, train_loss={d['train_loss']:.4f}, "
         f"best_metric={d['best_metric']:.4f}"
@@ -145,7 +145,7 @@ def organizer(
     return chkpt
 
 
-trainer = SupervisedTrainer()
+trainer = SupervisedTrainer(seed=SEED)
 trainer.fetch(Path(DATASET))
 
 meta = trainer.chkpt["metadata"]
@@ -157,14 +157,25 @@ for i, sub in enumerate(subs):  # main LOSO loop
     optimizer = torch.optim.Adam(model.parameters(), lr=LR)
 
     # load model and hyperparameters
-    trainer.uses(model, optimizer, criterion, regularizer)
+    trainer.uses(
+        model,
+        optimizer,
+        criterion,
+        regularizer,
+        # epoch selection: macro F1 (the default, stated explicitly so the
+        # trainer does not have to warn about its classification-only default)
+        predict_func=lambda out: torch.argmax(out, dim=1),
+        metric=Metric(
+            lambda yt, yp: f1_score(yt, yp, average="macro"), name="macro_f1"
+        ),
+    )
     trainer.organize(lambda x, sb=sub, sbs=subs, sd=i: organizer(x, sb, sbs, seed=sd))
     d = trainer.data
     print(
         f"=== Fold test_sub={sub} | "
         f"train {len(d['train'].dataset)} | test {len(d['test'].dataset)} | val {len(d['val'].dataset)} ==="
     )
-    result = trainer.train(EPOCHS, permutates)
+    result = trainer.train(EPOCHS, callbacks)
     print(f"Completed training for subject {sub}.")
     preds = np.asarray(result["test_preds"])
     targets = np.asarray(result["test_targets"])
