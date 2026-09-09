@@ -89,8 +89,10 @@ ASCII pipeline (time flows top to bottom for one run):
    StreamSession.ingest()         --> channel reorder (ChannelContract)
         |                            + save raw volts (RunRecorder, optional)
         v
-   StreamSession.process()        --> scaler (V->uV)
-        |                            quality observer
+   STAGES (defined in the script) --> one ordered tuple, one line per stage:
+        |                            repair short NaN/Inf runs (Repair)
+        |                            scaler (V->uV)
+        |                            quality observer (wrapped as a stage)
         |                            notch 60 Hz, band-pass 1-45 Hz (filters)
         |                            SoXR resampler 500 -> 128 Hz
         v
@@ -98,7 +100,7 @@ ASCII pipeline (time flows top to bottom for one run):
         |
         v
    StreamSession.wrap()           --> EEGWindow with its verdict
-        |                            (data/eog split, warm-up + quality reasons)
+        |                            (data/eog split, warm-up + judge reasons)
         v
    Consumer: print, model, ...    --> runs in the loop, or on TaskOffloader
         |                            worker threads
@@ -110,16 +112,18 @@ The runtime ordering of one run:
 
 ```text
 parse args  ->  start fake source  ->  connect inlet
-           ->  define preprocessing chain (in the script!)
+           ->  define the STAGES tuple + judges (in the script!)
            ->  StreamSession(...)     [builds contract/recorder/acquire/buffer]
-           ->  while running:  read -> ingest -> process -> push -> wrap -> consume
+           ->  while running:  read -> ingest -> run STAGES -> push -> wrap -> consume
            ->  finally:        close acquire, disconnect, close recorder
 ```
 
 Two rules that keep the pipeline correct:
 
-- **Preprocessing order is fixed**: units first, quality observes the *raw
-  cleaned-but-unfiltered* signal, then filters, then resampling last.
+- **The script owns preprocessing order**: `STAGES` is an ordered tuple the
+  script defines, and the session never runs or reorders it. Convention:
+  repair first (source units, before filters), quality observes the
+  raw-but-scaled signal before filters, then filters, resampling last.
 - **Copy out of ring buffers**: never let a later write corrupt an earlier
   window that is already on its way to the consumer.
 
@@ -160,9 +164,9 @@ of truth. It shows the exact command, the pipeline, and how to compare
 - `TaskOffloader` — runs per-window work on worker threads (see
   `offload.py`).
 - `StreamSession, parse_args` — the bootstrap helpers (see `bootstrap/`).
-- `QualityMonitor, Resampler, SosFilter, design_bandpass, design_notch,
-  unit_scaler` — the preprocessing parts, imported here on purpose: the demo
-  wants you to *see* the chain being defined.
+- `QualityMonitor, Repair, Resampler, SosFilter, design_bandpass,
+  design_notch, unit_scaler` — the preprocessing parts, imported here on
+  purpose: the demo wants you to *see* the chain being defined.
 
 ### Constants
 
@@ -205,30 +209,41 @@ inlet keeps up to 4 seconds of buffered data.
 This is the heart of "the script owns the pipeline":
 
 ```python
+repair    = Repair(args.sfreq, source_unit_exponent=SOURCE_UNIT_EXPONENT)
 scaler    = unit_scaler(SOURCE_UNIT_EXPONENT, desired_exponent=-6)  # V -> uV
 quality   = QualityMonitor(n_eeg=len(CHANNELS), sfreq=args.sfreq, ...)
+
+def observe(data, timestamps):        # quality is an observer, not a stage:
+    quality.feed(data, timestamps)    # wrap its feed into the stage shape
+    return data, timestamps
+
 notch     = SosFilter(design_notch(args.notch, args.notch_q, args.sfreq), n)
 bandpass  = SosFilter(design_bandpass(args.lpass, args.hpass, args.order, ...), n)
 resampler = Resampler(args.sfreq, args.out_sfreq, n, quality=args.resample_quality)
+STAGES    = (repair, scaler, observe, notch, bandpass, resampler)   # the chain
 ```
 
 Every stage, its parameters, and its order are visible and editable here.
-`design_notch`/`design_bandpass` compute filter coefficients; `SosFilter`
-applies one filter continuously (it remembers its state between blocks).
+Every stage has the same shape `stage(data, timestamps) -> (data,
+timestamps)`; the loop just folds `STAGES` in order. `design_notch`/
+`design_bandpass` compute filter coefficients; `SosFilter` applies one filter
+continuously (it remembers its state between blocks).
 
 ### Step 3b, assemble the rest via `StreamSession`
 
 ```python
 session = StreamSession(stream, args, CHANNELS,
-                        scale=scaler, quality=quality,
-                        filters=(notch, bandpass), resample=resampler, ...)
+                        judges=(quality, repair),
+                        out_sfreq=resampler.out_sfreq, ...)
 ```
 
 `StreamSession` (see `bootstrap/session.py`) builds the boring run-once
 pieces: the channel contract, the optional recorder, the `Acquire` object and
-the `CircularBuffer`. It does **not** define the preprocessing; it only
-guarantees the order in which it will run them. If the source sent channels we
-do not want, the contract prints them here as "dropping ...".
+the `CircularBuffer`. It does **not** define or run the preprocessing — the
+script folds `STAGES` itself. The `judges` are the objects `wrap()` asks for a
+verdict (quality faults and repaired samples both reject windows). If the
+source sent channels we do not want, the contract prints them here as
+"dropping ...".
 
 ### Step 4, print the configuration
 
@@ -256,18 +271,19 @@ every run self-explanatory.
 while monotonic() - started < args.duration:      # until time is up
     (a) data, ts = session.acquire.read()         # pull one fixed block
     (b) data, ts = session.ingest(data, ts)       # reorder + record raw
-    (c) data, ts = session.process(data, ts)      # uV/quality/filters/resample
+    (c) for stage in STAGES: data, ts = stage(data, ts)   # the script's chain
     (d) for window, w_times, start in session.buffer.push(data, ts):
         (e) eeg_window = session.wrap(window, w_times, start)  # -> EEGWindow
-            if not eeg_window.valid: count & skip  # warm-up or bad quality
+            if not eeg_window.valid: count & skip  # warm-up or judge reasons
         (f) analyze(eeg_window)                    # or offloader.submit(...)
 ```
 
 Every iteration is one acquired block. `push()` returns the list of windows
 *completed by this block* — often empty, sometimes several. `wrap()` packages
 each window into an `EEGWindow` that carries its own verdict (`valid` +
-`reasons`, see `window.py`): warm-up windows and windows overlapping a
-recorded quality fault come out `valid=False` and are skipped.
+`reasons`, see `window.py`): warm-up windows and windows flagged by a
+registered judge (a quality fault, or a repaired sample) come out
+`valid=False` and are skipped.
 
 ### Step 7, shutdown
 
@@ -329,7 +345,7 @@ src/nova2026/streaming/
 Companion scripts and tests live next to the package: `scripts/streaming_demo.py`
 (the runnable walkthrough), `scripts/benchmark_streaming.py` (per-stage
 micro-benchmark), and `tests/streaming/test_*.py` (unit + end-to-end tests,
-106 in total).
+118 in total).
 
 Rule of thumb used everywhere: **stateless -> function, stateful -> class**.
 Classes hold their own state, validate arguments in the constructor, expose a
@@ -609,9 +625,34 @@ filtering, so filters cannot hide a stuck electrode. Reports faults by
 `feed(data_uv, timestamps)` (observer, per block); `reasons(start, end) ->
 tuple[str, ...]` (ask about a finished window); `reset()`.
 
-**Expected usage** (wired by `StreamSession` as `session.quality`; `wrap`
-uses `reasons`): feed every block after scaling and before filters; when a
-window is finished, ask `reasons(window_start_time, window_end_time)`.
+**Expected usage:** scripts wrap `feed` in a stage closure and register the
+monitor as a judge on `StreamSession`; `wrap` then asks `reasons(window_start,
+window_end)` for every finished window. Feed every block after scaling and
+before filters.
+
+#### `preprocess/repair.py` — `Repair`
+
+**Why.** A stream occasionally delivers a few broken samples (an isolated
+`NaN`/`Inf`, or a short missing run). One broken sample fed into a causal
+filter corrupts its state for the whole settling time afterwards, so damage
+must be fixed *before* any filter. Repair bridges short runs (default up to
+20 ms) linearly between the two finite samples on either side, per channel,
+never rewriting healthy values.
+
+**Public surface.** `Repair(sfreq, *, max_seconds=0.02, ...)` is both a
+transform stage — `(data, timestamps) -> (data, timestamps)` — and a judge
+with `reasons(start, end)` (returns `("interpolated",)` when a window touches
+a repaired span, so those windows are rejected); `reset()`.
+
+**Behaviour.** Missing rows are detected from timestamp gaps and repaired the
+same way. A damaged tail without a finite right endpoint is held back and
+returned with the next block. Damage that cannot be repaired — a run longer
+than `max_seconds`, irregular or non-finite timestamps, or extreme endpoints
+when units are known — **raises**, stopping the run loudly rather than feeding
+bad values into filters. Damage before the first finite sample is dropped (the
+run simply starts later). Bounded *recovery* of bigger faults is planned (see
+Section 9, A2); today Repair only repairs, and what it cannot repair stops the
+run.
 
 #### `preprocess/resample.py` — `Resampler`
 
@@ -662,38 +703,41 @@ Constructor:
 
 ```python
 StreamSession(stream, args, channels, *,
-              scale=None, quality=None, filters=(), resample=None,
+              judges=(), out_sfreq=None,
               source_unit_exponent=0, role="run", ch_types=None, n_eeg=None)
 ```
 
-Attributes: `contract`, `recorder`, `acquire`, `buffer`, `scale`, `quality`,
-`filters`, `resample`, `eeg_count`, `n_channels`, `out_sfreq`,
-`window_samples`, `hop_samples`, `capacity_samples`, `warmup_samples`.
+Attributes: `contract`, `recorder`, `acquire`, `buffer`, `judges`,
+`eeg_count`, `n_channels`, `out_sfreq`, `window_samples`, `hop_samples`,
+`capacity_samples`, `warmup_samples`.
 
 Methods:
 
 | Method | Purpose |
 | --- | --- |
 | `ingest(data, ts)` | Contract reorder + write raw block to the recorder (if any). |
-| `process(data, ts)` | Run the chain in the fixed order: scale -> quality.feed -> each filter -> resample. |
-| `wrap(window, window_times, start) -> EEGWindow` | Package one window with its verdict (warm-up + quality) and split EEG/EOG. |
+| `wrap(window, window_times, start) -> EEGWindow` | Package one window with its verdict (warm-up + every judge's reasons) and split EEG/EOG. |
 | `close(status, error)` | Finalize the recorder (lock run + export FIF). |
 
-What it does NOT do: connect the stream, start threads, consume windows, or
-define the preprocessing. Sensible defaults exist (`scale`/`quality` fall
-back to a unit scaler and a monitor over all channels), but the intended style
-is the explicit demo.
+What it does NOT do: connect the stream, start threads, process data, run a
+chain, consume windows, or define the preprocessing. There is no `process()`
+method and no preprocessing defaults — the script owns `STAGES` entirely, and
+the session only registers `judges` (objects exposing
+`reasons(start, end) -> tuple[str, ...]`, e.g. `QualityMonitor` and `Repair`)
+whose verdicts `wrap()` unions onto each window. Warm-up stays session-owned:
+it is measured in samples written, not in judge time.
 
 **Expected usage** — see the demo; the minimum script is:
 
 ```python
 session = StreamSession(stream, args, CHANNELS,
-                        scale=scaler, quality=quality,
-                        filters=(notch, bandpass), resample=resampler)
+                        judges=(quality, repair),
+                        out_sfreq=resampler.out_sfreq)
 while running:
     data, ts = session.acquire.read()
     data, ts = session.ingest(data, ts)
-    data, ts = session.process(data, ts)
+    for stage in STAGES:              # the script's own ordered tuple
+        data, ts = stage(data, ts)
     for w, w_ts, start in session.buffer.push(data, ts):
         eeg_window = session.wrap(w, w_ts, start)   # verdict included
         if eeg_window.valid:
@@ -712,7 +756,7 @@ RUN level:
   parse_args()                      # bootstrap/args.py
   PlayerLSL(...).start()            # demo only
   StreamLSL.connect(...)            # manual acquisition
-  define scaler/quality/filters/resampler   # in the script
+  build STAGES tuple + judges       # in the script
   session = StreamSession(...)      # builds the rest
   loop { session.acquire.read() ... }       # the script's while
   session.acquire.close(); stream.disconnect(); session.close()
@@ -720,21 +764,25 @@ RUN level:
 BLOCK level (inside the loop):
   read()      -> (block, ts)                     # exactly --block rows
   ingest()    -> reorder; recorder.write(raw)    # raw volts are kept
-  process()   -> uV; quality.feed; filters; resample
+  STAGES      -> for stage in STAGES: data, ts = stage(data, ts)
   buffer.push() -> list of windows completed by this block
   per window: wrap(w, w_ts, start) -> EEGWindow; consume or reject by .valid
 ```
 
 Invariants to respect when writing a new script:
 
-1. Preprocessing order is scale -> quality observation -> filters -> resample
-   (filters must not run before quality sees the raw signal).
-2. `ingest` before `process` (record the untouched volts).
-3. Never mutate a window returned by `buffer.push` and expect neighbours to be
+1. The script owns `STAGES`: every stage is `(data, ts) -> (data, ts)`, and
+   the loop folds them in the tuple's order. Convention: repair first, then
+   scale -> quality observation -> filters -> resample (filters must not run
+   before quality sees the raw signal).
+2. `ingest` before the stages (record the untouched volts).
+3. Register every verdict provider (`QualityMonitor`, `Repair`) as a
+   `judge` so `wrap()` can gate windows on it.
+4. Never mutate a window returned by `buffer.push` and expect neighbours to be
    unaffected — each window is already a private copy.
-4. Shut down in order: close the acquire handle, disconnect the inlet, stop
+5. Shut down in order: close the acquire handle, disconnect the inlet, stop
    the source, close the offloader, close the recorder.
-5. Create run-once objects (offloader, recorder, session) once, outside the
+6. Create run-once objects (offloader, recorder, session) once, outside the
    loop; inside the loop only call their methods.
 
 ---
@@ -777,7 +825,7 @@ python -B -m scripts.streaming_demo --duration 8 --record records
 python -B -m scripts.streaming_demo --duration 8 --compute 0.8 --workers 0
 python -B -m scripts.streaming_demo --duration 8 --compute 0.8 --workers 2
 
-# Full test suite for the package (106 tests):
+# Full test suite for the package (118 tests):
 python -B -m unittest discover -s tests/streaming -t .
 
 # Micro-benchmark (no LSL needed):
@@ -793,7 +841,254 @@ directory, point it somewhere writable first:
 
 ---
 
-## 9. Glossary (quick lookup)
+## 9. Robustness: what can go wrong, and the planned guardrails (A–D)
+
+> **Status: partial.** A1 (short-span repair, `Repair` in
+> `preprocess/repair.py`) is implemented and sits first in the demo chain.
+> A2 (bounded recovery), B, C and D are still design only: they describe
+> failure modes and *where* each guardrail will plug in. When a guardrail
+> ships, this section is updated to match.
+
+A live stream is fragile in ways an offline file is not. The sender can stall,
+skip samples, emit `NaN`, send the wrong metadata, or degrade slowly over time.
+One corrupted sample can poison a stateful filter for seconds. The wrong outlet
+can quietly record garbage with plausible channel names. A slow consumer can
+fall further and further behind. The Section 3 pipeline assumes a well-behaved
+source; the guardrails below close the failure classes one by one:
+
+| Failure class | Example | Guardrail |
+| --- | --- | --- |
+| Broken values, short | isolated `NaN`/`Inf`, a few ms of missing samples | **A1** — repair short spans by interpolation (**implemented**) |
+| Broken values / timing, severe | a whole damaged chunk, gaps > 0.5 s, overlapping or irregular timestamps | **A2** — bounded recovery: discard and restart, or fail |
+| Slow decay | minutes of near-flat or saturated signal | **A2** — persistent-fault watch on windows |
+| Wrong source | wrong sampling rate, units, channel labels/types | **B** — validate the source before the first sample |
+| Eye artefacts | blinks/saccades leaking into frontal EEG | **C** — calibrated spatial projection (EOG-guided SSP) |
+| No provenance | cannot replay a run, cannot tell which operator/files were used | **D** — richer run metadata and snapshots |
+
+The letters A–D match the design discussion. Each guardrail below follows the
+same format: *the problem*, *where it plugs into the Section 3 pipeline*, *why
+that spot*, and *what it needs from the other components*.
+
+Where the guardrails sit, on the Section 3 diagram:
+
+```text
+   outlet -> StreamLSL
+              |   [B] validate the source before any sample  (planned)
+              v
+   read() -> ingest()                 # reorder + record RAW volts
+              |                       #   (raw damage is kept on purpose)
+              v
+   [A1] Repair stage (implemented)    # short NaN/Inf spans, source units,
+              |                       #   first stage of the script's STAGES
+   [A2] guard (planned)              -> discard / split / fail when A1
+              |                         cannot repair; resets the chain
+              v
+   STAGES (the script's tuple)       # scale -> quality -> filters -> resample
+              v
+   push() -> wrap() -> EEGWindow     # [A2 watch] persistent faults (planned)
+              |                      # [D3] one log line per window (planned)
+              v
+   [C2] spatial operator.apply()     # planned; only with a calibration
+              v
+   consumer
+```
+
+---
+
+### A. Surviving a damaged signal: repair (A1, implemented) and bounded recovery (A2, planned)
+
+**The problem.** EEG amplifiers occasionally produce a few broken samples:
+an isolated `NaN` or `Inf`, or a short run of missing samples. Two things make
+this dangerous even though the damage is tiny:
+
+1. A stateful causal filter keeps history. Feed it a `NaN` once and its output
+   is corrupted for the filter's settling time afterwards — many times longer
+   than the damage itself.
+2. A quality monitor that sees the raw `NaN` records a fault, even though the
+   damage was fixable.
+
+**A1 — short-span repair (implemented as `Repair`).** When a broken run has a
+finite sample on *both* sides and lasts at most `max_seconds` (default 20 ms),
+fill the gap by linear interpolation between those two endpoints. Everything
+longer than that is not A1's business.
+
+- **Where:** the first stage of the script's `STAGES` tuple — after
+  `ingest()`, before the unit scaler, before quality and filters. Repair
+  happens in source units on the original signal; the recorder keeps the
+  *unrepaired* raw volts so offline replay can repair identically and the raw
+  damage stays visible for diagnosis.
+- **Why there:** scaling cannot fix values and filters must never see a `NaN`;
+  A1 is the earliest point where the data is in one canonical shape.
+- **How it behaves (v1):** a row is damaged when any of its values is
+  non-finite; missing rows are detected from timestamp gaps, synthesised and
+  repaired the same way. Repair is linear, per channel, and never rewrites
+  healthy values. Finished repairs are remembered as time intervals; `Repair`
+  is registered as a judge, so any window overlapping a repaired span comes
+  out `valid=False` with reason `"interpolated"`. A damaged tail without a
+  finite right endpoint is held back and returned with the next block, so the
+  chain only ever sees settled rows.
+- **What stops the run (no A2 yet):** damage longer than `max_seconds`,
+  irregular or non-finite timestamps, and — when source units are known —
+  unsafe endpoints (saturated or an extreme jump) raise a `RuntimeError`.
+  Damage before the first finite sample is dropped instead (the run simply
+  starts later). Bounded recovery (A2) will later turn these raises into
+  discard-and-restart decisions.
+- **Needs:** its own stateful tail and a `reset()` — both implemented and
+  ready for A2 to call.
+
+**A2 — bounded recovery (planned, not implemented).** For damage that cannot be
+repaired — a chunk that is still non-finite, timestamps that are irregular or
+overlap, a gap between chunks — the run has two options: quietly keep going on
+garbage, or stop. Both are wrong in general, so the rule is *bounded recovery*:
+a limited number of times, the run may throw the bad chunk away and start a
+fresh processing **segment**, and beyond that it stops loudly. Until A2 lands,
+`Repair` raises in exactly these situations, which stops the run safely.
+
+- **Where:** two spots. The main guard is a shell around the chain, checked on
+  every chunk right after the `Repair` stage; the second is at window level,
+  right after `wrap()`, because only finished windows reveal "the signal has
+  been bad for five seconds straight".
+- **How a recovery works:** discard the chunk (or split the segment at a
+  repairable gap), increment the segment number, and reset *every* stateful
+  stage — filters, resampler, ring buffer, quality history and A1's tail — so
+  the next chunk starts clean. Warm-up repeats, so windows from the restart are
+  rejected until warm-up passes again. No window ever spans two segments;
+  `EEGWindow.segment` reports which segment a window came from.
+- **When it fails instead:** more than `recovery_max_events` recoveries
+  (default 5), a single gap longer than `recovery_max_gap` (0.5 s), or quality
+  faults persisting longer than `persistent_fault_seconds` (5 s). These stop
+  the run with an error — a live system must never silently ship garbage.
+- **The architectural cost:** today the stateful stages are assembled by the
+  script and `StreamSession` does not know their reset interfaces. Recovery
+  therefore needs a small **reset protocol**: every stateful stage implements
+  `reset()`, and the guard holds the list and calls each one in order. This is
+  the one place where the "session knows nothing about preprocessing" rule
+  bends: the session (or a small guard object attached to it) must be able to
+  reach all resettable stages.
+
+---
+
+### B. Validate the source before the first sample
+
+**The problem.** The pipeline trusts whatever outlet it connects to. Connect to
+the wrong stream, or to the right stream with a different sampling rate or
+different declared units, and the run records plausible-looking but wrong data
+— the worst kind of corruption, because nothing complains later.
+
+**Where:** in two phases, both before any sample is read or recorded.
+
+- **B1, before connecting:** resolve the available outlets and require one
+  whose `name` / `source_id` / `stype` match the configuration. This fails fast
+  instead of timing out while connected to an unrelated stream.
+- **B2, right after connecting:** check, from the connected inlet's metadata:
+  the sampling rate matches the configured `sfreq`; every required channel
+  declares voltage units consistent with the configured source exponent
+  (V / mV / µV / nV); labels are unique and contain the required set (this is
+  today's `ChannelContract`); the channel types identify EEG and EOG
+  correctly; samples are numeric; and no filters, callbacks or unread samples
+  exist before setup. The reference and upstream-processing descriptions cannot
+  be verified automatically — they are recorded as operator assertions and
+  stored in the run metadata for later audits.
+
+**Why both phases:** the pre-connect check answers "is this the outlet we
+mean?", the post-connect check answers "does this outlet deliver what we
+declared?" — the second needs metadata that only exists after connecting, so it
+cannot be moved earlier.
+
+---
+
+### C. Eye-artefact removal by calibrated projection
+
+**The problem.** Blinks and eye movements produce voltages that spread to
+frontal EEG channels. A classifier trained on clean windows would treat these
+as real brain features. The fix is a *spatial* one: find the direction in
+channel space that eye activity occupies and remove it from the EEG columns.
+
+**The principle (EOG-guided SSP).** Record a calibration run in which the user
+blinks and moves their eyes on command. Compute the cross-covariance between
+the EEG channels and the EOG channel; the dominant direction `U` of that
+covariance is where eye activity lives. The projector `P = I - U @ U.T`
+removes that direction from the EEG while leaving everything orthogonal to it
+untouched. With a single EOG channel this supports removing one direction.
+This is not ICA and not interpolation — it is a fixed linear projection.
+
+**C1 — calibration (offline, once per operator).** A recorded run with role
+`artifact_calibration`, a real EOG channel, and clean `blink` / `eyes_*`
+events. The recorded raw chunks are replayed through the *same* chain the live
+run used (including A1/A2 once they exist), epochs of about one second are cut
+around each event, the first events fit `U`, and the last third is held out to
+verify that EEG–EOG coupling actually drops by at least half. The result is
+saved as an operator file (`.npz`) plus a report and an inspection plot.
+Calibration needs events that line up with windows — one reason the window
+event log (D3) exists.
+
+**C2 — application (online, per window).** When a run selects a saved operator
+(`artifact_path` on the run spec), every finished window passes through it
+between `wrap()` and the consumer. Because `P` is linear and time-invariant,
+projecting each window equals projecting the continuous signal and then
+windowing, so the ring buffer stays pure storage. The operator:
+
+- checks its contract against the run: channel order (EEG then EOG), rates,
+  reference, upstream description, filter/resampler settings, units — a
+  mismatch is an error, not a silent skip;
+- multiplies only the EEG columns; EOG is left alone;
+- stamps `artifact_id` on the window so a window can never be corrected twice;
+- preserves the window's existing `valid` / `reasons` — correction never turns
+  a rejected window into a valid one.
+
+Two caveats are recorded in the guide's spirit of honesty: projection also
+removes any *neural* activity that shares the eye direction, and it reduces the
+data's rank, so a future covariance classifier must regularize accordingly.
+Nothing ever auto-selects the newest operator file; the choice is explicit so
+it can be audited (D2 records the exact file that was used).
+
+---
+
+### D. Run provenance: what happened, exactly
+
+**The problem.** A recorded run is only science if someone can later answer:
+what settings produced it, which operator/baseline/model files went in, which
+windows were actually delivered, and did it finish. Today's recorder stores
+channel names, rates and identity but not the processing chain, does not
+snapshot external files, and does not log delivered windows.
+
+- **D1 — configuration snapshot.** When a run opens, the whole chain
+  configuration (rates, notch/band-pass settings, filter order, resampling
+  quality, window geometry, units, and later the A1/A2 limits) is serialized
+  into the run metadata. Without it, offline replay cannot know what
+  processing a run went through.
+- **D2 — selected-input snapshots.** The run spec optionally names external
+  files (`artifact_path`, `baseline_path`, `model_path`). The recorder copies
+  each file into the run folder and records its original path and SHA-256
+  hash. A missing file fails the run at open. Nothing selects the newest file
+  automatically — the choice is explicit and auditable.
+- **D3 — window event log.** One line per delivered window (timestamp, `valid`,
+  reasons, segment, `artifact_id`), written at `wrap()` time. This is what
+  lets an offline replay reproduce exactly which windows were delivered, and
+  what calibration (C1) aligns its epochs against.
+- **D4 — honest endings.** When the loop stops, any tail still buffered in the
+  acquire handle is saved with a `not_processed` mark instead of being
+  silently dropped, and the run is locked as `completed` or `failed` with the
+  error text. A crash mid-run leaves a clearly `recording`-status database that
+  cannot be mistaken for a finished one.
+
+**Where:** all of D lives in the recorder plus one reporting hook after
+`wrap()`; D1 additionally needs the assembly point (the script, or the session
+once it collects the chain) to hand the recorder a serializable description of
+the chain it actually ran.
+
+---
+
+### What this section deliberately does not promise
+
+Reference application, ICA-based removal, per-subject adaptive calibration, and
+validation against real amplifier hardware are all out of scope for A–D. The
+guardrails protect against transport and recording failures; they do not turn
+synthetic checks into proof that neural activity survives a projector.
+
+---
+
+## 10. Glossary (quick lookup)
 
 | Term | Meaning |
 | --- | --- |

@@ -74,8 +74,8 @@ def make_raw(seconds: float, sfreq: float = SFREQ) -> mne.io.RawArray:
 class ChainRunner:
     """Run the exact demo chain over raw blocks and keep every window.
 
-    Mirrors ``StreamSession``'s fixed order (scale -> quality -> filters ->
-    resample) plus the warm-up/quality gate, without the recording logic, so a
+    Replicates the demo's own `STAGES` tuple (scale -> quality -> filters ->
+    resample) plus the warm-up/judge gate, without the recording logic, so a
     live run and an offline replay use literally the same code path.
     """
 

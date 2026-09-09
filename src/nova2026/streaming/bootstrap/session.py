@@ -1,10 +1,12 @@
 """Build every run-once component of a live session around a stream.
 
 ``StreamSession`` assembles the boilerplate start-up (channel contract,
-optional recorder, acquire handle, window buffer) while the preprocessing
-stages stay where the script defines them: the caller constructs
-``scale``/``quality``/``filters``/``resample`` explicitly and hands them in.
-The session only guarantees the execution order and the gating semantics.
+optional recorder, acquire handle, window buffer) and owns the window gate.
+Preprocessing does NOT live here: the script defines its own ordered tuple of
+stages, each ``stage(data, timestamps) -> (data, timestamps)``, and runs it in
+its own loop. The session only packages windows: warm-up is judged from the
+sample counter, and quality/repair verdicts come from the ``judges`` the
+script registered.
 """
 
 from datetime import datetime
@@ -14,7 +16,6 @@ import numpy as np
 from ..acquire import Acquire
 from ..channels import ChannelContract
 from ..circular_buffer import CircularBuffer
-from ..preprocess import QualityMonitor, unit_scaler
 from ..recording import RunRecorder, RunSpec
 from ..window import EEGWindow
 
@@ -28,30 +29,29 @@ class StreamSession:
         args: Parsed namespace (geometry + recording identity + consumer
             knobs). See :func:`~.args.parse_args` for the expected fields.
         channels: Canonical channel names, EEG first then auxiliary.
-        scale: Explicit V->uV stage (``(data, ts) -> (data, ts)``). Defaults
-            to ``unit_scaler(source_unit_exponent)``.
-        quality: Explicit :class:`~..preprocess.QualityMonitor`. Defaults to a
-            monitor over all ``channels`` at the input rate.
-        filters: Explicit stateful causal filters applied after quality
-            observation, in order (e.g. ``(notch, bandpass)``).
-        resample: Explicit :class:`~..preprocess.Resampler` (or None). Its
-            output rate drives the window geometry.
-        source_unit_exponent: Power of ten of the source unit (0 = volts).
+        judges: Verdict providers queried by ``wrap()``; each must expose
+            ``reasons(start, end) -> tuple[str, ...]`` (for example a
+            :class:`~..preprocess.QualityMonitor`). Their reasons are unioned,
+            so one rejected reason marks the whole window invalid.
+        out_sfreq: Output rate in Hz that drives the window geometry; falls
+            back to ``args.out_sfreq`` when omitted.
+        source_unit_exponent: Power of ten of the source unit (0 = volts),
+            stored by the optional recorder.
         role: Run role recorded in the metadata.
         ch_types: Optional per-channel MNE types; defaults to all EEG.
         n_eeg: Number of leading EEG columns; auxiliary columns are kept
             separately in each :class:`~..window.EEGWindow`.
 
     Notes:
-        The execution order of preprocessing is fixed and owned here:
-        ``scale -> quality.feed -> each filter -> resample``. The session does
-        NOT connect the stream, start threads or consume windows; it only
-        builds the run-once pieces and exposes the loop helpers
-        ``ingest`` / ``process`` / ``wrap``.
+        Preprocessing is fully owned by the script: no stage is built or run
+        here, so the caller may chain, reorder and replace stages freely. The
+        session does NOT connect the stream, start threads, process data or
+        consume windows; it only builds the run-once pieces and exposes the
+        loop helpers ``ingest`` / ``wrap``.
 
     Attributes:
         contract, recorder, acquire, buffer: The built components.
-        scale, quality, filters, resample: The preprocessing stages as passed.
+        judges: Verdict providers registered for ``wrap()``.
         eeg_count, n_channels, out_sfreq, warmup_samples: Geometry used here.
     """
 
@@ -61,16 +61,14 @@ class StreamSession:
         args,
         channels: tuple[str, ...],
         *,
-        scale=None,
-        quality=None,
-        filters: tuple = (),
-        resample=None,
+        judges: tuple = (),
+        out_sfreq: float | None = None,
         source_unit_exponent: int = 0,
         role: str = "run",
         ch_types: tuple[str, ...] | None = None,
         n_eeg: int | None = None,
     ) -> None:
-        """Build the contract, recorder, acquire, buffer and chain defaults."""
+        """Build the contract, recorder, acquire, buffer and window gate."""
 
         self.args = args
         self.channels = tuple(str(name) for name in channels)
@@ -109,27 +107,15 @@ class StreamSession:
                 unit_exponent=source_unit_exponent,
             )
 
-        # Preprocessing stages: caller-provided wins, sensible defaults remain
-        # so a bare session still converts units and monitors quality.
-        self.scale = scale if scale is not None else unit_scaler(
-            source_unit_exponent, desired_exponent=-6
-        )
-        self.quality = (
-            quality
-            if quality is not None
-            else QualityMonitor(
-                n_eeg=self.eeg_count, sfreq=sfreq, warmup_seconds=0.0
-            )
-        )
-        self.filters = tuple(filters)
-        self.resample = resample
+        # Verdict providers; the session only asks them, never orders them.
+        self.judges = tuple(judges)
 
-        # The window geometry lives at the OUTPUT rate: the resampler's rate
-        # when present, otherwise the source rate (or --out-sfreq fallback).
-        if resample is not None:
-            self.out_sfreq = float(resample.out_sfreq)
-        else:
-            self.out_sfreq = float(getattr(args, "out_sfreq", sfreq))
+        # The window geometry lives at the OUTPUT rate of the preprocessing
+        # chain. The script knows that rate (e.g. its resampler's), so it may
+        # hand it in; without one we trust --out-sfreq.
+        self.out_sfreq = float(
+            out_sfreq if out_sfreq is not None else getattr(args, "out_sfreq", sfreq)
+        )
         self.window_samples = round(
             float(getattr(args, "window", 2.0)) * self.out_sfreq
         )
@@ -170,21 +156,6 @@ class StreamSession:
             self.recorder.write(data, timestamps)
         return data, timestamps
 
-    def process(self, data: np.ndarray, timestamps: np.ndarray):
-        """Run the caller-defined preprocessing in the fixed order."""
-
-        # 1) Units: source -> uV.
-        data, timestamps = self.scale(data, timestamps)
-        # 2) Quality observes the RAW uV, before filters can hide faults.
-        self.quality.feed(data, timestamps)
-        # 3) Each caller-defined causal filter, in order.
-        for streaming_filter in self.filters:
-            data, timestamps = streaming_filter(data, timestamps)
-        # 4) Optional rate conversion (also regenerates timestamps).
-        if self.resample is not None:
-            data, timestamps = self.resample(data, timestamps)
-        return data, timestamps
-
     def wrap(
         self,
         window: np.ndarray,
@@ -195,14 +166,19 @@ class StreamSession:
 
         This replaces hand-written gating: the returned object carries its own
         verdict (``valid``/``reasons``) and splits EEG from auxiliary columns.
+        Preprocessing is not run here; ``ingest()`` output must already be
+        processed and pushed by the script before a window is wrapped.
 
         Returns:
             An EEGWindow whose ``valid`` is False for warm-up windows or
-            windows overlapped by a quality fault.
+            windows rejected by any registered judge.
         """
 
-        reasons = self.quality.reasons(
-            float(window_times[0]), float(window_times[-1])
+        start = float(window_times[0])
+        end = float(window_times[-1])
+        # Union every judge's verdict over this window's time span.
+        reasons = sorted(
+            {reason for judge in self.judges for reason in judge.reasons(start, end)}
         )
         valid = start_sample >= self.warmup_samples and not reasons
 

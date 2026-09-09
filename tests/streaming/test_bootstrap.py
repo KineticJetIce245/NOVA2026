@@ -54,7 +54,7 @@ class SessionTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
-    def test_session_reorders_records_and_processes(self) -> None:
+    def test_session_reorders_records_and_gates_windows(self) -> None:
         args = parse_args(argv=[])
         args.sfreq = 500.0
         args.out_sfreq = 128.0
@@ -72,10 +72,8 @@ class SessionTests(unittest.TestCase):
         self.assertTrue(np.allclose(reordered[:, 0], 1e-5))  # F3 is now col 0
         self.assertEqual(session.recorder.chunks, 1)
 
-        processed, _ = session.process(reordered, times)
-        self.assertIsNotNone(processed)
-
-        # wrap() packages a window with its verdict: warm-up windows rejected.
+        # The session never runs preprocessing: with no judges, the gate only
+        # checks warm-up. Pre-warm-up windows are rejected, later ones valid.
         eeg_window = session.wrap(reordered, times, start_sample=0)
         self.assertFalse(eeg_window.valid)
         self.assertEqual(eeg_window.reasons, ())
@@ -86,6 +84,39 @@ class SessionTests(unittest.TestCase):
         metadata = read_metadata(session.recorder.path)
         self.assertEqual(metadata["status"], "completed")
         self.assertTrue(session.recorder.fif_path.exists())
+
+    def test_wrap_unions_registered_judges(self) -> None:
+        args = parse_args(argv=[])
+
+        class Judge:
+            """Minimal verdict provider standing in for QualityMonitor."""
+
+            def __init__(self, name: str, active_from: float) -> None:
+                self.name = name
+                self.active_from = active_from
+
+            def reasons(self, start: float, end: float) -> tuple[str, ...]:
+                return (self.name,) if end >= self.active_from else ()
+
+        session = StreamSession(
+            StubStream(CHANNELS),
+            args,
+            CHANNELS,
+            judges=(Judge("flatline", 0.5), Judge("amplitude", 0.7)),
+        )
+        window = np.zeros((10, 3))
+
+        # No judge is active over this early window: only warm-up gates it.
+        early = np.arange(10) / 500.0  # [0.0, 0.018] s
+        eeg_window = session.wrap(window, early, start_sample=session.warmup_samples)
+        self.assertTrue(eeg_window.valid)
+        self.assertEqual(eeg_window.reasons, ())
+
+        # A window spanning both active judges gets their unioned reasons.
+        later = 0.7 + np.arange(10) / 500.0  # [0.7, 0.718] s
+        eeg_window = session.wrap(window, later, start_sample=session.warmup_samples)
+        self.assertFalse(eeg_window.valid)
+        self.assertEqual(eeg_window.reasons, ("amplitude", "flatline"))
 
     def test_recorder_is_optional(self) -> None:
         args = parse_args(argv=[])
@@ -100,6 +131,8 @@ class SessionTests(unittest.TestCase):
         args = parse_args(argv=[])
         args.out_sfreq = 128.0
         session = StreamSession(StubStream(CHANNELS), args, CHANNELS)
+        self.assertEqual(session.judges, ())  # no judges by default
+        self.assertEqual(session.out_sfreq, 128.0)
         self.assertEqual(session.window_samples, 256)  # 2 s @ 128 Hz
         self.assertEqual(session.hop_samples, 64)  # 0.5 s
         self.assertEqual(session.warmup_samples, 256)  # 2 s

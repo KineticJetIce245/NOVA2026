@@ -9,9 +9,10 @@ uneven chunk size, then runs the whole chain in one loop:
 
     Acquire.read()                     (built by StreamSession)
       -> StreamSession.ingest()        channel reorder + raw recording
-      -> StreamSession.process()       uV, quality, notch, band, 500->128 Hz
+      -> STAGES (this script's tuple)  repair, V->uV, quality observer, notch,
+      |                                 band-pass, 500 -> 128 Hz
       -> CircularBuffer.push()         2 s windows @ 128 Hz
-      -> StreamSession.gate()          warm-up + quality gating
+      -> StreamSession.wrap()          warm-up + judge (quality/repair) gating
       -> TaskOffloader (or in-loop) analysis
 
 Compare consumer modes with a simulated slow analysis:
@@ -40,6 +41,7 @@ from nova2026.streaming.bootstrap import StreamSession, parse_args
 # Preprocessing building blocks are DEFINED here, in this script, on purpose.
 from nova2026.streaming.preprocess import (
     QualityMonitor,  # observes raw EEG faults (amplitude/saturation/flatline)
+    Repair,  # repairs short NaN/Inf runs before the filters see them
     Resampler,  # stateful 500 -> 128 Hz resampling (SoXR)
     SosFilter,  # one stateful causal filter (notch or band-pass)
     design_bandpass,  # designs Butterworth band-pass coefficients
@@ -106,11 +108,20 @@ def main() -> None:
     )
 
     # ------------------------------------------------------------------
-    # 3a) Define the preprocessing chain EXPLICITLY, right here in the script,
-    #     so every stage and its parameters are visible and editable.
+    # 3a) Define the preprocessing chain EXPLICITLY, right here in the script.
+    #     Every stage has the same shape (data, ts) -> (data, ts), and the
+    #     order below is exactly the order the loop runs them in. quality is
+    #     an OBSERVER, so observe() wraps its feed into that same shape.
     # ------------------------------------------------------------------
+    repair = Repair(args.sfreq, source_unit_exponent=SOURCE_UNIT_EXPONENT)
     scaler = unit_scaler(SOURCE_UNIT_EXPONENT, desired_exponent=-6)  # V -> uV
     quality = QualityMonitor(n_eeg=len(CHANNELS), sfreq=args.sfreq, warmup_seconds=0.0)
+
+    def observe(data, timestamps):
+        # Watch the raw uV signal here, before any filter can hide faults.
+        quality.feed(data, timestamps)
+        return data, timestamps
+
     notch = SosFilter(design_notch(args.notch, args.notch_q, args.sfreq), len(CHANNELS))
     bandpass = SosFilter(
         design_bandpass(args.lpass, args.hpass, args.order, args.sfreq), len(CHANNELS)
@@ -118,19 +129,21 @@ def main() -> None:
     resampler = Resampler(
         args.sfreq, args.out_sfreq, len(CHANNELS), quality=args.resample_quality
     )
+    # repair first (source units, before scaling and filters), observe right
+    # after scaling so quality sees raw uV, filters, resampling last.
+    STAGES = (repair, scaler, observe, notch, bandpass, resampler)
 
     # ------------------------------------------------------------------
     # 3b) StreamSession assembles the REST (contract, recorder, acquire,
-    #     buffer) and only executes the chain above in a fixed order.
+    #     buffer). It never runs STAGES: the loop below does. judges are
+    #     only asked when wrap() gates a finished window.
     # ------------------------------------------------------------------
     session = StreamSession(
         stream,
         args,
         CHANNELS,
-        scale=scaler,
-        quality=quality,
-        filters=(notch, bandpass),
-        resample=resampler,
+        judges=(quality, repair),
+        out_sfreq=resampler.out_sfreq,
         source_unit_exponent=SOURCE_UNIT_EXPONENT,
     )
     if session.contract.dropped_channels:
@@ -194,8 +207,9 @@ def main() -> None:
             # (b) Contract reorder + save the raw volts before transformation.
             data, timestamps = session.ingest(data, timestamps)
 
-            # (c) Run the preprocessing chain over this block.
-            data, timestamps = session.process(data, timestamps)
+            # (c) Run THIS script's chain over the block, in our own order.
+            for stage in STAGES:
+                data, timestamps = stage(data, timestamps)
 
             # (d) Collect any windows this block completed.
             for window, window_times, start in session.buffer.push(data, timestamps):
@@ -241,11 +255,9 @@ def main() -> None:
         f"\ninput_samples={session.acquire.samples} "
         f"max_lag={session.acquire.max_lag:.3f}s gaps={session.acquire.gaps}"
     )
-    if session.resample is not None:
-        print(
-            f"resampled_output={session.resample.output_samples} "
-            f"@ {session.out_sfreq:g} Hz"
-        )
+    print(
+        f"resampled_output={resampler.output_samples} @ {session.out_sfreq:g} Hz"
+    )
     print(
         f"windows: valid={valid_windows} rejected={rejected_windows} "
         f"buffer_windows={session.buffer.windows}"

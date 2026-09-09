@@ -10,11 +10,13 @@ about a window later. Nothing here touches LSL, threads or the buffer; only
 # Re-export every public preprocessing piece from one import location.
 from .filters import SosFilter, design_bandpass, design_notch
 from .quality import QualityMonitor
+from .repair import Repair
 from .resample import Resampler
 from .units import unit_scaler
 
 __all__ = [
     "QualityMonitor",
+    "Repair",
     "Resampler",
     "SosFilter",
     "design_bandpass",
