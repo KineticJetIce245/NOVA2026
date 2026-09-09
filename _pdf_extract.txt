@@ -1,0 +1,370 @@
+===== PAGE 1 =====
+Baseline-Normalised Engagement Index
+Mathematical framing of the AttentivU pipeline and the 𝑧-scoring stage
+NOVA Buildathon 2026 — COG-BCI / PVT
+Scope
+This document formalises the algorithmic (non-learned) 
+arm of the attention-lapse pipeline: the AttentivU engage -
+ment index [1] computed on COG-BCI PVT trials [2], and 
+in particular the baseline normalisation that makes that 
+index comparable across electrodes, sessions and partici -
+pants.
+The learned arm (EEGNet [3]) consumes the same pre -
+processed tensor and is described in the main research 
+document. The two arms are kept on identical windows 
+so that their outputs are directly comparable; §2.1 explains 
+why that constraint is not cosmetic.
+Every numeric constant quoted below was measured on 
+the local COG-BCI copy, not taken from the literature. 
+Measurements labelled sub-01 are single-session and illus-
+trative; measurements labelled with a sample size are 
+aggregates.
+Notation
+𝑖 trial index, 1…𝑁
+𝑐 channel index, 1…𝐶, 𝐶 =62
+𝑤 baseline window index, 1…𝑊 , 𝑊 ≈56
+𝑠,𝑒subject and session; 𝑠(𝑖),𝑒(𝑖) denote those of trial 𝑖
+𝑓 frequency, Hz
+𝑓𝑠 sampling rate after resampling, 128 Hz
+𝑇 window length in samples, 𝑇 =256 (2000 ms)
+𝐻 hop between baseline windows, 𝐻 =𝑇/2
+Three indices do three distinct jobs and are never inter -
+changeable: 𝑐 selects an electrode, 𝑤 sweeps the baseline 
+windows of one recording, and the pair (𝑠,𝑒) selects which 
+recording. A subject alone does not identify a baseline — 
+each participant sat three sessions and the cap was re-
+mounted between them, so there are 25×3=75 distinct 
+baselines and 75×62=4650 calibration pairs.
+The pipeline as a whole
+Preprocessing operator
+Let 𝑥∈ℝ𝐶×𝑛 be a continuous recording. AttentivU steps 
+1–7 define an operator 𝒫︀ applied identically to every 
+recording, task and resting alike:
+𝒫︀ =𝒦︀∘ℬ︀∘ℛ︀∘ℬ︀∘𝒩︀ (1)
+with 𝒩︀  a 60 Hz notch ( 10 Hz width), ℬ︀ a 4–20 Hz 
+zero-phase Butterworth band-pass, ℛ︀ resampling 500→
+128 Hz, and 𝒦︀ the channel-wise centre–scale–clip 𝑣↦
+min(max((𝑣−𝑣̄)/8,−4),4).
+Two properties of 𝒫︀ matter downstream. 𝒩︀ , ℬ︀ and ℛ︀ are 
+linear and time-invariant, so any distortion they introduce 
+is a fixed multiplicative factor on band power and can -
+cels in the difference of logarithms taken in §2. 𝒦︀ is not: 
+clipping is a memoryless nonlinearity whose effect depends 
+on the instantaneous amplitude, and it therefore does not 
+cancel. §5 quantifies both.
+Two sampling domains
+The operator output is sampled in two different ways.
+Trials. For trial 𝑖 with stimulus onset 𝑡𝑖 and guard 𝛿=100 
+ms, extract the sample set ending 𝛿 before onset:
+𝒯︀𝑖 ={𝑡𝑖−𝛿−𝑇 +1,…,𝑡𝑖−𝛿} (2)
+𝑋𝑖 =[𝒫︀𝑥]⋅,𝒯︀𝑖
+∈ℝ𝐶×𝑇 (3)
+admitted only if the preceding response cleared by more 
+than 𝑇/𝑓𝑠+200 ms, so that no post-response activity 
+enters the window. This is exactly the tensor the network 
+receives.
+Baseline. For the eyes-open pre-task rest run RS_Beg_EO of 
+the same session, discard 𝜏𝑓𝑠 samples at each end (𝜏 =1 s) 
+and tile the remainder:
+𝑎𝑤 =(𝑤−1)𝐻+𝜏𝑓𝑠, ℬ︀𝑤 ={𝑎𝑤+1,…,𝑎𝑤+𝑇}(4)
+𝑅𝑠,𝑒,𝑤 =[𝒫︀𝑟]⋅,ℬ︀𝑤
+(5)
+for 𝑤=1…𝑊  with 𝑊 =⌊(𝑛−2𝜏𝑓𝑠−𝑇)/𝐻⌋+1, so the 
+baseline windows have exactly the length and sample count 
+of a trial window.
+The trim is not arbitrary: the impulse response of the zero-
+phase Butterworth cascade decays below 10−3 of peak 
+within 0.88 s at 128 Hz, so the terminal windows of a 
+continuous run are part filter transient. Trials are exempt 
+— the first PVT stimulus occurs at ≈10.9 s.
+===== PAGE 2 =====
+Spectral operator
+A single estimator 𝒲︀ is applied to both domains: Welch 
+[4] with Hamming taper, segment length 𝐿=𝑓𝑠 (1 s), 50% 
+overlap, zero-padded to 𝑁fft =𝑇 , averaged over the 𝐾 =3 
+resulting segments, DC removed, evaluated on [4,20] Hz at 
+Δ𝑓 =𝑓𝑠/𝑁fft =0.5 Hz.
+Fixing 𝐿 independently of  𝑇  decouples the estimator 
+from window length. Averaging 𝐾 =3 segments reduces 
+estimator variance: measured window-to-window spread 
+of ln𝐸 falls from 0.428 (𝐾 =1, a single periodogram) to 
+0.309.
+Engagement functional
+Band powers by trapezoidal integration over half-open 
+intervals:
+𝑃𝑏 =∫
+[𝑓1,𝑓2)
+𝑃̂(𝑓)d𝑓 (6)
+for 𝜃=[4,7), 𝛼=[7,11), 𝛽=[11,20) Hz. Half-open mat-
+ters: closed intervals on both edges assign 7 Hz to both 𝜃 
+and 𝛼 and 11 Hz to both 𝛼 and 𝛽, inflating 𝜃 by 21% on a 
+realistic 1/𝑓-plus-alpha spectrum.
+The index of Pope et al. [5], in log space:
+ℓ=ln𝑃𝛽−ln(𝑃𝛼+𝑃𝜃) (7)
+Two remarks. ℓ is scale-invariant: multiplying a channel 
+by any constant leaves it unchanged, so the ÷8 inside 𝒦︀ 
+has no effect whatsoever — only the clip does. And ℓ rather 
+than 𝐸 is the quantity to standardise: 𝐸 is a ratio of near-
+log-normal powers, hence right-skewed with dispersion 
+dominated by the upper tail, whereas ℓ is near-symmetric 
+and admits a location–scale description.
+Applying 𝒲︀ then Equation 7 gives ℓ𝑖,𝑐 for trials and ℓrest
+𝑠,𝑒,𝑤,𝑐 
+for baseline windows.
+The reduction, dimension by dimension
+Each ℓ is an entire window collapsed to one number. The 
+time axis is destroyed at the spectral step and never reap -
+pears:
+rest run        (62, 7674)     ch x samples
+  | tile
+windows         (56, 62, 256)  +window axis
+  | Welch
+spectra         (56, 62, 33)   time -> freq
+  | integrate,log
+log engagement  (56, 62)       1 per win-ch
+  | fix channel c
+x               (56,)          the median set
+Concretely, for 𝑤=0, channel Pz of sub-01/ses-S1: the 
+256 voltages give 𝑃𝜃 =0.2214, 𝑃𝛼 =0.2969, 𝑃𝛽 =0.6723, 
+hence 𝐸=1.2970 and ℓ=0.2600. That single scalar is one 
+element of the 56-element set standardised below.
+The 𝑧-score
+Why standardise at all
+𝐸 has no absolute meaning. Band power scales with skull 
+thickness, hair, electrode impedance and cap placement, 
+so the same numeric value at two electrodes, or on two 
+days, does not denote the same neural state. The pipeline 
+therefore never asks what is the value but how far is this 
+value from what this electrode reads, in this session, 
+at rest — which requires both a location and a scale esti -
+mated from a reference distribution.
+Stratification
+Location and scale are estimated per (𝑠, 𝑒, 𝑐): per subject, 
+per session, per channel.
+Per channel, because resting 𝑃𝛽/(𝑃𝛼+𝑃𝜃) is genuinely 
+site-dependent. Per session, because impedance and place -
+ment do not persist across days. Not pooled across subjects, 
+because between-subject variance is precisely the nuisance 
+the baseline exists to remove; pooling 𝜎 would leave it in the 
+numerator and let a classifier learn subject identity instead 
+of state. variance_decomposition() reports the ICC that 
+quantifies this.
+Location and scale
+For fixed (𝑠,𝑒,𝑐), write 𝑥𝑤 =ℓrest
+𝑠,𝑒,𝑤,𝑐, 𝑤=1…𝑊 . Then
+𝜇𝑠,𝑒,𝑐 =median𝑤𝑥𝑤 (8)
+𝜎𝑠,𝑒,𝑐 =1.4826⋅median𝑤|𝑥𝑤−median𝑤𝑥𝑤| (9)
+with the guard 𝜎←max(𝜎,10−3median𝑐𝜎) against de -
+generate channels. Note the median in Equation 9 is nested: 
+the inner one supplies the centre, the outer one summarises 
+the distances from it. That structure is not exotic — it is the 
+structure of a standard deviation with two substitutions:
+𝑠=√mean𝑤(𝑥𝑤−mean𝑥)2
+MAD=median𝑤|𝑥𝑤−median𝑥|
+Both say: pick a centre, measure each point’s distance from 
+it, summarise those distances. The standard deviation uses 
+the mean in both roles and squares; the MAD uses the 
+median in both roles and takes absolute values.
+===== PAGE 3 =====
+The constant is 1.4826=1/Φ−1(0.75), which renders the 
+MAD Fisher-consistent with 𝜎 under normality [6]. With-
+out it, every 𝑧 would be inflated by that factor.
+Standardisation
+𝑧𝑖,𝑐 =
+ℓ𝑖,𝑐−𝜇𝑠(𝑖),𝑒(𝑖),𝑐
+𝜎𝑠(𝑖),𝑒(𝑖),𝑐
+(10)
+Only 𝜇 and 𝜎 survive the baseline; the 𝑊  windows are 
+discarded. 𝑧𝑖,𝑐 =0 means the trial’s engagement at that 
+electrode matched the session’s resting median; 𝑧=−1 
+means one resting MAD-𝜎 below it.
+Worked example
+Channel Pz, sub-01/ses-S1. The 𝑊 =56 values of ℓrest:
+ 0.260  0.942  0.498  0.414 -0.020 -0.225  0.625  0.053
+-0.652 -1.004 -0.843  0.481  0.041  0.370  0.178 -0.551
+-1.514 -1.683 -0.603 -0.534 -0.503 -0.816 -0.887 -0.813
+-0.228  0.141  0.155 -0.267  0.077  0.745  0.032 -0.278
+-0.404 -1.096 -1.411 -1.624 -1.878 -1.278 -0.645 -1.290
+-1.193 -0.782 -1.175 -1.304 -1.609 -0.610  0.414 -0.662
+-0.641 -0.566  0.019 -0.727 -0.729 -0.066  0.200 -0.331
+(A) Sort; with 𝑊  even the median is the mean of entries 
+27 and 28: 𝜇=(−0.5514+−0.5341)/2=−0.5427. The 
+arithmetic mean would give −0.4606, pulled by the low 
+cluster in windows 32–47.
+(B, C)  Deviations 𝑥𝑤−𝜇, then absolute values: 
+0.803,1.484,1.041,0.957,0.523,0.318,…
+(D) Median of those distances: MAD=(0.5616+
+0.5745)/2=0.5681. Half the resting windows lie within 
+0.568 of the centre.
+(E) 𝜎=1.4826×0.5681=0.8422. Empirically 75% of 
+baseline windows fall inside ±1𝜎 (Gaussian: 68%).
+(F) Any trial can now be scored:
+trial ℓ arithmetic 𝑧
+−0.543 (−0.543+0.543)/0.842 0.00
+−1.385 (−1.385+0.543)/0.842 −1.00
+−1.600 (−1.600+0.543)/0.842 −1.26
++0.300 (+0.300+0.543)/0.842 +1.00
+Why median and MAD rather than mean 
+and standard deviation
+Corrupting a single one of the 56 windows with a blink-
+sized artefact (+12 log units) and refitting:
+centre 1.4826MAD 𝑠
+clean −0.5427 0.8422 0.6821
+one bad window −0.5427 0.8422 1.8306
+change 0.0% 0.0% +168%
+The robust pair is unmoved — a single outlier cannot 
+change which value sits in the middle. The standard devia-
+tion nearly triples, and since every trial is divided by it, that 
+one artefact would compress all 90 of this channel’s trial 𝑧
+-scores toward zero by a factor of 2.7.
+Caveat. The constant 1.4826 assumes approximate nor -
+mality. On this channel the resting distribution is 
+platykurtic (windows 32–47 sit systematically lower), so 
+1.4826MAD=0.842 exceeds 𝑠=0.682 by 23%, where on 
+the channel-median they agree (0.556 vs 0.555). Neither is 
+“the true 𝜎”; the argument for the robust pair is the table 
+above, not superior accuracy.
+Channel aggregation
+Aggregation happens after standardisation, never before: 
+the 𝜇𝑐 differ systematically by site, so averaging raw ℓ 
+across channels would combine incommensurable offsets.
+The channel mean of 𝐶 unit-dispersion variates is not itself 
+unit-dispersion unless the channels are independent. Its 
+scale is therefore estimated on the same baseline windows:
+𝑔𝑠,𝑒,𝑤 = 1
+𝐶 ∑
+𝑐
+ℓrest
+𝑠,𝑒,𝑤,𝑐−𝜇𝑠,𝑒,𝑐
+𝜎𝑠,𝑒,𝑐
+(11)
+𝜎𝐺
+𝑠,𝑒 =1.4826⋅MAD𝑤𝑔𝑠,𝑒,𝑤 (12)
+giving one score per trial,
+𝑍̄𝑖 = 1
+𝜎𝐺
+𝑠(𝑖),𝑒(𝑖)
+⋅ 1
+𝐶 ∑
+𝐶
+𝑐=1
+𝑧𝑖,𝑐 (13)
+Measured 𝜎𝐺 ∈[0.69,1.00] across four sessions, against 
+𝐶−1/2 =0.127 under independence, because the mean 
+inter-channel correlation of 𝑧 is 0.47. The effective dimen-
+sionality is
+𝑛eff =(𝜎𝐺)
+−2
+≈1to2 (14)
+Consequence for weighting.  With 1–2 effective dimen -
+sions there is essentially nothing for a weighting scheme 
+to exploit, and the schemes agree accordingly (correlation 
+across 90 trials): uniform mean vs median 𝑟=0.988, vs 
+20% trimmed mean 𝑟=0.998, vs the Pope electrode subset 
+𝑟=0.818. The uniform mean is therefore used. Fitting 
+weights is deliberately avoided here — a parameter-free 
+===== PAGE 4 =====
+algorithmic arm is what makes a later comparison against 
+attention pooling interpretable.
+Validation
+Three checks, in order of precedence.
+1. Construct validity.  𝑍̄ of RS_Beg_EC scored against 
+the RS_Beg_EO baseline. Eyes-closed alpha enters the 
+denominator of Equation  7, so this must be clearly 
+negative. Measured sub-01: −0.84𝜎, against −0.01𝜎 for 
+held-out eyes-open windows. If this fails, nothing down-
+stream is interpretable.
+2. Stratification necessity. ICC of raw ℓ across subjects, 
+from variance_decomposition(). A high value con -
+firms that pooling 𝜎 across subjects would have been 
+inadmissible.
+3. Primary contrast.  𝔼[𝑍̄|𝑦=1]−𝔼[𝑍̄|𝑦=0], 
+paired within session and aggregated across sessions, 
+where 𝑦=1 marks the within-session slowest decile of 
+reaction time.
+Assumption audit
+Band-edge attenuation.  The 4–20 Hz band-pass is ap -
+plied twice with zero phase, giving measured power trans -
+fer of −11.6 dB at 4 Hz and −11.8 dB at 20 Hz — roughly 7% 
+of power surviving at both ends of the analysis range. Be -
+cause this is LTI and identical on both sides of Equation 10, 
+it cancels in the difference of logarithms to first order; the 
+residual effect on 𝐸 is ×1.07. The cost is signal-to-noise, 
+not bias.
+Window-length coupling.  𝐸 is strongly dependent on 
+segmentation: the same resting signal yields 𝐸̄=0.4219 
+measured in 2 s windows and 0.2397 in 5 s windows, a 43% 
+shift from segmentation alone. This is why the baseline is 
+tiled at exactly 𝑇  and not at the 5 s of the original AttentivU 
+formulation. Restoring 5 s windows would additionally 
+require a 5200 ms clear gap, retaining only 68% of trials 
+(61.3 vs 89.8 per session, 𝑛=29).
+Clipping. 𝒦︀ is nonlinear and amplitude-dependent: the 
+correlation between window peak amplitude and induced 
+Δℓ is +0.44, so this bias does not cancel. It engages 
+on 62% of PVT trials and 10.7% of (trial, channel) pairs, 
+concentrated occipitally where alpha is largest. Mean effect 
++0.009 in high-alpha windows versus 0.000 in low-alpha; 
+worst case 0.25𝜎. This is the one preprocessing step whose 
+bias reaches the 𝑧-score.
+Baseline non-stationarity.  Channels that degrade be-
+tween the rest block and the PVT shift 𝑍̄ substantially 
+(−0.75𝜎 at 12 affected channels, −1.47𝜎 at 24), but the 
+correlation with the uncontaminated composite remains ≥
+0.995: the effect is a near-constant offset, which cancels 
+in a within-session contrast. Channels that are simply bad 
+throughout are absorbed almost exactly ( +0.009𝜎 at 24 
+affected channels), because the baseline sees the same cor -
+ruption the trials do.
+Implementation map
+All of §2–§4 lives in scripts/dataproc/prototype/
+engagement.py.
+welch 𝒲︀, §1.3 — shared by both domains
+band_power 𝑃𝑏, half-open integration
+engagement_index Equation 7
+epoch baseline tiling + edge trim, §1.2
+baseline_from_rest Equation 8, Equation 9, 𝜎𝐺
+fit_baselines one Baseline per (𝑠,𝑒)
+normalize Equation 10, returns 𝑁×62
+normalize_composite Equation 13, returns 𝑁
+baseline_sanity_check validation 1
+variance_decomposition validation 2
+lapse_contrast validation 3
+Window length and hop are derived from 
+config.SAMPLE_SIZE rather than restated, so the baseline 
+cannot silently desynchronise from the trial tensor that 
+build_pvt.py produces. build_rest.py must be run with 
+DATASET = "RS_Beg_EO"  for the baseline and "RS_Beg_EC" for 
+validation 1.
+References
+[1] N. Kosmyna and P. Maes, “AttentivU: An EEG-Based 
+Closed-Loop Biofeedback System for Real-Time Mon -
+itoring and Improvement of Engagement for Person -
+alized Learning, ” Sensors, vol. 19, no. 23, 2019, doi: 
+10.3390/s19235200.
+[2] M. F. Hinss, E. S. Jahanpour, B. Somon, L. Pluchon, 
+F. Dehais, and R. N. Roy, COG-BCI database: A multi-
+session and multi-task EEG cognitive dataset for passive 
+brain-computer interfaces . (Jul. 2022). Zenodo. doi: 
+10.5281/zenodo.6874129.
+[3] V. J. Lawhern, A. J. Solon, N. R. Waytowich, S. M. Gor-
+don, C. P. Hung, and B. J. Lance, “EEGNet: a compact 
+convolutional neural network for EEG-based brain–
+computer interfaces, ” Journal of Neural Engineering , 
+vol. 15, no. 5, p. 56013, Jul. 2018, doi: 10.1088/1741-2552/
+aace8c.
+===== PAGE 5 =====
+[4] P. D. Welch, “The use of fast Fourier transform for the 
+estimation of power spectra: A method based on time 
+averaging over short, modified periodograms, ” IEEE 
+Transactions on Audio and Electroacoustics , vol. 15, no. 
+2, pp. 70–73, 1967, doi: 10.1109/TAU.1967.1161901.
+[5] A. T. Pope, E. H. Bogart, and D. S. Bartolome, 
+“Biocybernetic system evaluates indices of operator 
+engagement in automated task, ” Biological Psychol -
+ogy, vol. 40, no. 1–2, pp. 187–195, 1995, doi: 
+10.1016/0301-0511(95)05116-3.
+[6] P. J. Rousseeuw and C. Croux, “Alternatives to the 
+Median Absolute Deviation, ” Journal of the American 
+Statistical Association, vol. 88, no. 424, pp. 1273–1283, 
+1993, doi: 10.1080/01621459.1993.10476408.

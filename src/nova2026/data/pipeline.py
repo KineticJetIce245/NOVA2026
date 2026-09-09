@@ -48,10 +48,28 @@ class Pipeline:
         tuple
             ``(result, final_data)`` from the last tube.
         """
+
+        if data is None:
+            raise PipelineError("data is type None. Please provide actual data.")
+
+        is_self_load = data is self.__load__
+
+        if is_self_load:
+            print(
+                f"[data: {data}] is the same as self.__load__: {self.__load__}. Running the pipeline on self.__load__"
+            )
+
         temp_load = data
         result = None
         for tube in self.__tubes__:
             result, temp_load = tube(temp_load)
+
+        if is_self_load:
+            self.__load__ = (
+                temp_load  # in case pipeline doesn't modify everything in-place
+            )
+            return result, self.spit()  # spit resets and returns modified self.__load__
+
         return result, temp_load
 
     def feed(self, data: Any):
@@ -91,19 +109,21 @@ class Pipeline:
         Raises
         ------
         PipelineError
-            If there are no tubes, ``steps`` is non-positive, no data has been
-            fed, or the chain has already been completed.
+            If there are no tubes or no data to process.
+        ValueError
+            If ``steps`` is not positive, or if the pipeline has no data or
+            has already completed processing.
         """
         if len(self.__tubes__) == 0:
             raise PipelineError("Pipeline has no tubes to process data.")
         if steps <= 0:
-            raise PipelineError("Number of steps must be positive.")
+            raise ValueError("Number of steps must be positive.")
         if self.__load__ is None:
-            raise PipelineError("Pipeline has no data to process. Call feed() first.")
+            raise ValueError("Pipeline has no data to process. Call feed() first.")
         if self.__step_loc__ >= len(self.__tubes__):
             self.__load__ = None
             self.__step_loc__ = 0
-            raise PipelineError(
+            raise ValueError(
                 "Pipeline has already completed processing. Call feed() first."
             )
 

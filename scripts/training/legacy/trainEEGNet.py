@@ -11,7 +11,7 @@ from nova2026.architecture.lossfun import FocalLoss
 from nova2026.config import DATA_DIR
 
 ROOT = DATA_DIR / "COG-BCI"
-DATASET = ROOT / "PVT_data_2000ms_200ms.pt"
+DATASET = ROOT / "outputs/PVT_128Hz_AttUPipeline.pt"
 
 BATCH_SIZE = 32
 EPOCHS = 10

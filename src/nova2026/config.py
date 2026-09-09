@@ -19,4 +19,5 @@ DATASET = DATA_DIR / "COG-BCI/sub-01/ses-S1/eeg/PVT.set"
 
 # Constants needed for labeling and filtering
 SAMPLE_RATE = 128  # Hz
-SAMPLE_SIZE = 2000  # ms
+WINDOW_SIZE = 2000  # ms
+SAMPLE_SIZE = SAMPLE_RATE * WINDOW_SIZE // 1000  # samples per window
