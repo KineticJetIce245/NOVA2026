@@ -127,6 +127,16 @@ class SessionTests(unittest.TestCase):
         session.ingest(np.zeros((10, 3)), times)
         session.close()
 
+    def test_close_persists_stats_in_metadata(self) -> None:
+        args = parse_args(argv=[])
+        args.record = self.root
+        session = StreamSession(StubStream(CHANNELS), args, CHANNELS)
+        times = np.arange(10) / 500.0
+        session.ingest(np.zeros((10, 3)), times)
+        session.close(status="completed", stats={"valid": 4, "recoveries": 0})
+        metadata = read_metadata(session.recorder.path)
+        self.assertEqual(metadata["stats"], {"valid": 4, "recoveries": 0})
+
     def test_chain_geometry_is_derived_at_the_output_rate(self) -> None:
         args = parse_args(argv=[])
         args.out_sfreq = 128.0

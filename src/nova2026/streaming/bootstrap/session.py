@@ -218,8 +218,20 @@ class StreamSession:
             available_at=float(window_times[-1]),
         )
 
-    def close(self, status: str = "completed", error: str | None = None) -> None:
-        """Finalize the recorder (locks the run and exports the FIF)."""
+    def close(
+        self,
+        status: str = "completed",
+        error: str | None = None,
+        stats: dict | None = None,
+    ) -> None:
+        """Finalize the recorder (locks the run, exports the FIF, keeps stats).
+
+        Args:
+            status: ``"completed"`` or ``"failed"``.
+            error: Optional human-readable error for failed runs.
+            stats: Optional serializable counters (e.g.
+                :meth:`~..stats.StreamStats.to_dict`) stored in the metadata.
+        """
 
         if self.recorder is not None:
-            self.recorder.close(status=status, error=error)
+            self.recorder.close(status=status, error=error, stats=stats)

@@ -7,11 +7,20 @@ from .offload import TaskOffloader       # run per-window analysis on workers
 from .preflight import (
     ChannelContract,  # validate + reorder source channels
     prepare,  # pre-flight check -> the run's channel contract
+    resolve_outlet,  # confirm an outlet exists before connecting (B1)
     validate_source,  # check a connected inlet's metadata
 )
+from .preprocess.repair import UnrepairableError  # damage Repair cannot fix
 from .preprocess.resample import Resampler   # stateful 500->128 Hz (SoXR)
 from .recording import RunRecorder, RunSpec  # per-run SQLite recording + identity
-from .spatial import SpatialOperator, fit_ssp, processing_contract
+from .recovery import Recovery          # bounded recovery: reset or stop (A2)
+from .spatial import (
+    SpatialOperator,
+    cut_epochs,
+    fit_ssp,
+    processing_contract,
+)
+from .stats import StreamStats          # run counters, persisted at close (E)
 from .window import EEGWindow            # one window + verdict, for consumers
 
 __all__ = [
@@ -23,9 +32,14 @@ __all__ = [
     "RunRecorder",
     "RunSpec",
     "SpatialOperator",
+    "Recovery",
+    "StreamStats",
+    "UnrepairableError",
+    "cut_epochs",
     "EEGWindow",
     "fit_ssp",
     "prepare",
     "processing_contract",
+    "resolve_outlet",
     "validate_source",
 ]

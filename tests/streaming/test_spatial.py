@@ -9,6 +9,7 @@ import numpy as np
 from nova2026.streaming import (
     SpatialOperator,
     EEGWindow,
+    cut_epochs,
     fit_ssp,
     processing_contract,
 )
@@ -186,6 +187,60 @@ class FitTests(unittest.TestCase):
         eog = rng.normal(0.0, 8.0, (18, 256, 1))
         with self.assertRaisesRegex(ValueError, "coupling"):
             fit_ssp(eeg, eog, contract())
+
+
+class EpochCuttingTests(unittest.TestCase):
+    """cut_epochs: the already-processed-data input boundary for C."""
+
+    def setUp(self) -> None:
+        # 6 s @ 100 Hz; every value encodes its own row for easy checks.
+        self.sfreq = 100.0
+        rows = 600
+        self.times = np.arange(rows) / self.sfreq
+        self.eeg = np.stack([np.arange(rows), np.arange(rows) * 2.0], axis=1)
+        self.eog = np.arange(rows).reshape(-1, 1)
+
+    def test_epochs_are_cut_around_event_centers(self) -> None:
+        epochs, eog_epochs = cut_epochs(
+            self.eeg, self.eog, self.times,
+            event_times=(1.0, 3.5), seconds=1.0,
+        )
+        self.assertEqual(epochs.shape, (2, 100, 2))
+        self.assertEqual(eog_epochs.shape, (2, 100, 1))
+        # Center row 100 (t=1.0) sits in the middle of the first epoch.
+        center = 50  # 100 rows, center index within the slice
+        self.assertEqual(epochs[0, center, 0], 100.0)
+        self.assertEqual(eog_epochs[0, center, 0], 100.0)
+
+    def test_epochs_must_fit_inside_the_data(self) -> None:
+        with self.assertRaisesRegex(ValueError, "outside"):
+            cut_epochs(
+                self.eeg, self.eog, self.times,
+                event_times=(0.01,), seconds=1.0,
+            )
+        with self.assertRaisesRegex(ValueError, "outside"):
+            cut_epochs(
+                self.eeg, self.eog, self.times,
+                event_times=(5.9,), seconds=1.0,
+            )
+
+    def test_inputs_are_validated(self) -> None:
+        with self.assertRaises(ValueError):
+            cut_epochs(self.eeg, self.eog[:100], self.times, (1.0,))
+        with self.assertRaises(ValueError):
+            cut_epochs(self.eeg, self.eog, self.times[:100], (1.0,))
+        dup_times = self.times.copy()
+        dup_times[10] = dup_times[9]  # not strictly increasing
+        with self.assertRaises(ValueError):
+            cut_epochs(self.eeg, self.eog, dup_times, (1.0,))
+        bad_times = self.times.copy()
+        bad_times[5] = np.nan
+        with self.assertRaises(ValueError):
+            cut_epochs(self.eeg, self.eog, bad_times, (1.0,))
+        with self.assertRaises(ValueError):
+            cut_epochs(self.eeg, self.eog, self.times, (3.0, 3.0))
+        with self.assertRaises(ValueError):
+            cut_epochs(self.eeg, self.eog, self.times, ())
 
 
 if __name__ == "__main__":

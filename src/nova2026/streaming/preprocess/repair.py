@@ -9,12 +9,42 @@ channel, before any filter sees them.
 ``Repair`` is both a chain stage (``stage(data, timestamps) ->
 (data, timestamps)``) and a window judge (``reasons(start, end)``): finished
 repairs are remembered as time intervals, and windows overlapping one are
-flagged ``"interpolated"`` so consumers can reject them.
+flagged ``"interpolated"`` so consumers can reject them. Damage that cannot be
+repaired raises :class:`UnrepairableError`; a bounded-recovery guard (see
+``nova2026.streaming.recovery``) catches it and decides between restarting the
+chain and stopping the run.
 """
 
 import math
 
 import numpy as np
+
+
+class UnrepairableError(RuntimeError):
+    """A chunk cannot be repaired; bounded recovery decides what happens next.
+
+    Args:
+        kind: Machine-readable fault name, e.g. ``"nonfinite_run"``,
+            ``"irregular_timestamps"``, ``"large_gap"``,
+            ``"nonfinite_timestamp"`` or ``"unsafe_endpoints"``.
+        gap_seconds: Size of a timestamp gap in seconds, when the fault is a
+            gap. Recovery uses the size to tell recoverable gaps apart from
+            fatal ones.
+
+    Notes:
+        A subclass of ``RuntimeError``, so code written before bounded
+        recovery existed still treats it as a run-stopping error.
+    """
+
+    def __init__(self, kind: str, *, gap_seconds: float | None = None) -> None:
+        """Build the message and keep the structured fault details."""
+
+        message = f"Cannot repair source damage ({kind})."
+        if gap_seconds is not None:
+            message += f" Timestamp gap of {gap_seconds:.3f}s."
+        super().__init__(message)
+        self.kind = kind
+        self.gap_seconds = gap_seconds
 
 
 class Repair:
@@ -39,10 +69,11 @@ class Repair:
         A row is damaged when any of its values is non-finite. Short missing
         runs are detected from timestamp gaps, synthesised as damaged rows and
         repaired the same way. Repair is linear, per channel, and never edits
-        healthy values. Damage that cannot be repaired (no finite anchor yet,
-        a run longer than ``max_seconds``, unsafe endpoints, irregular or
-        non-finite timestamps) raises: without bounded recovery the run must
-        stop loudly rather than feed bad values into stateful filters.
+        healthy values. Damage that cannot be repaired (a run longer than
+        ``max_seconds``, unsafe endpoints, irregular or non-finite timestamps,
+        a gap beyond the repair limit) raises :class:`UnrepairableError` with
+        a structured kind; a bounded-recovery guard decides whether the run
+        restarts or stops.
 
     Attributes:
         repaired_samples: Rows repaired so far (dropped rows are excluded).
@@ -137,7 +168,7 @@ class Repair:
             stamp = float(stamp)
             # Time is never repaired: a broken clock means a broken grid.
             if not math.isfinite(stamp):
-                raise RuntimeError("A source timestamp is not finite; cannot repair.")
+                raise UnrepairableError("nonfinite_timestamp")
             self._check_grid(stamp, channels)
 
             if not np.all(np.isfinite(row)):
@@ -148,10 +179,7 @@ class Repair:
                     continue
                 self._pending.append((np.array(row, copy=True), stamp))
                 if len(self._pending) > self._limit:
-                    raise RuntimeError(
-                        "A non-finite run is longer than the repair limit "
-                        f"({self._limit} samples); cannot repair it."
-                    )
+                    raise UnrepairableError("nonfinite_run")
                 continue
 
             # A finite row is the right endpoint of any pending damage.
@@ -181,13 +209,13 @@ class Repair:
         if abs(steps - 1.0) <= self._tol_steps:
             return
         if steps <= 1.0:
-            raise RuntimeError(
-                "Source timestamps are not strictly on the nominal grid."
-            )
+            raise UnrepairableError("irregular_timestamps")
         count = int(round(steps))
-        if abs(steps - count) > self._tol_steps or count - 1 > self._limit:
-            raise RuntimeError(
-                "A timestamp gap is too large or off-grid to repair."
+        if abs(steps - count) > self._tol_steps:
+            raise UnrepairableError("irregular_timestamps")
+        if count - 1 > self._limit:
+            raise UnrepairableError(
+                "large_gap", gap_seconds=float(stamp - previous)
             )
         # Missing samples between the previous row and this one.
         for index in range(1, count):
@@ -209,14 +237,11 @@ class Repair:
 
         pending = self._pending
         if len(pending) > self._limit:
-            raise RuntimeError("A non-finite run exceeds the repair limit.")
+            raise UnrepairableError("nonfinite_run")
         if self._left is None or self._left_time is None:
             raise RuntimeError("No finite left endpoint for the repair.")
         if self._unsafe(self._left, right):
-            raise RuntimeError(
-                "Repair endpoints are unsafe (saturated or an extreme jump); "
-                "refusing to invent signal between them."
-            )
+            raise UnrepairableError("unsafe_endpoints")
 
         span = right_time - self._left_time
         first_time = pending[0][1]

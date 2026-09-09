@@ -53,6 +53,95 @@ def processing_contract(
     return json.loads(json.dumps(values, allow_nan=False))
 
 
+def cut_epochs(
+    eeg: np.ndarray,
+    eog: np.ndarray,
+    timestamps: np.ndarray,
+    event_times,
+    *,
+    seconds: float = 1.0,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Cut calibration epochs out of already-processed, continuous data.
+
+    This is the calibration data-input boundary for C: it accepts data that
+    has ALREADY been processed and hands :func:`fit_ssp` the epochs it needs,
+    so whoever produced the processed data (our own offline replay of a
+    recorded run, or an external pipeline with an identical contract) can feed
+    it in without re-running this package's chain.
+
+    What this interface expects:
+
+    - ``eeg`` / ``eog``: ALREADY-PROCESSED samples, 2-D arrays
+      ``(samples, channels)``, float-convertible, columns in the same
+      channel order as ``contract`` (EEG channels first for ``eeg``; EOG
+      channels for ``eog``), in the same units the contract declares
+      (microvolts for our chain). Every row is one instant shared by both
+      arrays.
+    - ``timestamps``: 1-D ``(samples,)`` source-clock times, one per row,
+      strictly increasing. ``event_times`` must use the same clock.
+    - ``event_times``: centers of the marked events (e.g. blink centers) to
+      cut around, sorted ascending.
+    - ``seconds``: length of each epoch. Epochs must fit entirely inside the
+      data, otherwise the run is rejected — a silently shortened epoch set
+      would corrupt the calibration.
+
+    Returns:
+        ``(eeg_epochs, eog_epochs)`` shaped
+        ``(events, samples_per_epoch, channels)``, ready for
+        :func:`fit_ssp`.
+
+    Raises:
+        ValueError: If the inputs are malformed, timestamps/events are not
+            ordered or finite, or an epoch would fall outside the data.
+    """
+
+    eeg = np.asarray(eeg, dtype=np.float64)
+    eog = np.asarray(eog, dtype=np.float64)
+    timestamps = np.asarray(timestamps, dtype=np.float64)
+    if eeg.ndim != 2 or eog.ndim != 2:
+        raise ValueError("EEG and EOG must be (samples, channels) arrays.")
+    if eeg.shape[0] != eog.shape[0]:
+        raise ValueError("EEG and EOG must share the same sample count.")
+    if timestamps.ndim != 1 or len(timestamps) != eeg.shape[0]:
+        raise ValueError("Each sample row needs one timestamp.")
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise ValueError("seconds must be finite and positive.")
+    samples = eeg.shape[0]
+    if samples < 2:
+        raise ValueError("Need at least two samples to calibrate.")
+
+    diffs = np.diff(timestamps)
+    if not np.all(np.isfinite(timestamps)) or np.any(diffs <= 0):
+        raise ValueError("Timestamps must be finite and strictly increasing.")
+    interval = float(np.median(diffs))
+    rows = int(round(seconds / interval))
+    if rows < 1:
+        raise ValueError("seconds is shorter than one sample interval.")
+
+    events = np.asarray(event_times, dtype=np.float64).ravel()
+    if events.size == 0:
+        raise ValueError("Provide at least one event time.")
+    if not np.all(np.isfinite(events)):
+        raise ValueError("Event times must be finite.")
+    if np.any(np.diff(events) <= 0):
+        raise ValueError("Event times must be strictly increasing.")
+
+    eeg_epochs, eog_epochs = [], []
+    for event in events:
+        center = int(np.argmin(np.abs(timestamps - event)))
+        start = center - rows // 2
+        stop = start + rows
+        if start < 0 or stop > samples:
+            raise ValueError(
+                f"An epoch of {seconds:g}s around {event:.3f}s falls outside "
+                f"the data ({samples} samples); provide more margin."
+            )
+        eeg_epochs.append(eeg[start:stop])
+        eog_epochs.append(eog[start:stop])
+
+    return np.stack(eeg_epochs), np.stack(eog_epochs)
+
+
 def fit_ssp(
     eeg: np.ndarray,
     eog: np.ndarray,

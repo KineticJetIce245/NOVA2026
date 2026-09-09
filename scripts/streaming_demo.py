@@ -40,9 +40,13 @@ from mne_lsl.stream import StreamLSL  # our reader (inlet)
 
 # Reusable start-up helpers: argument getter + one-shot session assembly.
 from nova2026.streaming import (  # runs per-window analysis
+    Recovery,  # A2: reset-and-continue on unrepairable damage
+    StreamStats,  # E: per-run counters persisted at close
     TaskOffloader,  # runs per-window analysis on worker threads
+    UnrepairableError,  # damage the Repair stage cannot fix
     prepare,  # pre-flight source check -> the run's channel contract (B)
     processing_contract,  # serializable description of this run's chain
+    resolve_outlet,  # confirm the outlet is publishing before connecting (B1)
 )
 from nova2026.streaming.bootstrap import StreamSession, parse_args
 
@@ -108,6 +112,14 @@ def main() -> None:
     # 2) Connect our inlet. acquisition_delay=None means MANUAL acquisition:
     #    data is pulled only when we call stream.acquire() (inside Acquire).
     # ------------------------------------------------------------------
+    # 2a) B1: confirm the outlet is actually publishing before we connect,
+    #     so a missing amplifier fails in seconds instead of timing out.
+    try:
+        resolve_outlet(name=name, timeout=10)
+    except RuntimeError as error:
+        player.stop()
+        raise SystemExit(f"outlet not found: {error}") from None
+
     stream = StreamLSL(bufsize=4.0, name=name)
     stream.connect(
         acquisition_delay=None,
@@ -207,17 +219,25 @@ def main() -> None:
         print(f"record : raw volts -> {session.recorder.path}  (sqlite + fif)")
 
     # ------------------------------------------------------------------
-    # 5) Consumer state: counters and the per-window report function.
+    # 5) Guards, counters and the per-window report function.
     # ------------------------------------------------------------------
+    # A2: bounded recovery over every stateful stage of THIS chain. When the
+    # Repair stage meets damage it cannot fix, the guard resets all of these
+    # and keeps going (up to its limits); segment lets windows say which
+    # restart they belong to.
+    recovery = Recovery(
+        resettable=(repair, quality, notch, bandpass, resampler, session.buffer),
+        recorder=session.recorder,
+    )
+    stats = StreamStats()  # E: counters stored in the run metadata at close
+
     started = monotonic()  # wall clock for the duration loop and prints
-    valid_windows = 0  # windows that passed warm-up + quality gating
-    rejected_windows = 0  # warm-up or bad-quality windows dropped
 
     # Display one line per window: peak-to-peak amplitude per channel (uV).
     def report(eeg_window) -> None:
         peak_to_peak_uv = np.ptp(eeg_window.data, axis=0)
         print(
-            f"window start={eeg_window.start_sample:6d}  "
+            f"window seg={eeg_window.segment} start={eeg_window.start_sample:6d}  "
             f"at={monotonic() - started:7.3f}s  "
             f"ptp_uV={np.round(peak_to_peak_uv, 1)}"
         )
@@ -245,18 +265,34 @@ def main() -> None:
         while monotonic() - started < args.duration:
             # (a) Pull the next raw block from LSL (blocks until ready).
             data, timestamps = session.acquire.read()
+            stats.blocks += 1
+            stats.samples += len(data)
 
             # (b) Contract reorder + save the raw volts before transformation.
             data, timestamps = session.ingest(data, timestamps)
 
             # (c) Run THIS script's chain over the block, in our own order.
-            for stage in STAGES:
-                data, timestamps = stage(data, timestamps)
+            #     The Repair stage raises UnrepairableError on damage it
+            #     cannot fix; bounded recovery (A2) resets the chain and lets
+            #     the run continue, or stops it when the budget is exhausted.
+            try:
+                for stage in STAGES:
+                    data, timestamps = stage(data, timestamps)
+            except UnrepairableError as error:
+                recovery.handle(error)          # raises when the run must stop
+                stats.recoveries = recovery.recoveries
+                continue                        # this chunk is discarded
+
+            stats.repairs = repair.repaired_samples
+            stats.dropped = repair.dropped_rows
 
             # (d) Collect any windows this block completed.
             for window, window_times, start in session.buffer.push(data, timestamps):
+                stats.windows += 1
                 # (e) Package the window with its verdict (warm-up + judges).
                 eeg_window = session.wrap(window, window_times, start)
+                eeg_window.segment = recovery.segment
+                recovery.watch(eeg_window)  # persistent-fault guard (A2)
                 if session.recorder is not None:
                     # (e2) One provenance line per delivered window (D).
                     session.recorder.log_window(
@@ -267,9 +303,9 @@ def main() -> None:
                         eeg_window.artifact_id,
                     )
                 if not eeg_window.valid:
-                    rejected_windows += 1
+                    stats.rejected += 1
                     continue
-                valid_windows += 1
+                stats.valid += 1
 
                 # (f) Run the analysis in the loop, or hand it to workers.
                 if offloader is None:
@@ -285,13 +321,21 @@ def main() -> None:
     except RuntimeError as error:
         print(f"run stopped: {error}")
     finally:
+        # Samples still buffered toward the next block never become windows;
+        # record them honestly before the acquire handle drops them (D4).
+        tail = session.acquire.pending_samples
         session.acquire.close()  # detach callback, drop buffer
         if stream.connected:
             stream.disconnect()  # close the LSL inlet
         player.stop()  # stop the fake source
         if offloader is not None:
             offloader.close(drain=True, timeout=5.0)  # let tasks finish
-        session.close(status="completed")  # lock the run, export the FIF
+        if session.recorder is not None and tail:
+            session.recorder.mark_not_processed(tail)
+        # Persist the transport counters and run statistics (E).
+        stats.max_lag = session.acquire.max_lag
+        stats.gaps = session.acquire.gaps
+        session.close(status="completed", stats=stats.to_dict())
         if session.recorder is not None:
             print(
                 f"recorded {session.recorder.samples} raw samples -> "
@@ -310,8 +354,10 @@ def main() -> None:
         f"resampled_output={resampler.output_samples} @ {session.out_sfreq:g} Hz"
     )
     print(
-        f"windows: valid={valid_windows} rejected={rejected_windows} "
-        f"buffer_windows={session.buffer.windows}"
+        f"windows: valid={stats.valid} rejected={stats.rejected} "
+        f"buffer_windows={session.buffer.windows}\n"
+        f"recovery: events={recovery.recoveries} segment={recovery.segment} "
+        f"repairs={repair.repaired_samples} dropped={repair.dropped_rows}"
     )
     if offloader is not None:
         print(

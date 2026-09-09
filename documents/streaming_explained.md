@@ -329,7 +329,9 @@ src/nova2026/streaming/
   offload.py                 # TaskOffloader    - run analysis on workers
   preflight.py               # ChannelContract + validate_source/prepare (B)
   recording.py               # RunSpec/RunRecorder + read-back helpers
+  recovery.py                # Recovery         - bounded recovery (A2)
   spatial.py                 # SpatialOperator, fit_ssp, processing_contract (C)
+  stats.py                   # StreamStats      - run counters (E)
   window.py                  # EEGWindow        - window + verdict for consumers
   preprocess/
     __init__.py              # re-exports the preprocessing pieces
@@ -346,8 +348,9 @@ src/nova2026/streaming/
 
 Companion scripts and tests live next to the package: `scripts/streaming_demo.py`
 (the runnable walkthrough), `scripts/benchmark_streaming.py` (per-stage
-micro-benchmark), and `tests/streaming/test_*.py` (unit + end-to-end tests,
-146 in total).
+micro-benchmark), `scripts/verify_realdata.py` (real-recording check: run
+through, save + offline parity, edge cases), and `tests/streaming/test_*.py`
+(unit + end-to-end tests, 165 in total).
 
 Rule of thumb used everywhere: **stateless -> function, stateful -> class**.
 Classes hold their own state, validate arguments in the constructor, expose a
@@ -582,6 +585,7 @@ by stateless module functions.
 | `recorder.mark(label, timestamp=None)` | Thread-safe task event (e.g. `"blink"`), for the controller thread. |
 | `recorder.log_window(ts, valid, reasons, segment, artifact_id)` | One line per delivered window, when `track_windows=True`. |
 | `recorder.close(status="completed", error=None, stats=None)` | Lock the run; if `export_fif`, read the DB back and write `<run>_raw.fif` next to it; write a JSON sidecar. |
+| `recorder.mark_not_processed(rows, timestamp=None)` | Record a buffered tail that never became windows (`not_processed:<rows>` event) when the loop stops. |
 | `read_metadata(path)` | All metadata as a dict (includes `config` and `input:<role>` entries when provided). |
 | `iter_chunks(path)` | Yield `(data, first_timestamp)` for every chunk in order. |
 | `iter_events(path)` | Event list `(timestamp, label)`. |
@@ -673,9 +677,9 @@ returned with the next block. Damage that cannot be repaired — a run longer
 than `max_seconds`, irregular or non-finite timestamps, or extreme endpoints
 when units are known — **raises**, stopping the run loudly rather than feeding
 bad values into filters. Damage before the first finite sample is dropped (the
-run simply starts later). Bounded *recovery* of bigger faults is planned (see
-Section 9, A2); today Repair only repairs, and what it cannot repair stops the
-run.
+run simply starts later). Damage it cannot repair raises
+`UnrepairableError`; Section 9 A2's `Recovery` guard turns that into a bounded
+restart or, beyond its limits, a stop.
 
 #### `preprocess/resample.py` — `Resampler`
 
@@ -783,6 +787,7 @@ timing or validity. Pure NumPy; no LSL, threads or files except the operator
 | Name | Purpose |
 | --- | --- |
 | `processing_contract(eeg_channels, eog_channels, out_sfreq, units="uV", stamp="")` | JSON-safe description of the chain an operator is calibrated/applied under; exact equality decides compatibility. |
+| `cut_epochs(eeg, eog, timestamps, event_times, seconds=1.0)` | **The data-input boundary for calibration.** Cut 1 s epochs out of ALREADY-PROCESSED continuous EEG/EOG (float `(samples, channels)` arrays plus their timestamps) around marked event times; rejects epochs that would fall outside the data. |
 | `fit_ssp(eeg, eog, contract, n_components=1, ...)` | Offline fit from marked epochs (events × samples × channels, in uV): mean-subtract, fit on the first events, hold the last third out, fail unless held-out EEG–EOG coupling drops by at least half. |
 | `SpatialOperator(matrix, contract, report)` | Validates symmetry/idempotence/rank, derives `artifact_id`, applies per window, saves/loads `.npz` without pickle (never overwrites). |
 | `operator.apply_window(window)` | Project the window's EEG columns once (`artifact_id` prevents a second correction), preserve EOG/verdict/timestamps. |
@@ -794,6 +799,58 @@ processing_contract(...))` once before the loop, then calls `apply_window` on
 every finished window. Cutting calibration epochs out of a recorded run (raw
 chunks -> the same chain -> one-second windows around `blink` events) is an
 integration step that uses the recorder's events and window log (Section 9, D).
+
+**The data-input boundary (what "already-processed data" means here).**
+`cut_epochs` is where already-processed data enters calibration, and its
+docstring spells out exactly what it expects so external producers can feed it
+without re-running this package's chain: two float arrays shaped
+`(samples, channels)` (EEG columns in the contract's EEG order, EOG columns in
+its EOG order, same units the contract declares — microvolts for our chain),
+one strictly-increasing timestamp per row on the same clock as the event
+times, and epoch windows that fit entirely inside the data. Its output
+`(eeg_epochs, eog_epochs)` goes straight into `fit_ssp`.
+
+---
+
+### 5.11 `recovery.py` — bounded recovery (A2)
+
+**Why.** `Repair` fixes what it can and raises `UnrepairableError` for what it
+cannot. Killing the whole run on the first glitch is too brittle for a live
+stream, so `Recovery` gives the run a bounded number of clean restarts and
+stops loudly only when the budget is gone or a single fault is too large. It
+is deliberately NOT part of `StreamSession`: the script registers the stateful
+components it owns.
+
+**Public surface.** `Recovery(resettable, *, max_events=5, max_gap_seconds=0.5,
+persistent_fault_seconds=5.0, recorder=None)`; `handle(UnrepairableError)`
+(discard the chunk, reset every registered component, advance `segment`);
+`watch(EEGWindow)` (stop after judge-rejected windows last longer than
+`persistent_fault_seconds`); `reset()`; attributes `segment`, `recoveries`,
+`events`.
+
+**Expected usage** (in the script's loop):
+
+```python
+try:
+    for stage in STAGES:
+        data, ts = stage(data, ts)
+except UnrepairableError as error:
+    recovery.handle(error)          # resets or raises when the run must stop
+    continue
+# per window: eeg_window.segment = recovery.segment; recovery.watch(eeg_window)
+```
+
+### 5.12 `stats.py` — run counters (E)
+
+**Why.** A run's terminal output vanishes; the structured summary should live
+with the recording. `StreamStats` counts what happened and
+`StreamSession.close(stats=...)` stores it in the recorder metadata.
+
+**Public surface.** Counters `blocks`, `samples`, `windows`, `valid`,
+`rejected`, `recoveries`, `repairs`, `dropped`, `gaps`, `max_lag`; `to_dict()`.
+
+**Expected usage.** Increment at each loop stage, then
+`session.close(status="completed", stats=stats.to_dict())`.
 
 ---
 
@@ -875,8 +932,11 @@ python -B -m scripts.streaming_demo --duration 8 --record records
 python -B -m scripts.streaming_demo --duration 8 --compute 0.8 --workers 0
 python -B -m scripts.streaming_demo --duration 8 --compute 0.8 --workers 2
 
-# Full test suite for the package (146 tests):
+# Full test suite for the package (165 tests):
 python -B -m unittest discover -s tests/streaming -t .
+
+# Real-recording check (needs the COG-BCI dataset in datasets/):
+python -B scripts/verify_realdata.py
 
 # Micro-benchmark (no LSL needed):
 python -B -m scripts.benchmark_streaming
@@ -889,18 +949,33 @@ LSL except those PlayerLSL end-to-end tests. If MNE complains about its config
 directory, point it somewhere writable first:
 `$env:_MNE_FAKE_HOME_DIR = "path/to/a/writable/.mne"`.
 
+`scripts/verify_realdata.py` is the same idea on a *real file*: it loads a
+COG-BCI `.set` recording from `datasets/`, pushes about ten seconds through
+the exact demo chain (Repair -> uV -> quality -> notch -> band-pass ->
+resampler -> windows), records it with `RunRecorder`, replays the saved chunks
+offline and checks three things: the run produces windows after warm-up; the
+save is correct (the exported FIF equals the SQLite chunks, and the offline
+windows match the "live" windows sample-for-sample); and edge cases behave —
+a short NaN run is repaired identically online and offline, while an
+irreparable burst triggers bounded recovery (the run continues, then stops
+once the recovery budget is exhausted). Executed result: PASS on
+`sub-01/ses-S1/RS_Beg_EO.set` (63 channels @ 500 Hz, 10 s).
+
 ---
 
-## 9. Robustness: what can go wrong, and the guardrails (A–D)
+## 9. Robustness: what can go wrong, and the guardrails (A–E)
 
-> **Status: mostly implemented.** A1 (`Repair` in `preprocess/repair.py`),
-> B (`preflight.validate_source` / `prepare`), C (`spatial.SpatialOperator` / `fit_ssp` /
-> `processing_contract`) and D (recorder `config` snapshot, provenance file
-> hashes, per-window log) are implemented and covered by tests. Still planned:
-> A2 (bounded recovery) — until it lands, `Repair` raises on unrecoverable
-> damage instead of restarting — and B1 (optional pre-connect outlet
-> resolution). The demo wires A1, B and D; C is library + tests until a run
-> with a real EOG channel exercises the calibration workflow.
+> **Status: implemented.** A1 (`Repair`), A2 (`Recovery`), B
+> (`preflight.resolve_outlet` before connecting, then `prepare` /
+> `validate_source`), C (`spatial.SpatialOperator` / `fit_ssp` /
+> `processing_contract`, with `cut_epochs` as the already-processed-data
+> input boundary), D (recorder `config` snapshot, provenance file hashes,
+> per-window log, `not_processed` tail mark) and E (`StreamStats`, persisted
+> at close) are implemented and covered by tests. A real-recording check
+> (`scripts/verify_realdata.py`, a real COG-BCI `.set` file) confirms the
+> path runs through, saves correctly (FIF == SQLite) and replays identically
+> offline. The demo wires A1, A2, B, D and E; C's end-to-end operator fit on
+> a recording with marked blinks still awaits such a recording to exercise.
 
 A live stream is fragile in ways an offline file is not. The sender can stall,
 skip samples, emit `NaN`, send the wrong metadata, or degrade slowly over time.
@@ -912,13 +987,14 @@ source; the guardrails below close the failure classes one by one:
 | Failure class | Example | Guardrail |
 | --- | --- | --- |
 | Broken values, short | isolated `NaN`/`Inf`, a few ms of missing samples | **A1** — repair short spans by interpolation (**implemented**) |
-| Broken values / timing, severe | a whole damaged chunk, gaps > 0.5 s, overlapping or irregular timestamps | **A2** — bounded recovery: discard and restart, or fail |
-| Slow decay | minutes of near-flat or saturated signal | **A2** — persistent-fault watch on windows |
+| Broken values / timing, severe | a whole damaged chunk, gaps > 0.5 s, overlapping or irregular timestamps | **A2** — bounded recovery: discard and restart, or fail (**implemented**) |
+| Slow decay | minutes of near-flat or saturated signal | **A2** — persistent-fault watch on windows (**implemented**) |
 | Wrong source | wrong sampling rate, units, channel labels/types | **B** — validate the source before the first sample (**implemented**) |
 | Eye artefacts | blinks/saccades leaking into frontal EEG | **C** — calibrated spatial projection (EOG-guided SSP) (**implemented**) |
 | No provenance | cannot replay a run, cannot tell which operator/files were used | **D** — richer run metadata and snapshots (**implemented**) |
+| No audit trail | a run stops and leaves no structured summary | **E** — run statistics persisted at close (**implemented**) |
 
-The letters A–D match the design discussion. Each guardrail below follows the
+The letters A–E match the design discussion. Each guardrail below follows the
 same format: *the problem*, *where it plugs into the Section 3 pipeline*, *why
 that spot*, and *what it needs from the other components*.
 
@@ -926,20 +1002,21 @@ Where the guardrails sit, on the Section 3 diagram:
 
 ```text
    outlet -> StreamLSL
-              |   [B] validate_source()        (implemented; B1 planned)
+              |   [B1] resolve_outlet() first   (implemented)
+              |   [B2] validate_source() after   (implemented)
               v
    read() -> ingest()                 # reorder + record RAW volts
               |                       #   (raw damage is kept on purpose)
               v
    [A1] Repair stage (implemented)    # short NaN/Inf spans, source units,
               |                       #   first stage of the script's STAGES
-   [A2] guard (planned)              -> discard / split / fail when A1
-              |                         cannot repair; resets the chain
+   [A2] Recovery guard (implemented) -> catches UnrepairableError from A1:
+              |                         reset the chain + segment++, or stop
               v
    STAGES (the script's tuple)       # scale -> quality -> filters -> resample
               v
-   push() -> wrap() -> EEGWindow     # [D3] window log (implemented)
-              |                      # [A2 watch] persistent faults (planned)
+   push() -> wrap() -> EEGWindow     # [A2 watch] persistent faults (impl.)
+              |                      # [D3] window log (implemented)
               v
    [C2] operator.apply_window()      # implemented; the script wires it between
               |                      #   wrap() and the consumer
@@ -949,7 +1026,7 @@ Where the guardrails sit, on the Section 3 diagram:
 
 ---
 
-### A. Surviving a damaged signal: repair (A1, implemented) and bounded recovery (A2, planned)
+### A. Surviving a damaged signal: repair (A1) and bounded recovery (A2) — implemented
 
 **The problem.** EEG amplifiers occasionally produce a few broken samples:
 an isolated `NaN` or `Inf`, or a short run of missing samples. Two things make
@@ -981,62 +1058,62 @@ longer than that is not A1's business.
   out `valid=False` with reason `"interpolated"`. A damaged tail without a
   finite right endpoint is held back and returned with the next block, so the
   chain only ever sees settled rows.
-- **What stops the run (no A2 yet):** damage longer than `max_seconds`,
-  irregular or non-finite timestamps, and — when source units are known —
-  unsafe endpoints (saturated or an extreme jump) raise a `RuntimeError`.
-  Damage before the first finite sample is dropped instead (the run simply
-  starts later). Bounded recovery (A2) will later turn these raises into
-  discard-and-restart decisions.
+- **What it cannot repair:** damage longer than `max_seconds`, irregular or
+  non-finite timestamps, and — when source units are known — unsafe endpoints
+  (saturated or an extreme jump) raise `UnrepairableError` with a
+  machine-readable kind and, for gaps, the gap size. Damage before the first
+  finite sample is dropped instead (the run simply starts later). The bounded
+  recovery guard (A2) catches the error and decides the run's fate.
 - **Needs:** its own stateful tail and a `reset()` — both implemented and
-  ready for A2 to call.
+  called by A2 on every restart.
 
-**A2 — bounded recovery (planned, not implemented).** For damage that cannot be
-repaired — a chunk that is still non-finite, timestamps that are irregular or
-overlap, a gap between chunks — the run has two options: quietly keep going on
-garbage, or stop. Both are wrong in general, so the rule is *bounded recovery*:
-a limited number of times, the run may throw the bad chunk away and start a
-fresh processing **segment**, and beyond that it stops loudly. Until A2 lands,
-`Repair` raises in exactly these situations, which stops the run safely.
+**A2 — bounded recovery (implemented as `Recovery` in `recovery.py`).** For
+damage that cannot be repaired — a chunk that is still non-finite, timestamps
+that are irregular or overlap, a gap between chunks — the run has two options:
+quietly keep going on garbage, or stop. Both are wrong in general, so the rule
+is *bounded recovery*: a limited number of times, the run may throw the bad
+chunk away and start a fresh processing **segment**, and beyond that it stops
+loudly. `Repair` raises `UnrepairableError` in exactly these situations; the
+script's loop catches it and hands it to the guard.
 
-- **Where:** two spots. The main guard is a shell around the chain, checked on
-  every chunk right after the `Repair` stage; the second is at window level,
+- **Where:** two spots. `Recovery.handle(error)` is called when `Repair`
+  raises (the chunk is discarded and the chain restarts); `watch(window)` runs
   right after `wrap()`, because only finished windows reveal "the signal has
   been bad for five seconds straight".
-- **How a recovery works:** discard the chunk (or split the segment at a
-  repairable gap), increment the segment number, and reset *every* stateful
-  stage — filters, resampler, ring buffer, quality history and A1's tail — so
-  the next chunk starts clean. Warm-up repeats, so windows from the restart are
-  rejected until warm-up passes again. No window ever spans two segments;
-  `EEGWindow.segment` reports which segment a window came from.
-- **When it fails instead:** more than `recovery_max_events` recoveries
-  (default 5), a single gap longer than `recovery_max_gap` (0.5 s), or quality
-  faults persisting longer than `persistent_fault_seconds` (5 s). These stop
+- **How a recovery works:** `handle` increments the recovery count, then
+  resets *every* stateful stage the script registered — filters, resampler,
+  ring buffer, quality history and `Repair`'s tail — and advances the segment.
+  Warm-up repeats, so windows from the restart are rejected until warm-up
+  passes again. The demo stamps `eeg_window.segment = recovery.segment`, so no
+  window ever spans two segments; recorded runs also get a
+  `"recovery:<kind>"` event per restart.
+- **When it fails instead:** more than `max_events` recoveries (default 5), a
+  single gap longer than `max_gap_seconds` (0.5 s), or judge-rejected windows
+  persisting longer than `persistent_fault_seconds` (5 s, `watch`). These stop
   the run with an error — a live system must never silently ship garbage.
-- **The architectural cost:** today the stateful stages are assembled by the
-  script and `StreamSession` does not know their reset interfaces. Recovery
-  therefore needs a small **reset protocol**: every stateful stage implements
-  `reset()`, and the guard holds the list and calls each one in order. This is
-  the one place where the "session knows nothing about preprocessing" rule
-  bends: the session (or a small guard object attached to it) must be able to
-  reach all resettable stages.
+- **The architectural cost:** the stateful stages live in the script, so the
+  script tells the guard which components are resettable. The **reset
+  protocol** is one rule — every registered component implements `reset()` —
+  and `Recovery` stays completely independent of `StreamSession`.
 
 ---
 
-### B. Validate the source before the first sample (implemented: B2; B1 planned)
+### B. Validate the source before the first sample (implemented)
 
 **The problem.** The pipeline trusts whatever outlet it connects to. Connect to
 the wrong stream, or to the right stream with a different sampling rate or
 different declared units, and the run records plausible-looking but wrong data
 — the worst kind of corruption, because nothing complains later.
 
-**Where:** in two phases, both before any sample is read or recorded. The
-second phase is implemented (`nova2026.streaming.preflight.prepare`);
-the first is an optional refinement still on the shelf.
+**Where:** in two phases, both before any sample is read or recorded. Both are
+implemented in `nova2026.streaming.preflight`.
 
-- **B1, before connecting (planned):** resolve the available outlets and
-  require one whose `name` / `source_id` / `stype` match the configuration.
-  This fails fast instead of timing out while connected to an unrelated
-  stream.
+- **B1, before connecting (implemented as `resolve_outlet`).** Resolve the
+  available outlets and require one whose `name` / `source_id` / `stype`
+  match the configuration, polling up to a timeout (a freshly started source
+  can take a moment to appear). This fails fast — "the amplifier is not
+  publishing" — instead of timing out while connected to an unrelated stream.
+  Only identity is visible without connecting; rates and units still need B2.
 - **B2, right after connecting (implemented):** check, from the connected
   inlet's metadata: the sampling rate matches the configured `sfreq`; every
   required channel declares voltage units consistent with the configured
@@ -1078,7 +1155,8 @@ report with the coupling ratio, retained energy and the fitted directions.
 Cutting those epochs out of a recorded calibration run (raw chunks -> the same
 chain -> one-second windows around `blink` / `eyes_*` events) is an
 integration step that lines up events and windows via the recorder (D3), and
-needs a run with a real EOG channel to be exercised end to end.
+needs a run with a real EOG channel to be exercised end to end — the typed
+input boundary for the already-processed data is `cut_epochs` (see §5.10).
 
 **C2 — application (online, per window).** When a run selects a saved operator
 (`SpatialOperator.load(path)` plus `operator.validate(processing_contract(...))`
@@ -1128,15 +1206,31 @@ these.
   `iter_windows(path)`. This is what lets an offline replay reproduce exactly
   which windows were delivered, and what calibration (C1) aligns its epochs
   against. The demo logs every window after `wrap()`.
-- **D4 — honest endings (partial).** The run is locked as `completed` or
+- **D4 — honest endings (implemented).** The run is locked as `completed` or
   `failed` with the error text at `close()`, and a crash leaves a clearly
-  `recording`-status database that cannot be mistaken for a finished one. The
-  remaining piece — marking a buffered tail as `not_processed` instead of
-  silently dropping it — is still planned.
+  `recording`-status database that cannot be mistaken for a finished one.
+  When the loop stops with a tail of samples still buffered, the demo records
+  them with `recorder.mark_not_processed(rows)` (an event labelled
+  `not_processed:<rows>`) instead of silently dropping them.
 
 **Where:** all of D lives in the recorder; the config snapshot and provenance
 files are passed at construction (through `StreamSession` when a script uses
 it), and the per-window log is written right after `wrap()` in the loop.
+
+---
+
+### E. Run statistics (implemented as `stats.py`)
+
+**The problem.** A run can stop for any of the reasons above, or finish
+normally, and the terminal output is gone. The next question — "how many
+windows were delivered, how many faults were recovered, how bad was the
+transport?" — needs a structured answer attached to the run itself.
+
+**What it does.** `StreamStats` is a small counter object (`blocks`, `samples`,
+`windows`, `valid`, `rejected`, `recoveries`, `repairs`, `dropped`, `gaps`,
+`max_lag`). The script increments it at each stage of the loop, then hands
+`stats.to_dict()` to `StreamSession.close(status=..., stats=...)`, which stores
+it in the recorder metadata (`stats` key) — see D1's metadata home.
 
 ---
 
@@ -1167,3 +1261,8 @@ synthetic checks into proof that neural activity survives a projector.
 | ring buffer | fixed array whose write pointer wraps around |
 | drop-oldest / drop-newest | overflow policies of the offloader queue |
 | FIF | MNE's native EEG file format (`.fif`) |
+| epoch | a fixed-length slice of data cut around an event (calibration) |
+| projector / SSP | a matrix that removes a learned spatial direction (`P = I - U Uᵀ`) |
+| recovery / segment | bounded restart after unrepairable damage; each restart is a new segment |
+| not_processed | recorder event marking samples buffered when the run stopped |
+| pre-flight | checks done before the first sample: outlet resolution + metadata validation |

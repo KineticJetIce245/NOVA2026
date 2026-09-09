@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from nova2026.streaming import prepare, validate_source
+from nova2026.streaming import prepare, resolve_outlet, validate_source
 
 CHANNELS = ("F3", "C3", "EOG")  # EEG, EEG, EOG
 
@@ -178,6 +178,51 @@ class SourceValidationTests(unittest.TestCase):
                                types=["eeg", "eeg", "eog"]),
                     sfreq=500.0, channels=CHANNELS,
                     source_unit_exponent=0, n_eeg=2)
+
+
+class ResolveTests(unittest.TestCase):
+    """B1: pre-connect outlet resolution against a fake resolver."""
+
+    @staticmethod
+    def outlet(name="outlet", source_id="dev-1", stype="eeg"):
+        return SimpleNamespace(name=name, source_id=source_id, stype=stype)
+
+    def test_matching_outlet_is_found(self) -> None:
+        resolver = lambda: [self.outlet()]  # noqa: E731
+        resolve_outlet(name="outlet", timeout=0.1, resolver=resolver)
+
+    def test_identity_must_match(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "No outlet matching"):
+            resolve_outlet(
+                name="other", timeout=0.05, poll_interval=0.01,
+                resolver=lambda: [self.outlet()],
+            )
+        with self.assertRaisesRegex(RuntimeError, "No outlet matching"):
+            resolve_outlet(
+                source_id="other-device", timeout=0.05, poll_interval=0.01,
+                resolver=lambda: [self.outlet()],
+            )
+        with self.assertRaisesRegex(RuntimeError, "No outlet matching"):
+            resolve_outlet(
+                name="outlet", stream_type="ieeg", timeout=0.05,
+                poll_interval=0.01, resolver=lambda: [self.outlet()],
+            )
+
+    def test_outlet_that_appears_late_is_found(self) -> None:
+        calls = {"count": 0}
+
+        def late_resolver():
+            calls["count"] += 1
+            return [] if calls["count"] < 2 else [self.outlet()]
+
+        resolve_outlet(name="outlet", timeout=0.2, poll_interval=0.01,
+                       resolver=late_resolver)
+
+    def test_invalid_expectations(self) -> None:
+        with self.assertRaises(ValueError):
+            resolve_outlet(timeout=0.1, resolver=lambda: [])
+        with self.assertRaises(ValueError):
+            resolve_outlet(name="x", timeout=-1.0, resolver=lambda: [])
 
 
 if __name__ == "__main__":

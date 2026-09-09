@@ -16,6 +16,7 @@ returns the ``ChannelContract`` the caller then uses for the whole run.
 """
 
 import math
+from time import monotonic, sleep
 
 import numpy as np
 
@@ -222,6 +223,71 @@ def validate_source(
                 f"Source voltage units for {name} do not match the configured "
                 f"exponent ({source_unit_exponent})."
             )
+
+
+def resolve_outlet(
+    *,
+    name: str | None = None,
+    source_id: str | None = None,
+    stream_type: str | None = None,
+    timeout: float = 5.0,
+    poll_interval: float = 0.1,
+    resolver=None,
+) -> None:
+    """Confirm a matching outlet exists BEFORE connecting (B1).
+
+    The full metadata checks (B2, :func:`validate_source`) need a connected
+    inlet, but outlet identity is visible without one. Resolving first fails
+    fast — "the amplifier is not publishing" — instead of blocking inside
+    ``connect()`` on the wrong or absent stream. It checks the outlet's
+    ``name`` / ``source_id`` / ``stype`` only; rates, units and channel types
+    are still verified after connecting.
+
+    Args:
+        name: Expected outlet name, checked when given.
+        source_id: Expected outlet source ID, checked when given.
+        stream_type: Expected outlet type, checked when given.
+        timeout: How long to keep looking before giving up.
+        poll_interval: Time between resolution attempts.
+        resolver: Optional callable returning the list of available outlets
+            (defaults to ``mne_lsl.lsl.resolve_streams``, imported lazily so
+            this module stays importable without MNE-LSL). Tests inject a fake.
+
+    Raises:
+        RuntimeError: If no matching outlet appears within ``timeout``.
+        ValueError: If the expectations are invalid.
+    """
+
+    if not name and not source_id:
+        raise ValueError("Specify a stream name or source ID.")
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError("timeout must be finite and positive.")
+    if not math.isfinite(poll_interval) or poll_interval <= 0:
+        raise ValueError("poll_interval must be finite and positive.")
+
+    if resolver is None:
+        # Lazy import: preflight stays lightweight when only labels are used.
+        from mne_lsl.lsl import resolve_streams
+
+        resolver = resolve_streams
+
+    deadline = monotonic() + float(timeout)
+    while True:
+        for stream in resolver():
+            if name is not None and stream.name != name:
+                continue
+            if source_id is not None and stream.source_id != source_id:
+                continue
+            if stream_type is not None and stream.stype != stream_type:
+                continue
+            return  # a matching outlet is publishing
+        if monotonic() >= deadline:
+            wanted = name or source_id
+            raise RuntimeError(
+                f"No outlet matching {wanted!r} was found within "
+                f"{timeout:g}s."
+            )
+        sleep(float(poll_interval))
 
 
 def prepare(

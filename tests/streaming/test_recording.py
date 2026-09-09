@@ -235,6 +235,15 @@ class ProvenanceTests(unittest.TestCase):
         path = recorder.close()
         self.assertEqual(iter_windows(path), [])
 
+    def test_not_processed_tail_is_recorded(self) -> None:
+        recorder = RunRecorder(self.root, self.spec, CHANNELS, SFREQ)
+        with self.assertRaises(ValueError):
+            recorder.mark_not_processed(0, timestamp=1.0)
+        recorder.write(np.zeros((10, 4)), np.arange(10) / SFREQ)
+        recorder.mark_not_processed(23, timestamp=1.0)
+        path = recorder.close()
+        self.assertIn((1.0, "not_processed:23"), iter_events(path))
+
     def test_failed_close_still_keeps_provenance(self) -> None:
         recorder = RunRecorder(self.root, self.spec, CHANNELS, SFREQ,
                                config={"stamp": "x"})

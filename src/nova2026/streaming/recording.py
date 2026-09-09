@@ -320,6 +320,35 @@ class RunRecorder:
             )
             self._connection.commit()
 
+    def mark_not_processed(
+        self, rows: int, timestamp: float | None = None
+    ) -> None:
+        """Record rows that were still buffered when the run stopped.
+
+        The real-time loop can stop with a tail of samples still in the
+        acquire handle (or the ring). Those rows were never processed and
+        never delivered; marking them keeps the run's bookkeeping honest
+        instead of silently dropping them.
+
+        Args:
+            rows: Number of buffered, unprocessed rows.
+            timestamp: Stop time; defaults to the local LSL clock.
+        """
+
+        if isinstance(rows, bool) or not isinstance(rows, int) or rows < 1:
+            raise ValueError("rows must be a positive integer.")
+        if timestamp is None:
+            from mne_lsl.lsl import local_clock
+
+            timestamp = local_clock()
+
+        with self._lock:
+            self._connection.execute(
+                "INSERT INTO events(ts, label) VALUES (?, ?)",
+                (float(timestamp), f"not_processed:{int(rows)}"),
+            )
+            self._connection.commit()
+
     def log_window(
         self,
         timestamp: float,
