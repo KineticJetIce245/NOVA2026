@@ -1133,51 +1133,121 @@ cannot be moved earlier.
 
 ### C. Eye-artefact removal by calibrated projection (implemented as `spatial.py`)
 
-**The problem.** Blinks and eye movements produce voltages that spread to
-frontal EEG channels. A classifier trained on clean windows would treat these
-as real brain features. The fix is a *spatial* one: find the direction in
-channel space that eye activity occupies and remove it from the EEG columns.
+> **Still too technical? Read this first.** Imagine you are taking photos
+> through a window and the glass has a smudge. Every photo has the same
+> smudge in the same place. You could try to clean each photo by hand — or
+> you could first learn exactly where the smudge is (one calibration photo),
+> and then subtract it from every photo automatically. Blinks and eye
+> movements are the "smudge" of EEG: when the eye moves, all the frontal
+> electrodes see one shared wobble. The EOG channel is our "reference photo":
+> it sits next to the eye and directly measures that wobble. Guardrail C
+> learns the shared direction of the wobble once, then removes it from the
+> EEG columns of every window. That is all it does.
 
-**The principle (EOG-guided SSP).** Record a calibration run in which the user
-blinks and moves their eyes on command. Compute the cross-covariance between
-the EEG channels and the EOG channel; the dominant direction `U` of that
-covariance is where eye activity lives. The projector `P = I - U @ U.T`
-removes that direction from the EEG while leaving everything orthogonal to it
-untouched. With a single EOG channel this supports removing one direction.
-This is not ICA and not interpolation — it is a fixed linear projection.
+**The problem.** When somebody blinks or moves their eyes, the electrical
+signal travels a little way across the scalp, so *several* EEG channels see it
+at the same time — like the smudge appearing in the same spot on many photos.
+A classifier trained on clean windows will happily learn "the smudge = a real
+brain event", because it never saw the smudge removed. We want to erase the
+eye wobble from the EEG *before* the classifier ever looks at a window.
 
-**C1 — calibration (offline).** `fit_ssp(eeg, eog, contract, n_components=1)`
-fits the projector from marked epochs already cut at the chain's output rate
-(events × samples × channels, in uV). It mean-subtracts each epoch, fits on
-the first events and holds the last third out, and raises unless the held-out
-EEG–EOG coupling drops by at least half; the returned operator carries a
-report with the coupling ratio, retained energy and the fitted directions.
-Cutting those epochs out of a recorded calibration run (raw chunks -> the same
-chain -> one-second windows around `blink` / `eyes_*` events) is an
-integration step that lines up events and windows via the recorder (D3), and
-needs a run with a real EOG channel to be exercised end to end — the typed
-input boundary for the already-processed data is `cut_epochs` (see §5.10).
+**One mental model for "direction".** At any instant, one sample of N EEG
+channels is just a list of N numbers. You can think of that list as a point
+in an N-dimensional space. When the eye moves, the points all slide together
+along one particular direction in that space (say, "front channels up,
+back channels down" is one such direction). If we know that direction — call
+it `U` — we can build a simple linear filter `P = I - U @ U.T` that says:
+"take any signal, erase the part that points along `U`, keep everything else".
+Applying `P` is called *projecting*. This is a well-known technique called
+signal-space projection (SSP); it is NOT ICA (blind source separation) and NOT
+sample interpolation — we are not guessing missing values, we are removing a
+learned direction.
 
-**C2 — application (online, per window).** When a run selects a saved operator
-(`SpatialOperator.load(path)` plus `operator.validate(processing_contract(...))`
-before the loop), every finished window passes through it between `wrap()` and
-the consumer. Because `P` is linear and time-invariant, projecting each window
-equals projecting the continuous signal and then windowing, so the ring buffer
-stays pure storage. The operator:
+**Why we need a calibration run at all.** We do not know `U` in advance — it
+depends on the person's head, electrode positions and the amplifier. So we
+learn it from a short, boring recording where the person deliberately blinks
+and moves their eyes on command, while a special EOG channel measures the eye
+movements. That recording is only used once, offline, to produce a small file
+called the *operator* (`.npz`). Every later run can use the same operator.
 
-- checks its contract against the run: EEG/EOG channel order and counts, the
-  output rate, units and a user-supplied preprocessing `stamp` — a mismatch is
-  an error, not a silent skip;
-- multiplies only the EEG columns; EOG is left alone;
-- stamps `artifact_id` on the window so a window can never be corrected twice;
-- preserves the window's existing `valid` / `reasons` — correction never turns
-  a rejected window into a valid one.
+**What a calibration session looks like (for the person running it).**
 
-Two caveats are recorded in the guide's spirit of honesty: projection also
-removes any *neural* activity that shares the eye direction, and it reduces the
-data's rank, so a future covariance classifier must regularize accordingly.
-Nothing ever auto-selects the newest operator file; the choice is explicit so
-it can be audited (D2 records the exact file that was used).
+1. Record a run with role `artifact_calibration` (raw EEG + a real EOG
+   channel + the recovery/quality guardrails active). Use the recorder's
+   `mark("blink")` / `mark("eyes_left")` / ... to stamp each event at the
+   moment you see it.
+2. Collect at least six events, spaced about a second apart (more is better),
+   with a few seconds of clean recording before the first and after the last.
+3. The recorder keeps the raw data, the event times, and the window log (D3)
+   — that is everything calibration needs later.
+
+**C1 — calibration, step by step (offline, one time).**
+
+| Step | What happens | Which function |
+| --- | --- | --- |
+| 1 | Replay the recorded run through the **exact same chain** the live runs use, so the data matches what a real window would look like (same repair, scaling, filters, resampling). | `replay_chunks` + your chain |
+| 2 | Cut a 1-second piece (an *epoch*) around every `blink`/`eyes_*` event. This is where ALREADY-PROCESSED data enters: the input boundary. | `cut_epochs(...)` |
+| 3 | Fit `U` using only the *first* events; keep the *last third* untouched as a test set. Never test on data you fitted on. | `fit_ssp(eeg, eog, contract)` |
+| 4 | Check the result honestly: measure how much EEG still "moves together with" EOG in the held-out events. It must drop by at least half — otherwise the calibration is useless and the function refuses to build an operator. | inside `fit_ssp` |
+| 5 | Save the operator (matrix + contract + a report with the numbers above). The file refuses to overwrite an existing operator. | `operator.save(path)` |
+
+**What exactly `cut_epochs` expects (so you never have to guess).** It wants
+data that is already processed, and its docstring spells the rules out. In
+plain words:
+
+- `eeg` and `eog` are two 2-D grids of numbers: rows = samples, columns =
+  channels. EEG columns must be in the contract's EEG order; EOG columns in
+  the contract's EOG order; values in the contract's units (microvolts for
+  this chain). A tiny worked example: 10 blinks, 1 s each at 128 Hz, 8 EEG
+  channels → after cutting you get an `(10, 128, 8)` array.
+- `timestamps`: one time per row (same clock the events use), strictly
+  increasing.
+- `event_times`: the marked event centres, sorted.
+- `seconds`: how long each epoch is. If any epoch would stick out of the data,
+  `cut_epochs` refuses — a silently shortened calibration would be worse than
+  none.
+- Output is `(eeg_epochs, eog_epochs)`, shaped `(events, samples, channels)`,
+  ready for `fit_ssp`.
+
+**C2 — application (online, every window).** Once an operator exists, a run
+may choose to use it. In the script, before the loop:
+
+```python
+operator = SpatialOperator.load("eye_operator.npz")
+operator.validate(processing_contract(...))   # refuse if the run differs
+```
+
+Then, right after `wrap()` and before the consumer, every window passes
+through `operator.apply_window(eeg_window)`. `P` is *linear and
+time-invariant*, which is a fancy way of saying "it does not matter whether
+we correct each 2-second window or the whole continuous signal first — the
+result is identical". That is why we can correct window-by-window and keep
+the ring buffer completely untouched. Four safety rules are built in:
+
+1. **Check the table first**: the operator remembers the channel order, rates,
+   units and a `stamp` of the chain it was calibrated under; if the current
+   run's contract differs, it refuses instead of applying a wrong correction.
+2. **Only the EEG columns change**; EOG is left alone (it is measurement, not
+   noise here).
+3. **Stamp once**: `apply_window` writes an `artifact_id` on the window, so a
+   window can never be corrected twice.
+4. **Never rescue a bad window**: if the window was already rejected by the
+   quality/recovery guards, correction keeps it rejected — a projector can
+   never turn garbage into a valid window.
+
+**Honest warnings.** (1) If some *real* brain activity happens to point in
+the same direction as the eye wobble, it is removed too — that is physics, not
+a bug, so inspect the calibration report before trusting an operator on human
+data. (2) After projection the data has one fewer "direction" of freedom
+(mathematically: its rank drops by one); a future classifier working on
+covariances must account for that. (3) Nothing ever auto-selects the newest
+operator file; the choice is explicit in the script and auditable (D2 stores a
+copy + hash of the exact file). (4) If no calibration recording exists yet,
+this whole guardrail is simply skipped — the pipeline runs exactly as before,
+only without eye-artefact removal — and can be added later the moment such a
+recording (EOG channel + marked events) is available. The mechanics above are
+implemented and unit-tested; only that real recording is missing for a
+full end-to-end demonstration.
 
 ---
 
