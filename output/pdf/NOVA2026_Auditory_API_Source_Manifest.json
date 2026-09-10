@@ -1,0 +1,25 @@
+{
+  "branch": "audio",
+  "head": "04ce6af86c9736ac930688ea83ac855ee72d0202",
+  "sha256": {
+    "src/nova2026/auditory/__init__.py": "6b4515a57ebcaa47e5ae16cd4082be60c1b24f1d1d72f358793ac26525d59012",
+    "src/nova2026/auditory/alignment.py": "48d04a0fca3a002eb2c62914cc32eefcf922adadb7c14c932e18879b398d46c9",
+    "src/nova2026/auditory/audio.py": "dbed358811fee9620c9fcb56dc621e0b487c60a8ccc98d4e5f974a59dc18140f",
+    "src/nova2026/auditory/config.py": "f2f8edc14128a611360069f0ffdda7e1257dfc7611116602ec175e8e9e99b79b",
+    "src/nova2026/auditory/controller.py": "281e53bac6bccf9231275aa8990c58e28e2e8d05c3789f0bed4e3f5a777bd287",
+    "src/nova2026/auditory/data.py": "753bc204481502a4c199282b94dd0d9ca8b153a1f17d814859042144945936d4",
+    "src/nova2026/auditory/decoder.py": "e2109172b84e94c7d38c5419c13ef7ca2600f4ef611eefb341efe2c77bebf4da",
+    "src/nova2026/auditory/envelopes.py": "c8ebfdb3650245324b3de395d1a980689735a039396349a0a3ec3bbd4181f62b",
+    "src/nova2026/auditory/evaluation.py": "d1b635a9b891f96b7ac311d1f6935821d431b6271a2bff47c0963f4f7aa7aad1",
+    "src/nova2026/auditory/pipeline.py": "7a53e93c6e2dc75e0b608a56eb5e42355aee2804821841e153fac060ac47a6cd",
+    "scripts/auditory/__init__.py": "114c1af1ae734382dec3fff7c38c728a1789ba00c9a5db77dab792c4b761c72d",
+    "scripts/auditory/convert.py": "1e4f8ea2bc2007464e7d890c3f86e9836cb6a2512f9815eb1e61b678eb43f659",
+    "scripts/auditory/demo.py": "004fd46b7a88028224b6d4acb537d4dadf0890c11dbfa4b5b17cd9d9c9b809b3",
+    "scripts/auditory/evaluate.py": "6ed6760bfbb0ba4dbe1b5239043f6f607efa9bef3197a031c39022173c5395da",
+    "scripts/auditory/replay.py": "94c8a2fdee9adc5ef8ad259b87f50ff61e052d5d82efe058d8f9d09145e91172",
+    "scripts/auditory/runner.py": "6ae39044d1297a47557d5e0ad77c6225bc482773cf89f6f71ed7c710300b634c",
+    "scripts/auditory/streamer.py": "e03cffb4eea30802bafade511d24b2f8beb81e55e9b1b1af21fc7c2218580bcd",
+    "scripts/auditory/synthetic.py": "464b52b0b3b7018b2bb88c75bab5ec49cf545f79f8ea0de73066fda7a8046030",
+    "scripts/auditory/train.py": "980d314c2488601b308ff9804ebc582aa759a0a45f971b9ccd205a784c26e041"
+  }
+}

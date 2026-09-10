@@ -25,6 +25,7 @@ dependencies = [
     "torchvision>=0.17",
     "scikit-learn>=1.9.0",
     "mne-lsl>=1.14.0",
+    "soxr>=1.1.0",
 ]
 
 #
@@ -39,6 +40,7 @@ dependencies = [
 #
 
 [project.optional-dependencies]
+audio = ["sounddevice>=0.4"]
 dev = []
 
 [tool.setuptools]

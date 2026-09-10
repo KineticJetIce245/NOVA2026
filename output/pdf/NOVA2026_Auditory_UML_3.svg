@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE svg
+  PUBLIC '-//W3C//DTD SVG 1.0//EN'
+  'http://www.w3.org/TR/2001/REC-SVG-20010904/DTD/svg10.dtd'>
+<svg width="495" height="615" preserveAspectRatio="xMinYMin meet" viewBox="0 0 495 615" xmlns="http://www.w3.org/2000/svg" version="1.0" fill-rule="evenodd" xmlns:xlink="http://www.w3.org/1999/xlink">
+	<title>...</title>
+	<desc>...</desc>
+	<clipPath id="clip">
+		<rect x="0" y="0" width="495" height="615"/>
+	</clipPath>
+	<g id="group" transform="scale(1,-1) translate(0,-615)" style="clip-path: url(#clip)">
+		<g transform="">
+			<text x="0" y="600" style="font-family: Helvetica-Bold; font-size: 14px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,1200) scale(1,-1)">Replay and live integration</text>
+			<rect x="0" y="420" width="237" height="160" style="stroke: rgb(8%,20%,29%); stroke-linecap: butt; stroke-width: 0.8; fill: rgb(96%,97%,98%); fill-rule: evenodd;"/>
+			<rect x="0" y="550" width="237" height="30" style="stroke: rgb(8%,20%,29%); stroke-linecap: butt; stroke-width: 1; fill: rgb(8%,20%,29%); fill-rule: evenodd;"/>
+			<text x="9" y="560" style="font-family: Helvetica-Bold; font-size: 10.4px;fill: rgb(100%,100%,100%); stroke:none;" transform="translate(0,1120) scale(1,-1)">AuditoryReplayStreamer</text>
+			<text x="8" y="536" style="font-family: Helvetica; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,1072) scale(1,-1)">trial, model, on_result, initialized, worker</text>
+			<path d="M 0,508 L 237,508 Z" style="stroke: rgb(8%,49%,52%); stroke-linecap: butt; stroke-width: 0.6;"/>
+			<text x="8" y="494" style="font-family: Courier; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,988) scale(1,-1)">+ construct(...)</text>
+			<text x="8" y="484" style="font-family: Courier; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,968) scale(1,-1)">+ initialize(...)</text>
+			<text x="8" y="474" style="font-family: Courier; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,948) scale(1,-1)">+ clock(...)</text>
+			<text x="8" y="464" style="font-family: Courier; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,928) scale(1,-1)">+ blocks(...)</text>
+			<text x="8" y="454" style="font-family: Courier; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,908) scale(1,-1)">+ play(...)</text>
+			<text x="8" y="444" style="font-family: Courier; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,888) scale(1,-1)">+ stream(...)</text>
+			<text x="8" y="434" style="font-family: Courier; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,868) scale(1,-1)">+ stop(...)</text>
+			<rect x="258" y="420" width="237" height="160" style="stroke: rgb(8%,20%,29%); stroke-linecap: butt; stroke-width: 0.8; fill: rgb(96%,97%,98%); fill-rule: evenodd;"/>
+			<rect x="258" y="550" width="237" height="30" style="stroke: rgb(8%,20%,29%); stroke-linecap: butt; stroke-width: 1; fill: rgb(8%,20%,29%); fill-rule: evenodd;"/>
+			<text x="267" y="560" style="font-family: Helvetica-Bold; font-size: 10.4px;fill: rgb(100%,100%,100%); stroke:none;" transform="translate(0,1120) scale(1,-1)">LiveAuditoryAdapter</text>
+			<text x="266" y="536" style="font-family: Helvetica; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,1072) scale(1,-1)">pipeline, envelopes, handoff</text>
+			<path d="M 258,508 L 495,508 Z" style="stroke: rgb(8%,49%,52%); stroke-linecap: butt; stroke-width: 0.6;"/>
+			<text x="266" y="494" style="font-family: Courier; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,988) scale(1,-1)">+ construct(...)</text>
+			<text x="266" y="484" style="font-family: Courier; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,968) scale(1,-1)">+ rundown(...)</text>
+			<rect x="0" y="230" width="237" height="160" style="stroke: rgb(8%,20%,29%); stroke-linecap: butt; stroke-width: 0.8; fill: rgb(96%,97%,98%); fill-rule: evenodd;"/>
+			<rect x="0" y="360" width="237" height="30" style="stroke: rgb(8%,20%,29%); stroke-linecap: butt; stroke-width: 1; fill: rgb(8%,20%,29%); fill-rule: evenodd;"/>
+			<text x="9" y="370" style="font-family: Helvetica-Bold; font-size: 10.4px;fill: rgb(100%,100%,100%); stroke:none;" transform="translate(0,740) scale(1,-1)">ReplayFailure</text>
+			<text x="8" y="346" style="font-family: Helvetica; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,692) scale(1,-1)">timestamp</text>
+			<path d="M 0,318 L 237,318 Z" style="stroke: rgb(8%,49%,52%); stroke-linecap: butt; stroke-width: 0.6;"/>
+			<text x="8" y="304" style="font-family: Courier; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,608) scale(1,-1)">+ construct(...)</text>
+		</g>
+	</g>
+</svg>

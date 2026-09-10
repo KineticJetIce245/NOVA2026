@@ -1,5 +1,8 @@
 # NOVA2026
 
+Auditory-attention training and replay are documented in
+[`scripts/auditory/README.md`](scripts/auditory/README.md).
+
 NOVA Buildathon 2026 project: EEG-based attention-lapse detection using a passive BCI approach.
 
 ## Folder structure

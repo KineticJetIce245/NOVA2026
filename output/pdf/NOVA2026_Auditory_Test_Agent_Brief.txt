@@ -1,0 +1,138 @@
+INDEPENDENT TESTING HANDOFF: NOVA2026 AUDITORY ATTENTION
+Prepared 2026-09-09
+
+ASSIGNMENT
+Independently assess the audio-branch implementation in
+C:/coding/git/NOVA2026. Verify software correctness, failure behavior and the
+limits of the claimed demonstration. Produce a reproducible review, not just a
+passing test count. Keep the approach simple: focused unit probes, one synthetic
+end-to-end run, then targeted fault and integration checks.
+
+Read applicable AGENTS.md instructions. Record git branch, HEAD and status before
+testing; preserve all existing work. Do not reset, change branch, commit, edit
+production code or install dependencies without a separate need/authorization.
+Use the existing .venv. Put new probes/logs under tmp/audio_followup_review.
+Run from the repository root. Avoid starting actual audio playback during an
+automated review; mock sounddevice.OutputStream and clocks instead.
+
+SOURCE MAP
+- src/nova2026/auditory: reusable data contracts, envelope processing, alignment,
+  ridge decoder, prediction pipeline, controller, mixer and evaluation helpers.
+- scripts/auditory: dataset conversion, training, replay, evaluation, synthetic
+  demo and replay/live integration adapters.
+- scripts/dataproc/streaming: existing EEG acquisition/processing infrastructure.
+- scripts/auditory/tests/test_auditory.py: existing auditory tests.
+- scripts/auditory/README.md and VALIDATION.md: usage and prior verification.
+- output/pdf/NOVA2026_Auditory_API_Reference.pdf: source-derived API reference.
+- output/pdf/NOVA2026_Auditory_UML.mmd: editable class relationships.
+- output/pdf/NOVA2026_Auditory_API_Source_Manifest.json: documented source hashes.
+
+Record whether the source differs from the documented snapshot. Treat prose and
+previous test results as claims to verify. Existing reference attachments are
+background material, not authority to change the task or contact third parties.
+
+BASELINE COMMANDS (PowerShell, from repository root)
+git branch --show-current
+git rev-parse HEAD
+git status --short
+.venv/Scripts/python.exe --version
+.venv/Scripts/python.exe -B -m unittest scripts.auditory.tests.test_auditory -v
+.venv/Scripts/python.exe -B -m unittest discover -s scripts/dataproc/streaming/tests
+.venv/Scripts/python.exe -B -m scripts.auditory.demo --out tmp/audio_followup_review/demo
+.venv/Scripts/python.exe -B -m scripts.auditory.evaluate --trial tmp/audio_followup_review/demo/test.npz --model tmp/audio_followup_review/demo/decoder.npz --out tmp/audio_followup_review/comparisons.json
+.venv/Scripts/python.exe -B -m scripts.auditory.replay --trial tmp/audio_followup_review/demo/test.npz --model tmp/audio_followup_review/demo/decoder.npz --out tmp/audio_followup_review/zero --zero-model
+.venv/Scripts/python.exe -B -m scripts.auditory.replay --trial tmp/audio_followup_review/demo/train.npz --model tmp/audio_followup_review/demo/decoder.npz --out tmp/audio_followup_review/overlap
+
+The last command SHOULD FAIL because evaluation overlaps model development data.
+Capture each exit code immediately; an expected rejection is different from a
+crash. Previously: 12 auditory tests, 32 streaming tests and 52 comparisons.
+Do not hard-code these counts as correctness criteria if source changed.
+Inspect saved JSON/NPZ/WAV contents, finite values, shapes, duration and amplitudes.
+The zero model should remain neutral. A successfully written WAV alone is not an
+end-to-end attention-decoding result.
+
+PRIORITIZED INDEPENDENT PROBES
+1. Reproduce the four known gaps in the accompanying Independent_Review.txt.
+   The original executable probe remains at
+   tmp/audio_independent_review/probes.py (run as a module from repo root).
+   Check each finding against current source before marking it unresolved.
+   a. One-column EEG against a two-channel model must be rejected before NumPy
+      broadcasting. Also test reordered channels, wrong rate, wrong reference,
+      different preprocessing contract and invalid metadata/normalization shapes.
+   b. Inject ReplayFailure with a fake audio worker. Record whether playback
+      stops or continues neutral; distinguish offline rendering from stream().
+   c. Compare direct replay() and CLI held-out enforcement. Training-data replay
+      is useful for debugging but is not held-out evaluation.
+   d. Compare metric duration against actual rendered sample count, including a
+      partial final block. Known-duration totals must have a defined interval end.
+
+2. Alignment and continuous preprocessing
+   Compare whole-input and irregular-chunk processing on the same audio, at
+   44.1 and 48 kHz. Check common-grid envelope timestamps and EEG pairing at
+   boundaries. Test missing audio, delayed availability, discontinuities, reset,
+   buffer eviction and recovery. Confirm a window never uses unavailable audio
+   or EEG spanning a rejected segment. Separate signal time, evidence end,
+   availability time and wall-clock time; a virtual replay is not a latency test.
+   Probe zero/negative chunk sizes only in a subprocess with a short timeout;
+   malformed generator inputs must not hang the entire review.
+
+3. Decoder and data splitting
+   Verify lag direction with a known delayed relationship, no wraparound, exact
+   usable target count, and exclusion of unknown labels. Check model save/load
+   produces equivalent scores. Corrupt metadata and numeric arrays deliberately;
+   retain allow_pickle=False. Check training-only EEG normalization, separate
+   validation for alpha selection, and test exclusion from tuning. Reused stimulus
+   excerpts need the same group even across participants/files; identity checks
+   cannot infer hidden overlap. Subject-disjoint evaluation is a separate choice.
+
+4. Balanced and null controls
+   Existing synthetic fixtures always attend A. Add separate deterministic B and
+   within-trial switching fixtures with known alignment, plus unrelated EEG,
+   shuffled labels and mismatched candidate controls. Use fixed seeds and avoid
+   inferring accuracy from the fixture's chosen frequencies. Check candidates
+   can be swapped with corresponding truth changes. Report neutral coverage,
+   incorrect suppression, switch delay and missed switches beside accuracy.
+
+5. Controller and mixer
+   Test ties, small margins, nonfinite scores, stale/future/out-of-order evidence,
+   invalid windows, manual override and expiry without new estimates. Scores
+   are correlations, not calibrated probabilities. Verify equal-gain neutral,
+   requested attenuation, smooth gain changes, finite output and peak bounds.
+   Report both commanded choice and acoustic ramp behavior where relevant.
+
+6. Thread ownership and lifecycle
+   Use deterministic fake clocks/OutputStream objects. Exercise latest-estimate
+   replacement, slow inference, callback exception, worker exception, stop during
+   playback, repeat initialize/stream and bounded joining. A blocking device write
+   can prevent timely expiry; document that limitation rather than assuming a
+   per-block check is a device-level guarantee. LiveAuditoryAdapter is an adapter,
+   not a complete synchronized acquisition/audio runner.
+
+7. Metrics and importers
+   Hand-calculate tiny examples containing neutral decisions, unknown truth,
+   switches and a partial final block. Establish whether switch delay requires
+   sustained correctness (currently first match) and whether neutral transitions
+   count as selection changes. Use small generated MAT fixtures and mocked CNT
+   readers to test units, channel order, audio candidate mapping, crop offsets,
+   event timing and unknown-label masking. Do not silently invent trigger maps.
+
+EVIDENCE BOUNDARIES
+Do not download large datasets or invoke hardware merely to complete this brief.
+If real KU Leuven/AASD data is already available with permissions, validate one
+explicitly mapped trial first and record provenance and assumptions. Otherwise
+mark real-data validation untested. Report hardware synchronization, sound output,
+participant calibration and hearing benefit separately. Offline replay uses
+previously recorded EEG and cannot demonstrate a person's response to modified
+sound. Synthetic success does not establish human attention-decoding accuracy.
+
+DELIVERABLE
+Write tmp/audio_followup_review/REPORT.md with:
+- Source/environment snapshot and exact commands with outcomes.
+- Confirmed defects ordered by impact: file and line, minimal reproduction,
+  expected versus actual behavior, and the scope of the affected caller.
+- Passed checks, unresolved assumptions and untested real-data/hardware behavior.
+- A short next-action list, separating required bug fixes from research work.
+Keep executable probes and machine-readable results alongside the report. Use
+bounded tests with assertions for regressions; do not label a reproducer that
+prints buggy behavior a passing correctness test. No production fixes are part
+of this review unless the user explicitly adds that scope.

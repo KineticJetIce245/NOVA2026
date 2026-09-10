@@ -1,0 +1,92 @@
+classDiagram
+direction TB
+class EnvelopeBuffer {
+  +construct(sample_rate, seconds)
+  +reset()
+  +feed(values, timestamps, available_at)
+  +align(window)
+}
+class AudioMixer {
+  +construct(sample_rate, ramp_seconds)
+  +process(samples, target)
+}
+class LatestEstimate {
+  +construct()
+  +put(estimate)
+  +get()
+}
+class AudioPlayback {
+  +construct(controller, handoff, sample_rate, clock)
+  +stream(blocks, stop_event)
+}
+class AuditoryConfig {
+  +construct(sample_rate, band, lag_seconds)
+  +to_dict()
+}
+class AttentionController {
+  +construct(margin, max_age, attenuation_db)
+  +set_manual(enabled, candidate)
+  +update(estimate, now)
+  +choice(now)
+  +gains(now)
+}
+class AuditoryTrial {
+  +construct(eeg, timestamps, audio, audio_rate, labels, subject, trial_id, channel_names, reference, upstream_processing, group)
+  +sample_rate()
+}
+class AuditoryWindow {
+  +construct(eeg, envelopes, timestamps, available_at, valid, reasons, contract, segment)
+}
+class AttentionEstimate {
+  +construct(scores, evidence_end, emitted_at, valid, reasons)
+  +to_dict()
+}
+class RidgeDecoder {
+  +construct(config, alpha)
+  +design(eeg)
+  +fit(examples, training_info)
+  +validate(window)
+  +score(window)
+  +save(path)
+  +load(path)
+}
+class EnvelopeExtractor {
+  +construct(audio_rate, config)
+  +reset()
+  +feed(samples)
+}
+class AuditoryPipeline {
+  +construct(model, clock)
+  +predict(window)
+}
+class ReplayFailure {
+  +construct(timestamp, message)
+}
+class LiveAuditoryAdapter {
+  +construct(pipeline, envelopes, handoff)
+  +rundown(window)
+}
+class AuditoryReplayStreamer {
+  +construct(trial, model, on_result)
+  +initialize()
+  +clock()
+  +blocks()
+  +play()
+  +stream()
+  +stop()
+}
+Pipeline <|-- AuditoryPipeline
+AuditoryPipeline ..> RidgeDecoder : uses supplied model
+AuditoryPipeline ..> AttentionEstimate : creates
+EnvelopeExtractor ..> AuditoryConfig : uses supplied config
+EnvelopeBuffer ..> AuditoryWindow : creates in align
+AuditoryReplayStreamer *-- LatestEstimate : owns
+AuditoryReplayStreamer *-- AttentionController : owns
+AuditoryReplayStreamer *-- AudioPlayback : owns
+AudioPlayback *-- AudioMixer : owns
+AudioPlayback ..> LatestEstimate : consumes supplied handoff
+AudioPlayback ..> AttentionController : uses supplied controller
+LiveAuditoryAdapter ..> EnvelopeBuffer : uses supplied history
+LiveAuditoryAdapter ..> AuditoryPipeline : uses supplied pipeline
+LiveAuditoryAdapter ..> LatestEstimate : publishes estimate
+RuntimeError <|-- ReplayFailure
