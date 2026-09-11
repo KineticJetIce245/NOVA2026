@@ -350,7 +350,7 @@ Companion scripts and tests live next to the package: `scripts/streaming_demo.py
 (the runnable walkthrough), `scripts/benchmark_streaming.py` (per-stage
 micro-benchmark), `scripts/verify_realdata.py` (real-recording check: run
 through, save + offline parity, edge cases), and `tests/streaming/test_*.py`
-(unit + end-to-end tests, 175 in total).
+(unit + end-to-end tests, 181 in total).
 
 Rule of thumb used everywhere: **stateless -> function, stateful -> class**.
 Classes hold their own state, validate arguments in the constructor, expose a
@@ -446,7 +446,10 @@ check but *returns* the `ChannelContract` for the run — the one-call entry
 point.
 
 **Expected usage** (at run start; `StreamSession` accepts the pre-built
-contract so nothing is checked twice):
+contract so nothing is checked twice). The contract must come from *this*
+outlet: the session checks that its `source_channels` equal the connected
+stream's labels and rejects a contract built for another source, because such
+a contract would silently reorder columns by name:
 
 ```python
 from nova2026.streaming import prepare
@@ -914,8 +917,9 @@ components it owns.
 persistent_fault_seconds=5.0, recorder=None)`; `handle(UnrepairableError)`
 (discard the chunk, reset every registered component, advance `segment`);
 `watch(EEGWindow)` (stop after judge-rejected windows last longer than
-`persistent_fault_seconds`); `reset()`; attributes `segment`, `recoveries`,
-`events`.
+`persistent_fault_seconds`; a window without finite timestamps raises instead
+of silently disabling the watch); `reset()`; attributes `segment`,
+`recoveries`, `events`.
 
 **Choosing `persistent_fault_seconds`.** A single bad sample invalidates every
 window that overlaps it, so the bad stretch a judge can report is roughly
@@ -1030,7 +1034,7 @@ python -B -m scripts.streaming_demo --duration 8 --record records
 python -B -m scripts.streaming_demo --duration 8 --compute 0.8 --workers 0
 python -B -m scripts.streaming_demo --duration 8 --compute 0.8 --workers 2
 
-# Full test suite for the package (175 tests):
+# Full test suite for the package (181 tests):
 python -B -m unittest discover -s tests/streaming -t .
 
 # Real-recording check (needs the COG-BCI dataset in datasets/):

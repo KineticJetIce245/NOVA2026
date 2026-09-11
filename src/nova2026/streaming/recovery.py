@@ -146,11 +146,19 @@ class Recovery:
         lasts longer than ``persistent_fault_seconds`` the run stops.
 
         Raises:
-            RuntimeError: When quality faults persisted beyond the limit.
+            RuntimeError: When quality faults persisted beyond the limit, or
+                when a window carries no finite time grid so persistence
+                cannot be measured (silently ignoring those would disable the
+                guard for the rest of the run).
         """
 
         start = float(window.timestamps[0])
         end = float(window.timestamps[-1])
+        if not (math.isfinite(start) and math.isfinite(end)):
+            raise RuntimeError(
+                "Cannot watch fault persistence: the window has no finite "
+                "timestamps (its ring buffer never anchored to real time)."
+            )
         if window.reasons:
             if self._bad_since is None:
                 self._bad_since = start

@@ -2,15 +2,16 @@
 
 import time
 import unittest
+from uuid import uuid4
 
 import mne
 import numpy as np
 from mne_lsl.player import PlayerLSL
 from mne_lsl.stream import StreamLSL
 
-NAME = "nova-acq-test"
 SFREQ = 250.0
 BUFSIZE = 4.0
+WAIT_SECONDS = 5.0
 
 
 def make_raw(seconds: float = 6.0) -> mne.io.RawArray:
@@ -32,9 +33,12 @@ class StreamAcquisitionTests(unittest.TestCase):
     """Record what the MNE-LSL manual-acquire path actually delivers."""
 
     def setUp(self) -> None:
-        self.player = PlayerLSL(make_raw(), name=NAME)
+        # A unique name per run: LSL outlets are visible network-wide, so a
+        # constant name would collide with another suite or machine.
+        name = f"nova-acq-{uuid4().hex[:8]}"
+        self.player = PlayerLSL(make_raw(), name=name)
         self.player.start()
-        self.stream = StreamLSL(bufsize=BUFSIZE, name=NAME)
+        self.stream = StreamLSL(bufsize=BUFSIZE, name=name)
         self.stream.connect(
             acquisition_delay=None,
             processing_flags=["clocksync"],
@@ -46,7 +50,7 @@ class StreamAcquisitionTests(unittest.TestCase):
             self.stream.disconnect()
         self.player.stop()
 
-    def acquire_until_data(self, timeout: float = 5.0):
+    def acquire_until_data(self, timeout: float = WAIT_SECONDS):
         """Call acquire() until at least one sample arrives, then return them."""
 
         deadline = time.monotonic() + timeout
@@ -93,7 +97,10 @@ class StreamAcquisitionTests(unittest.TestCase):
         self.assertEqual(self.stream.n_new_samples, 0)
 
         self.stream.acquire()
+        deadline = time.monotonic() + WAIT_SECONDS
         while not self.stream.n_new_samples:
+            if time.monotonic() >= deadline:
+                self.fail(f"No data arrived within {WAIT_SECONDS} seconds.")
             self.stream.acquire()
             time.sleep(0.05)
 

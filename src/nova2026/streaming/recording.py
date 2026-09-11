@@ -414,12 +414,14 @@ class RunRecorder:
                 self._set_meta("stats", json.dumps(stats))
             self._connection.commit()
 
-        # The FIF export reads the database back once at the end.
-        if self._export_fif:
-            if self.chunks:
+        # The FIF export reads the database back once at the end. Close the
+        # connection even if the export fails, so a failed write cannot leak
+        # the handle (or mask the original error behind a locked file).
+        try:
+            if self._export_fif and self.chunks:
                 self._export_fif_file()
-
-        self._connection.close()
+        finally:
+            self._connection.close()
 
         # Human-readable sidecar next to the database.
         metadata = read_metadata(self.path)

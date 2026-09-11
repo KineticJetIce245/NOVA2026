@@ -1,9 +1,11 @@
 """Tests for the SQLite run recorder and its read-back helpers."""
 
 import hashlib
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 
@@ -150,6 +152,21 @@ class RunRecorderTests(unittest.TestCase):
             recorder.write(np.zeros((5, 3)), np.zeros(5))
         recorder.mark("bad label", timestamp=1.0)  # invalid chars are stripped
         recorder.close()
+
+    def test_close_releases_the_database_when_fif_export_fails(self) -> None:
+        recorder = RunRecorder(self.root, self.spec, CHANNELS, SFREQ)
+        data, times = self.build_blocks()
+        recorder.write(data[:10], times[:10])
+
+        with mock.patch.object(
+            RunRecorder, "_export_fif_file", side_effect=RuntimeError("disk full")
+        ):
+            with self.assertRaisesRegex(RuntimeError, "disk full"):
+                recorder.close()
+
+        # The writer connection must be released even though the export failed.
+        with self.assertRaises(sqlite3.ProgrammingError):
+            recorder._connection.execute("SELECT 1")
 
     def test_chunk_timestamps_helper(self) -> None:
         grid = chunk_timestamps(1000.0, 4, SFREQ)

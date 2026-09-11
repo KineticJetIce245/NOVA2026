@@ -100,6 +100,21 @@ class RecoveryTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             Recovery(()).handle(RuntimeError("not unrepairable"))
 
+    def test_watch_rejects_windows_without_a_time_grid(self) -> None:
+        # NaN timestamps would make every persistence comparison false and
+        # silently disable the guard, so they are refused instead.
+        guard = Recovery((), persistent_fault_seconds=1.0)
+        window = EEGWindow(
+            np.zeros((10, 2)),
+            np.zeros((10, 1)),
+            np.full(10, np.nan),
+            valid=False,
+            reasons=("amplitude",),
+            start_sample=0,
+        )
+        with self.assertRaisesRegex(RuntimeError, "finite"):
+            guard.watch(window)
+
     def test_components_must_implement_reset(self) -> None:
         guard = Recovery((object(),))  # no reset() method
         with self.assertRaisesRegex(RuntimeError, "reset"):

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
+from nova2026.streaming import ChannelContract
 from nova2026.streaming.bootstrap import StreamSession, make_parser, parse_args
 from nova2026.streaming.recording import read_metadata
 
@@ -117,6 +118,21 @@ class SessionTests(unittest.TestCase):
         eeg_window = session.wrap(window, later, start_sample=session.warmup_samples)
         self.assertFalse(eeg_window.valid)
         self.assertEqual(eeg_window.reasons, ("amplitude", "flatline"))
+
+    def test_contract_must_come_from_the_connected_source(self) -> None:
+        args = parse_args(argv=[])
+        stream = StubStream(("F3", "C3", "EOG"))
+
+        # A contract built for THIS outlet is accepted and reused.
+        same = ChannelContract(stream.ch_names, CHANNELS)
+        session = StreamSession(stream, args, CHANNELS, contract=same)
+        self.assertIs(session.contract, same)
+
+        # A contract built for another outlet would silently reorder columns,
+        # so it is rejected instead of trusted.
+        foreign = ChannelContract(("C3", "F3", "EOG"), CHANNELS)
+        with self.assertRaisesRegex(ValueError, "different source"):
+            StreamSession(stream, args, CHANNELS, contract=foreign)
 
     def test_recorder_is_optional(self) -> None:
         args = parse_args(argv=[])

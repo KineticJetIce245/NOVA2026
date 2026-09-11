@@ -94,7 +94,7 @@ class TaskOffloader:
 
     @property
     def pending(self) -> int:
-        """Items queued or being handled right now."""
+        """Items still waiting in the queue (a handler may hold one already)."""
 
         return self._queue.qsize()
 
