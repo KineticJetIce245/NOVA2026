@@ -202,15 +202,20 @@ class Resampler:
 
         if quality == "auto":
             quality = None
-        if quality is not None and quality not in SOXR_QUALITIES:
-            if quality == "QQ" and not allow_qq:
+        if quality is not None:
+            if quality == "QQ":
+                if not allow_qq:
+                    raise ValueError(
+                        "The QQ preset is disabled here: it performs essentially "
+                        "no anti-aliasing, and this path's anti-alias margin is "
+                        "thin. Pass allow_qq=True only when an earlier stage "
+                        "already band-limits the signal."
+                    )
+            elif quality not in SOXR_QUALITIES:
                 raise ValueError(
-                    "The QQ preset is disabled here: it performs essentially no "
-                    "anti-aliasing, and this path's anti-alias margin is thin. "
-                    "Pass allow_qq=True only when an earlier stage already "
-                    "band-limits the signal."
+                    f"quality must be one of {SOXR_QUALITIES}, 'QQ' (with "
+                    "allow_qq=True), None or 'auto'."
                 )
-            raise ValueError(f"quality must be one of {SOXR_QUALITIES}, None or 'auto'.")
 
         # Optional dependency: import lazily so the rest of the package works
         # without soxr installed.

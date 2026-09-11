@@ -206,6 +206,15 @@ class AutomaticQualityTests(unittest.TestCase):
         self.assertEqual(resampler.quality, "QQ")
         self.assertTrue(any("anti-aliasing" in str(w.message) for w in caught))
 
+    def test_explicit_qq_is_accepted_with_opt_in(self) -> None:
+        # Documented behaviour: naming QQ directly works once allow_qq=True.
+        resampler = Resampler(
+            IN_SFREQ, OUT_SFREQ, CHANNELS, quality="QQ", allow_qq=True
+        )
+        self.assertEqual(resampler.quality, "QQ")
+        output, _ = resampler(np.ones((500, CHANNELS)), times(500))
+        self.assertGreater(len(output), 0)  # QQ emits from the first chunk
+
     def test_auto_spelling_and_explicit_choice(self) -> None:
         delays = measured_delays()
         budget = max(delays.values()) + 0.5
