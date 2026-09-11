@@ -32,7 +32,13 @@ class Recovery:
         max_gap_seconds: Largest timestamp gap that still counts as a
             recoverable fault; anything larger stops the run immediately.
         persistent_fault_seconds: Longest run of consecutive judge-rejected
-            windows before the run stops.
+            windows before the run stops. Keep it comfortably above the window
+            length plus whatever settling the judges append
+            (``QualityMonitor.warmup_seconds``, ``Repair.settle_seconds``):
+            one transient sample invalidates every window that overlaps it, so
+            with a 5 s window and a 2 s quality settling a single spike can
+            look like about nine seconds of faults and end the run. Roughly
+            twice the window length is the documented margin.
         recorder: Optional ``RunRecorder``; every recovery is then written as
             a ``"recovery:<kind>"`` event for the audit trail.
 

@@ -156,8 +156,12 @@ class BlockAssemblyTests(unittest.TestCase):
         self.assertEqual(pending, feeder.generated - samples)
 
     def test_one_large_chunk_leaves_a_remainder(self) -> None:
-        feeder = Feeder((250,))
-        acquire = acquire_for(feeder, 100)
+        # This test checks block sizes, not time guards, so pin the clock to a
+        # fixed epoch: nothing here may depend on the wall clock's magnitude.
+        feeder = Feeder((250,), start=1000.0)
+        # The fixed epoch is far in the past; this test is about block sizes,
+        # so the age guard is disabled explicitly.
+        acquire = acquire_for(feeder, 100, max_lag_seconds=None)
         feeder.feed(250)
 
         try:
@@ -170,7 +174,15 @@ class BlockAssemblyTests(unittest.TestCase):
         self.assertEqual(pending, 50)
         self.assertEqual(first[0, 0], 0)
         self.assertEqual(second[0, 0], 100)
-        self.assertEqual(first_times[-1], second_times[0] - 1.0 / feeder.sfreq)
+        # Adjacent timestamps come from two different arithmetic paths
+        # (multiplication inside the chunk grid vs. the recorded anchor), so
+        # compare the spacing with a tolerance far below 1/sfreq instead of
+        # exact float equality. Wall-clock-derived starts would make even this
+        # tolerance brittle across machines and uptimes.
+        interval = 1.0 / feeder.sfreq
+        self.assertAlmostEqual(
+            second_times[0] - first_times[-1], interval, delta=1e-9
+        )
 
     def test_empty_chunks_are_ignored(self) -> None:
         feeder = Feeder()

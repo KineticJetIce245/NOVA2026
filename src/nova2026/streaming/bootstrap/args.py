@@ -59,8 +59,9 @@ def make_parser(
     chain.add_argument("--warmup", type=float, default=2.0,
                        help="warm-up seconds before windows are trusted")
     chain.add_argument("--resample-quality",
-                       choices=("LQ", "MQ", "HQ", "VHQ"), default="LQ",
-                       help="SoXR quality mode")
+                       choices=("auto", "LQ", "MQ", "HQ", "VHQ"), default="LQ",
+                       help="SoXR quality preset; 'auto' measures each preset "
+                            "and picks the cleanest one within the delay budget")
 
     recording = parser.add_argument_group("run recording")
     recording.add_argument("--record", type=Path, default=None,

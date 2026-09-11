@@ -11,16 +11,18 @@ about a window later. Nothing here touches LSL, threads or the buffer; only
 from .filters import SosFilter, design_bandpass, design_notch
 from .quality import QualityMonitor
 from .repair import Repair, UnrepairableError
-from .resample import Resampler
+from .resample import Resampler, ResamplerQualityWarning, select_quality
 from .units import unit_scaler
 
 __all__ = [
     "QualityMonitor",
     "Repair",
     "Resampler",
+    "ResamplerQualityWarning",
     "SosFilter",
     "UnrepairableError",
     "design_bandpass",
     "design_notch",
+    "select_quality",
     "unit_scaler",
 ]

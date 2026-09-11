@@ -350,7 +350,7 @@ Companion scripts and tests live next to the package: `scripts/streaming_demo.py
 (the runnable walkthrough), `scripts/benchmark_streaming.py` (per-stage
 micro-benchmark), `scripts/verify_realdata.py` (real-recording check: run
 through, save + offline parity, edge cases), and `tests/streaming/test_*.py`
-(unit + end-to-end tests, 165 in total).
+(unit + end-to-end tests, 175 in total).
 
 Rule of thumb used everywhere: **stateless -> function, stateful -> class**.
 Classes hold their own state, validate arguments in the constructor, expose a
@@ -683,6 +683,40 @@ restart or, beyond its limits, a stop.
 
 #### `preprocess/resample.py` — `Resampler`
 
+> **New to resampling? Read this box first.**
+>
+> **What a sample rate is.** 500 Hz means "500 measurements every second".
+> Picture them as dots on a line, 2 mm apart. We want dots 7.8 mm apart
+> (128 Hz).
+>
+> **Why we cannot simply throw dots away.** If a 200 Hz tone is hiding in the
+> signal and we just keep every fourth dot, that tone comes back as a ghost at
+> about 72 Hz — a frequency that was never there, and once it is mixed in it
+> cannot be separated again. The ghost appears because the signal was not
+> "smoothed" before being thinned out.
+>
+> **What SoXR does instead.** It first builds a smoothing filter that removes
+> anything too fast for the new dot spacing, and then reads the new dots off
+> the smoothed curve rather than off the raw dots. That is all a resampler is:
+> "smooth, then re-space".
+>
+> **Why that costs time.** To draw the smoothed curve it needs to see a run of
+> neighbouring dots, so it must collect a batch of input before it can hand
+> out the first output. The batch size is counted in **samples, not seconds**:
+> the standard setting (`LQ`) wants about 950 of them, which is about 1.9 s at
+> 500 Hz but about 7.4 s at 128 Hz. Halve the input rate and you double the
+> delay in seconds.
+>
+> **The shortcut and its price.** `QQ` skips the smoothing almost entirely, so
+> its delay is tiny — but the ghost tones come back. It is only safe if
+> something earlier in the chain has already removed the high frequencies.
+> Here the anti-ghost margin is thin, so this wrapper refuses `QQ` outright
+> (the paragraph on latency below explains why).
+>
+> **One-line takeaway.** SoXR trades "clean signal" against "delay", and its
+> delay is a number of samples — so the same setting means very different
+> latencies at different sample rates.
+
 **Why.** Change the sample rate (500 -> 128 Hz) *continuously* while
 streaming. SoXR (`soxr`) provides a stateful `ResampleStream`; this class
 wraps it in the chain contract and regenerates an output-rate timestamp grid.
@@ -694,9 +728,64 @@ buffers).
 **Dependency note.** `soxr` is imported lazily, only when a `Resampler` is
 constructed; the rest of the package works without it (the demo requires it).
 
-**Public surface.** `Resampler(in_sfreq, out_sfreq, n_channels, quality="LQ")`;
-`(data, timestamps) -> (out, out_timestamps)`; `reset()`; `output_samples`;
-public `in_sfreq`, `out_sfreq`.
+**Latency, and why `QQ` is not accepted.** SoXR's delay is an internal *sample
+count*, not a duration, and it is deliberately not compensated (timestamps stay
+anchored to the input grid). LQ buffers roughly 950 input samples: about 1.9 s
+at 500 -> 128 Hz, but about 7.4 s at 128 -> 64 Hz, because halving the input
+rate doubles the delay in seconds. So keep the input rate high, or band-limit
+early and resample straight to the rate the consumer wants. SoXR also offers a
+`QQ` preset, which this wrapper excludes by default: `QQ` performs essentially
+no anti-aliasing, and this path's third-order 1-45 Hz band-pass leaves the
+output Nyquist (64 Hz) too close to the stopband edge, so energy would fold
+back in. Any future "upgrade" to `QQ` on this path would need a steeper
+anti-alias filter first, not just a changed word.
+
+**Choosing the preset automatically (the time budget).** Which preset is right
+depends on how late a sample may be when the consumer uses it, so the class
+derives a delay budget instead of guessing one:
+
+```text
+budget = max_delay_seconds                        # explicit override
+budget = max_age_seconds - reserve_seconds        # from the consumer's expiry
+budget = 2.0 s                                     # fallback when neither is set
+```
+
+With `quality=None` (or `"auto"`) the class does not read a table: it
+**measures** each anti-aliased preset on the installed SoXR build (feeding one
+zero sample at a time until the first output appears) and picks the cleanest
+one whose measured delay fits the budget. Measuring matters because the delay
+is a sample count that varies by build — on the build here, for example, MQ is
+slowest (7.55 s at 500 -> 128 Hz) and VHQ is fastest of the strong presets
+(7.17 s), which no name-based ordering would predict. It raises
+`ResamplerQualityWarning` when the pick is the weakest preset (LQ), when only
+`QQ` would fit (and `allow_qq=True` let it through), or when nothing meets the
+budget at all; `strict=True` turns those warnings into errors, and
+`resampler.quality` / `resampler.startup_delay_seconds` report what was chosen
+and what it costs.
+
+**What "signal error" would mean here (not auto-tuned yet).** The time budget
+above is about *when* data arrives. The other kind of error is about *how
+faithful* the conversion is: `QQ` barely filters, so energy that is too fast for
+the new sample spacing folds back and appears as a frequency that was never
+there (in the review's measurement, a tone that should vanish came through at
+about 97 %); `LQ` removes it but slightly changes amplitudes in the passband
+(about a 9 % error on the tested tone). Those two numbers, not the preset
+names, are what "signal error" means. Measuring them per build would mean
+feeding test tones and reading the leakage, which is a heavier probe; it is
+deliberately left out for now, and the safe rule of thumb stands: keep a proper
+anti-aliasing preset (never `QQ`) unless an earlier stage already band-limits
+the signal hard.
+
+**Public surface.**
+`Resampler(in_sfreq, out_sfreq, n_channels, quality=None, *,
+max_age_seconds=None, reserve_seconds=0.0, max_delay_seconds=None,
+allow_qq=False, strict=False)`; `quality=None`/`"auto"` selects automatically,
+an explicit name (`"LQ"`, `"MQ"`, `"HQ"`, `"VHQ"`) keeps full control, and
+`"QQ"` needs `allow_qq=True`. Also: `(data, timestamps) -> (out,
+out_timestamps)`; `reset()`; `output_samples`; public `in_sfreq`, `out_sfreq`,
+`quality`, `startup_delay_seconds`, `max_delay_seconds`; the helper
+`select_quality(...)` exposes the choice without constructing a stage. The CLI
+counterpart is `--resample-quality auto`.
 
 ---
 
@@ -828,6 +917,15 @@ persistent_fault_seconds=5.0, recorder=None)`; `handle(UnrepairableError)`
 `persistent_fault_seconds`); `reset()`; attributes `segment`, `recoveries`,
 `events`.
 
+**Choosing `persistent_fault_seconds`.** A single bad sample invalidates every
+window that overlaps it, so the bad stretch a judge can report is roughly
+`window length + settling` (QualityMonitor appends `warmup_seconds`, Repair
+appends `settle_seconds`). Set this threshold comfortably above that — about
+twice the window length is the safe rule — otherwise one transient spike looks
+like a persistent fault and stops the run. The demo's 2 s window, zero quality
+settling and 5 s threshold sit on the safe side of that rule; a 5 s analysis
+window with the default 2 s quality settling would not.
+
 **Expected usage** (in the script's loop):
 
 ```python
@@ -932,7 +1030,7 @@ python -B -m scripts.streaming_demo --duration 8 --record records
 python -B -m scripts.streaming_demo --duration 8 --compute 0.8 --workers 0
 python -B -m scripts.streaming_demo --duration 8 --compute 0.8 --workers 2
 
-# Full test suite for the package (165 tests):
+# Full test suite for the package (175 tests):
 python -B -m unittest discover -s tests/streaming -t .
 
 # Real-recording check (needs the COG-BCI dataset in datasets/):
