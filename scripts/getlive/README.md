@@ -203,6 +203,43 @@ not amplifier specifications. `--out` writes the full per-channel table.
 | `Input samples are 3 s old` / high `input_lag` | source publishes in large bursts, or the host is busy | reduce the amplifier's LSL chunk size, close other load |
 | `no valid window` with `data_flow` ok | warm-up plus resampler delay exceeded the run | stream longer than 10 s |
 | flat electrodes | gel/contact, or an electrode not connected | fix contact, re-run; impedance lives in the control software, not in the LSL stream |
+| `Cannot repair source damage (irregular_timestamps)`, repeatedly | the source's timestamps jitter by more than `Repair`'s tolerance | measure the grid with `ts_check` (below) before changing anything else |
+
+## Diagnosing a bad timestamp grid
+
+`Repair._check_grid` accepts a step only when it is within
+`tolerance_seconds` of a whole number of samples, and raises on **any** step
+below one sample regardless of the tolerance. Jitter is two-sided, so roughly
+half of the sub-nominal steps are compressed — and those are the steps **no
+tolerance can rescue**: loosening `tolerance_seconds` at best hides the other
+half. That is why the first move is to measure, not to widen the tolerance.
+
+```powershell
+# validate the probe itself against a jittered synthetic outlet
+.venv/Scripts/python.exe -B -m scripts.getlive.ts_check --self-test
+
+# the real question: the outlet on the rig
+.venv/Scripts/python.exe -B -m scripts.getlive.ts_check --name UnicornRecorderRawDataLSLStream --sfreq 250
+# and the relay's second hop, if one is in the path
+.venv/Scripts/python.exe -B -m scripts.getlive.ts_check --name NOVA_Relay --sfreq 250
+```
+
+Each run measures the same outlet under three LSL post-processing flag sets
+(`clocksync`, `+dejitter`, `all`) so the candidate fix is shown to work before
+it is wired in. Read `off-grid%` and `fatal%`:
+
+| Reading | Meaning |
+| --- | --- |
+| `off-grid%` > 0 on `clocksync`, `+dejitter` at 0 | the source jitters; `dejitter` regularises it |
+| `fatal%` > 0 | compressed *and* off-grid: no `tolerance_seconds` value helps; only a regularised grid can |
+| both flag sets clean | the damage is not in the timestamps; look at channel quality instead |
+
+A source that publishes a regular grid with Gaussian jitter is what
+`publish_raw.py --jitter` simulates. Two things it does **not** cover, and both
+matter before making `dejitter` the default: a source that genuinely **drops**
+samples (smoothing must not hide that from `Repair`'s gap logic), and the
+**step-shaped** clock error of a cross-host clock sync, which differs from
+per-sample noise.
 
 ## What is still unverified
 
@@ -240,6 +277,9 @@ not amplifier specifications. `--out` writes the full per-channel table.
 | `probe.py` | the metadata probe CLI |
 | `live.py` | the live acceptance run and its channel-quality policy |
 | `report.py` | console and JSON rendering |
+| `relay.py` | republish an outlet that declares no usable channel metadata |
+| `ts_check.py` | measure a source's timestamp grid against `Repair`'s rules |
+| `publish_raw.py` | fixture publisher (metadata-less, optionally jittered) |
 | `__main__.py` | `python -m scripts.getlive` |
 
 Checks (hardware-free, they cover contracts, selection and scoring):

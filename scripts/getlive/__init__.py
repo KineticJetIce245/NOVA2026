@@ -15,8 +15,12 @@ electrodes (dry caps) can be excluded from the fault verdict while still being
 recorded.
 
 Entry points:
-    python -m scripts.getlive          the live acceptance run (``live.py``)
-    python -m scripts.getlive.probe    metadata-only outlet inspection
+    python -m scripts.getlive              the live acceptance run (``live.py``)
+    python -m scripts.getlive.probe        metadata-only outlet inspection
+    python -m scripts.getlive.relay        republish an outlet with the metadata\
+                                           the package requires
+    python -m scripts.getlive.ts_check     measure a source's timestamp grid
+                                           against what ``Repair`` accepts
 
 Modules:
     cap: cap profiles (datasheet and declared), selection and channel contracts.
@@ -25,5 +29,8 @@ Modules:
     electrodes: per-electrode peak-to-peak statistics.
     probe: report what the network advertises, with and without connecting.
     live: the live run and its channel-quality policy.
+    relay: forward an outlet while adding the channel metadata it never declared.
     report: text and JSON rendering for one run.
+    publish_raw: fixture publisher for the relay and timestamp probes.
+    ts_check: does this source's timestamp grid survive ``Repair``?
 """
