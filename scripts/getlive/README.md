@@ -186,6 +186,52 @@ The per-electrode summary uses two prototype thresholds (`--flat-uv` 1 uV,
 `--noisy-uv` 200 uV mean peak-to-peak). They are heuristics for a first look,
 not amplifier specifications. `--out` writes the full per-channel table.
 
+## Step 3: check the recording against the amplifier's own file
+
+While the control software streams over LSL it also writes its own `.cnt`. That
+gives a second, independent copy of the same session, and comparing the two is
+the only way to know the relay path changed nothing - it would otherwise be
+possible to drop, reorder or filter samples and still produce a run that "looks
+fine" on its own.
+
+```powershell
+.venv/Scripts/python.exe -B -m scripts.getlive.compare_cnt `
+    --cnt ..\Lacroix_Flo_2026-09-12_17-13-32.cnt --out records/cnt_check.json
+```
+
+The offset is found by cross-correlating the **first difference** of the two
+signals, never the clocks: the run directory name, the LSL stamps and the `.cnt`
+header all describe the session but none is exact to the sample. Differencing
+also matters for correctness of the verdict - on raw EEG a *wrong* alignment
+still reaches `r = 0.9995`, because the amplifier's large DC offsets dominate;
+on differences the correct lag is a lone peak at `r = 1.0`.
+
+Reading a `.cnt` needs the `antio` package (`pip install antio`), which MNE
+delegates to. Where it cannot be installed, decode the file elsewhere and pass
+`--cnt-npy <array.npy>` with a `<stem>_meta.json` sidecar.
+
+Result on the 2026-09-12 EE-511 bring-up session (24 channels, 500 Hz, cap on a
+real head), `../Lacroix_Flo_2026-09-12_17-13-32.cnt` as the reference:
+
+| | |
+| --- | --- |
+| Runs compared | 6 of 7 (the first 30 s run recorded no samples and failed on lag) |
+| Sample pairs compared | 88 500, over 2.6 min of signal |
+| Alignment | every run at `r = 1.000000`, found independently of any clock |
+| Worst disagreement | 0.0039 uV = **half the amplifier's 0.0078125 uV LSB** |
+| Samples differing by more than one LSB | **0** |
+
+So the LSL/relay path delivers the amplifier's samples unaltered: same values,
+same channel order, no dropped or interpolated samples. That also cross-checks
+the run tree's own metadata - each run's first sample lands within 2 s of the
+timestamp in its directory name.
+
+One caveat belongs to the *timestamps*, not the data: the chunk stamps rebuild a
+grid that runs up to 9 samples (18 ms) ahead of the sample count over a 31 s run.
+That is what the reports call "gaps", and `grid_deviation_samples` in the JSON
+report carries the number. It does not affect sample values, but it is the error
+a time-based downstream analysis inherits.
+
 ## When something fails
 
 | Symptom | Likely cause | Action |
@@ -375,6 +421,7 @@ per-sample noise.
 | `report.py` | console and JSON rendering |
 | `relay.py` | republish an outlet that declares no usable channel metadata |
 | `ts_check.py` | measure a source's timestamp grid against `Repair`'s rules |
+| `compare_cnt.py` | align recorded runs against the control software's own `.cnt` and diff them sample by sample |
 | `publish_raw.py` | fixture publisher (metadata-less, optionally jittered) |
 | `__main__.py` | `python -m scripts.getlive` |
 
