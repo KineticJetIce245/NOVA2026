@@ -209,10 +209,15 @@ not amplifier specifications. `--out` writes the full per-channel table.
 
 `Repair._check_grid` accepts a step only when it is within
 `tolerance_seconds` of a whole number of samples, and raises on **any** step
-below one sample regardless of the tolerance. Jitter is two-sided, so roughly
-half of the sub-nominal steps are compressed — and those are the steps **no
-tolerance can rescue**: loosening `tolerance_seconds` at best hides the other
-half. That is why the first move is to measure, not to widen the tolerance.
+below one sample regardless of the tolerance. Two classes of damage follow:
+
+* a step **compressed** below one sample is fatal at **any** tolerance: the
+  tolerance test around 1.0 fails first, and the next branch rejects every
+  sub-nominal step unconditionally;
+* a step **off the integer grid** while still above one sample is the only
+  class a wider tolerance could rescue.
+
+So the first move is to measure, not to widen the tolerance.
 
 ```powershell
 # validate the probe itself against a jittered synthetic outlet
@@ -222,17 +227,56 @@ half. That is why the first move is to measure, not to widen the tolerance.
 .venv/Scripts/python.exe -B -m scripts.getlive.ts_check --name UnicornRecorderRawDataLSLStream --sfreq 250
 # and the relay's second hop, if one is in the path
 .venv/Scripts/python.exe -B -m scripts.getlive.ts_check --name NOVA_Relay --sfreq 250
+# keep the raw distribution of every step for offline comparison
+.venv/Scripts/python.exe -B -m scripts.getlive.ts_check --name <outlet> --sfreq 250 --json records/ts.json
 ```
 
 Each run measures the same outlet under three LSL post-processing flag sets
 (`clocksync`, `+dejitter`, `all`) so the candidate fix is shown to work before
-it is wired in. Read `off-grid%` and `fatal%`:
+it is wired in. Three flag sets run in sequence, 1 s of clock-sync settling each,
+so allow about `3 x (--window + 1)` seconds.
 
 | Reading | Meaning |
 | --- | --- |
-| `off-grid%` > 0 on `clocksync`, `+dejitter` at 0 | the source jitters; `dejitter` regularises it |
-| `fatal%` > 0 | compressed *and* off-grid: no `tolerance_seconds` value helps; only a regularised grid can |
-| both flag sets clean | the damage is not in the timestamps; look at channel quality instead |
+| `zeroish%` high | the source is **chunk-stamped**: many samples share one timestamp. The `samples/chunk` line gives the block size directly |
+| `compressed%` > 0 | sub-nominal steps: no `tolerance_seconds` value helps, in any flag set |
+| `roundoff%` > 0 with `compressed%` at 0 | off-grid but above one sample: a wider tolerance could absorb this class |
+| `fatal%` = 0 | this flag set leaves the grid `Repair` requires |
+| all flag sets dirty | the damage is not fixable downstream; look at the publisher, not the package |
+
+### A chunk-stamped source
+
+liblsl documents `StreamOutlet.push_chunk(data, timestamp=float)` as *"the
+acquisition timestamp of the last sample"*: one float stamps **every** sample of
+that block with the same time. The steps inside a block are then ~0 and the
+steps between blocks are the block size, so `median` sits near 0, `mean` sits at
+1.0, and `zeroish%` is roughly `1 - 1/chunk_size`. Such a source is faithfully
+delivered but its grid is unusable: `Repair` raises on the first intra-block
+step. The three flag sets behave as follows.
+
+| Flag set | Effect on a chunk-stamped source |
+| --- | --- |
+| `clocksync` | near-zero steps stay, so almost every step is fatal |
+| `clocksync+dejitter` | the grid is rebuilt and the median lands on 1.0, but `monotize` is missing, so clock re-corrections leave **negative** steps behind |
+| `all` (`clocksync+dejitter+monotize`) | no negative steps; the residual includes a few steps below one sample that dejitter could not place |
+
+`dejitter` is therefore necessary and **not sufficient**: an adapter that rebuilds
+the grid from the chunk anchors, or a publisher that stamps per sample
+(`push_chunk(data, t0 + arange(n) / sfreq)`), is what actually removes the
+sub-nominal steps. A publisher with a chunk size of 1 makes the scalar form
+equivalent to per-sample stamping.
+
+The `samples/chunk` and `effective` rate lines are the check on `--sfreq`: a
+source stamped per sample reports 1 sample/chunk, and any source reports the rate
+implied by its own anchors, so a mismatch with `--sfreq` shows up there rather
+than being absorbed silently.
+
+**This shape is only reproducible on the real device.** `publish_raw.py
+--stamp-per-chunk` hands liblsl a scalar time for a whole block, yet an mne-lsl
+inlet then delivers a clean one-sample grid (`samples/chunk=1`, every step at
+1.0). So the chunk-stamped readings quoted above come from a live Unicorn
+Recorder, not from a local fixture: use the flag to document the intent, and
+treat the rig's numbers as the evidence.
 
 A source that publishes a regular grid with Gaussian jitter is what
 `publish_raw.py --jitter` simulates. Two things it does **not** cover, and both
