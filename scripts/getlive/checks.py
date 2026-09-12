@@ -510,8 +510,21 @@ def _check_cap(checks: list[Check], facts: RunFacts) -> None:
     """Rule 14: the electrodes themselves, which is what the operator acts on."""
 
     # 14. A flat electrode is a contact problem, not a streaming problem,
-    #     unless every electrode is flat.
-    if not facts.flat_channels and not facts.noisy_channels:
+    #     unless every electrode is flat. "Nothing measured" is not "all fine":
+    #     the per-electrode verdict comes from the valid windows, so with none of
+    #     them there is no evidence at all, and the wording must not read as if
+    #     the electrodes had been measured.
+    measured = _number(facts.stats.get("valid"))
+    if measured <= 0:
+        checks.append(
+            Check(
+                "electrodes",
+                WARN,
+                "no valid window reached the per-electrode statistics, so none of "
+                f"the {facts.channel_count} electrodes was measured",
+            )
+        )
+    elif not facts.flat_channels and not facts.noisy_channels:
         checks.append(
             Check(
                 "electrodes",

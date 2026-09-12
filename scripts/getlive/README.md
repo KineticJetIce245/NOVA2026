@@ -204,6 +204,48 @@ not amplifier specifications. `--out` writes the full per-channel table.
 | `no valid window` with `data_flow` ok | warm-up plus resampler delay exceeded the run | stream longer than 10 s |
 | flat electrodes | gel/contact, or an electrode not connected | fix contact, re-run; impedance lives in the control software, not in the LSL stream |
 | `Cannot repair source damage (irregular_timestamps)`, repeatedly | the source's timestamps jitter by more than `Repair`'s tolerance | measure the grid with `ts_check` (below) before changing anything else |
+| the same, and `ts_check` reports a high `compressed%` | the source is chunk-stamped: a whole block shares one timestamp | relay it with `--regrid` (below); no tolerance can fix this |
+
+## Repairing a chunk-stamped source: `relay.py --regrid`
+
+A recorder that stamps a whole block once hands out a grid `Repair` can only
+refuse, and measuring it does not make it usable. `relay.py --regrid` rebuilds the
+grid on the way through:
+
+```powershell
+# terminal 1: the chunk-stamped source, republished with a real grid
+.venv/Scripts/python.exe -B -m scripts.getlive.relay --source-name UnicornRecorderRawDataLSLStream `
+    --labels Fz,C3,Cz,C4,Pz,PO7,Oz,PO8 --keep 0-7 --regrid
+
+# terminal 2: the same measurement, now on the republished outlet
+.venv/Scripts/python.exe -B -m scripts.getlive.ts_check --name NOVA_Relay --sfreq 250
+```
+
+The rule it follows is one sentence: **a block covers the time from its own first
+stamp until the next block's first stamp**, and its samples are spread evenly
+across that span. Three consequences matter on real hardware:
+
+* the seam between two blocks is exactly one sample, so no step is ever zero or
+  backwards;
+* nothing is assumed about how many samples a block carries, which is not a
+  constant on real hardware;
+* the declared rate is only used to *notice* a lost block, never to place samples,
+  so a device that runs a little off its declared rate cannot make the grid drift.
+
+A block that lost data is still spread - keeping its own stamps would put the
+near-zero steps back - so the loss appears as one long step, which is the gap
+`Repair` stops on, and the relay counts it and says so. One block is held back
+because its span is not known until its successor arrives, so the relay adds up to
+one block of latency, and the republished stream carries a `+regrid` suffix on its
+source id so nothing downstream has to guess whose clock it is on.
+
+Measured on the fixture (chunk-stamped on purpose, 9 samples per block), same
+run before and after the relay:
+
+| outlet | `zeroish%` | `fatal%` (clocksync) | `samples/chunk` |
+| --- | --- | --- | --- |
+| raw fixture | 89.39 | 89.39 | 9 |
+| through `--regrid` | 0.58 | 0.58 | 1 |
 
 ## Diagnosing a bad timestamp grid
 

@@ -17,7 +17,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from scripts.getlive import probe, report
+from scripts.getlive import probe, relay, report
 from scripts.getlive.cap import (
     CAP_CHANNELS,
     CAP_EEG_CHANNELS,
@@ -644,11 +644,222 @@ class AcceptanceTests(unittest.TestCase):
         self.assertTrue(acceptance.ok)
         self.assertEqual(statuses(acceptance)["model_geometry"], WARN)
 
+    def test_electrodes_are_not_passed_without_a_measurement(self) -> None:
+        # No valid window means the per-electrode statistics hold no measurement
+        # at all: calling that "all electrodes in range" hides exactly the
+        # question a dry cap needs answered. The check warns; whether the run is
+        # accepted still follows from the checks that do have evidence.
+        stats = dict(facts().stats)
+        stats.update({"windows": 0, "valid": 0})
+        acceptance = evaluate(facts(stats=stats))
+        self.assertEqual(statuses(acceptance)["electrodes"], WARN)
+        self.assertIn("no valid window", details(acceptance)["electrodes"])
+
     def test_report_formats_every_check(self) -> None:
         text = evaluate(facts()).format()
         self.assertIn("USABLE", text)
         self.assertIn("electrodes", text)
         self.assertIn("bad_channels", text)
+
+
+class RelayRegridTests(unittest.TestCase):
+    """Regridding a chunk-stamped source: the grid must be usable, always.
+
+    A chunk-stamped source stamps one block once, so a block's samples are
+    microseconds apart. What is measured here is what the relay hands downstream:
+    every step has to be a step ``Repair`` accepts, and nothing may be dated before
+    its predecessor.
+    """
+
+    RATE = 250.0
+    WITHIN = 12e-6  # what a re-stamping recorder leaves inside a block
+
+    def blocks(
+        self,
+        count: int,
+        *,
+        per_block: int = 9,
+        block_seconds: float | None = None,
+        lost: tuple[int, ...] = (),
+        within: float | None = None,
+        start: float = 1000.0,
+    ) -> np.ndarray:
+        """Chunk-stamped timestamps: ``per_block`` near-identical stamps per block.
+
+        Args:
+            count: How many blocks to emit.
+            per_block: Samples each block carries.
+            block_seconds: Time from one block's first stamp to the next; defaults
+                to the nominal span of ``per_block`` samples.
+            lost: Blocks to omit, which leaves a real gap behind them.
+            within: Sub-microsecond spacing inside a block.
+            start: Timestamp of the first sample.
+        """
+
+        step = (
+            per_block / self.RATE if block_seconds is None else block_seconds
+        )
+        inside = self.WITHIN if within is None else within
+        values = []
+        for index in range(count):
+            if index in lost:
+                continue
+            anchor = start + index * step
+            values.extend(
+                anchor + (offset - per_block + 1) * inside
+                for offset in range(per_block)
+            )
+        return np.asarray(values)
+
+    def forward(self, regridder, stamps: np.ndarray) -> np.ndarray:
+        """Feed the stamps the way the relay's pull loop does, one at a time."""
+
+        emitted = []
+        for stamp in stamps:
+            _, times = regridder.feed(
+                np.zeros((1, 1), dtype="float32"), np.asarray([stamp])
+            )
+            if times.size:
+                emitted.append(times)
+        _, tail = regridder.flush()
+        if tail.size:
+            emitted.append(tail)
+        return np.concatenate(emitted) if emitted else np.empty(0)
+
+    def steps(self, times: np.ndarray) -> np.ndarray:
+        """Timestamp differences in samples at the nominal rate."""
+
+        return np.diff(times) * self.RATE
+
+    def assert_grid_is_usable(self, times: np.ndarray) -> None:
+        """Every step must be a step ``Repair`` accepts, and never backwards."""
+
+        steps = self.steps(times)
+        minimum = float(steps.min())
+        self.assertGreater(
+            minimum, 1.0 - 0.5 / 1.0 * 0.2, "a near-zero step stops Repair"
+        )
+        self.assertGreater(minimum, 0.5, "a sub-nominal step is fatal at any tolerance")
+        self.assertFalse((steps <= 0).any(), "a sample must not precede its predecessor")
+
+    def test_a_chunk_stamped_source_becomes_a_usable_grid(self) -> None:
+        # The whole point of --regrid: 8 of every 9 source steps are near zero,
+        # and the relay's output has none of them.
+        stamps = self.blocks(50)
+        raw_steps = self.steps(stamps)
+        self.assertGreater(
+            float((raw_steps < 0.5).mean()), 0.8, "the fixture is chunk-stamped"
+        )
+        regridder = relay.Regridder(self.RATE, 1, relay.LOST_SPAN_RATIO)
+        times = self.forward(regridder, stamps)
+        self.assertEqual(times.size, stamps.size, "no sample may be dropped")
+        self.assert_grid_is_usable(times)
+        self.assertEqual(regridder.spread_blocks, 50)
+
+    def test_every_step_is_one_sample_when_the_source_matches_the_rate(self) -> None:
+        regridder = relay.Regridder(self.RATE, 1, relay.LOST_SPAN_RATIO)
+        times = self.forward(regridder, self.blocks(20))
+        np.testing.assert_allclose(self.steps(times), 1.0, atol=1e-9)
+
+    def test_the_grid_does_not_drift_when_the_device_rate_is_off(self) -> None:
+        # The rig runs a little off the declared rate. Each block is spread over the
+        # time the source itself reports for it, so the error is bounded by *one
+        # block* and stops growing: the 400th block is exactly as far from the
+        # source clock as the 100th, which is what rules out a session-long drift.
+        true_rate = 250.75
+        block_seconds = 9 / true_rate
+
+        def terminal_offset(blocks: int) -> float:
+            stamps = self.blocks(blocks, block_seconds=block_seconds)
+            regridder = relay.Regridder(self.RATE, 1, relay.LOST_SPAN_RATIO)
+            times = self.forward(regridder, stamps)
+            self.assert_grid_is_usable(times)
+            return float(times[-1] - stamps[-1])
+
+        short = terminal_offset(100)
+        long = terminal_offset(400)
+        self.assertAlmostEqual(
+            short, long, delta=2.0 / self.RATE, msg="the offset must not accumulate"
+        )
+        self.assertLess(
+            abs(long), 9 / self.RATE, "the offset stays inside one block's span"
+        )
+
+    def test_the_block_size_is_never_assumed(self) -> None:
+        # Real hardware does not keep a constant block size, so the grid may not
+        # depend on one.
+        for per_block in (1, 2, 7, 16, 32):
+            with self.subTest(per_block=per_block):
+                regridder = relay.Regridder(self.RATE, 1, relay.LOST_SPAN_RATIO)
+                stamps = self.blocks(20, per_block=per_block)
+                times = self.forward(regridder, stamps)
+                self.assertEqual(times.size, stamps.size)
+                self.assert_grid_is_usable(times)
+
+    def test_equal_stamps_are_grouped_like_near_equal_ones(self) -> None:
+        # A recorder that hands liblsl one timestamp for a block produces exactly
+        # equal stamps; one that re-stamps produces stamps microseconds apart. The
+        # relay must treat both as one block.
+        regridder = relay.Regridder(self.RATE, 1, relay.LOST_SPAN_RATIO)
+        times = self.forward(regridder, self.blocks(20, within=0.0))
+        np.testing.assert_allclose(self.steps(times), 1.0, atol=1e-9)
+
+    def test_a_lost_block_is_reported_and_still_leaves_a_usable_grid(self) -> None:
+        # A block the source never sent is data nobody can invent: the grid stays
+        # usable (the samples that did arrive are still spread), and the loss shows
+        # up as one long step, which is the gap Repair stops on.
+        regridder = relay.Regridder(self.RATE, 1, relay.LOST_SPAN_RATIO)
+        stamps = self.blocks(20, lost=(5,))
+        times = self.forward(regridder, stamps)
+        self.assertEqual(times.size, stamps.size)
+        self.assert_grid_is_usable(times)
+        self.assertGreater(
+            float(self.steps(times).max()), 1.0, "the loss is visible as a gap"
+        )
+        self.assertEqual(regridder.spread_blocks, 19)
+
+    def test_every_sample_is_forwarded_exactly_once(self) -> None:
+        # Data may be re-stamped, never reordered, dropped or duplicated.
+        regridder = relay.Regridder(self.RATE, 2, relay.LOST_SPAN_RATIO)
+        stamps = self.blocks(30)
+        values = np.arange(stamps.size, dtype="float32").reshape(-1, 1)
+        data = np.hstack([values, values])
+        emitted_data, emitted_times = [], []
+        for index, stamp in enumerate(stamps):
+            out_data, out_times = regridder.feed(
+                data[index : index + 1], np.asarray([stamp])
+            )
+            if out_times.size:
+                emitted_data.append(out_data)
+                emitted_times.append(out_times)
+        tail_data, tail_times = regridder.flush()
+        if tail_times.size:
+            emitted_data.append(tail_data)
+            emitted_times.append(tail_times)
+        forwarded = np.concatenate(emitted_data)
+        np.testing.assert_array_equal(
+            forwarded[:, 0], np.arange(stamps.size, dtype="float32")
+        )
+        self.assertEqual(np.concatenate(emitted_times).size, stamps.size)
+
+    def test_the_republished_source_id_marks_an_invented_grid(self) -> None:
+        args = relay.build_parser().parse_args(
+            ["--source-name", "raw", "--labels", "Fz", "--regrid"]
+        )
+        sinfo = relay.build_outlet_info(args, ("Fz",), 250.0, "float32")
+        self.assertTrue(sinfo.source_id.endswith(relay.REGRID_SOURCE_ID_SUFFIX))
+        args = relay.build_parser().parse_args(["--source-name", "raw", "--labels", "Fz"])
+        sinfo = relay.build_outlet_info(args, ("Fz",), 250.0, "float32")
+        self.assertFalse(sinfo.source_id.endswith(relay.REGRID_SOURCE_ID_SUFFIX))
+
+    def test_regridder_rejects_impossible_settings(self) -> None:
+        with self.assertRaises(ValueError):
+            relay.Regridder(0.0, 1, relay.LOST_SPAN_RATIO)
+        with self.assertRaises(ValueError):
+            relay.Regridder(self.RATE, 0, relay.LOST_SPAN_RATIO)
+        # A ratio below 1 would call every ordinary block lost.
+        with self.assertRaises(ValueError):
+            relay.Regridder(self.RATE, 1, 0.5)
 
 
 class ChannelPolicyTests(unittest.TestCase):
