@@ -25,8 +25,17 @@ from nova2026.auditory.timing import TimestampedAudio, validate_audio_profile
 from .outputs import guard_outputs
 
 
+def channel_list(text):
+    """Split a comma-separated channel option into labels, dropping blanks."""
+
+    if not isinstance(text, str):
+        raise TypeError("A channel list option must be a string.")
+    return tuple(name.strip() for name in text.split(",") if name.strip())
+
+
 def run(trial, model, stream, *, source_unit_exponent=0, output="wav", window=None,
-        timing_profile=None, record=None, subject="demo", session_name="synthetic"):
+        timing_profile=None, record=None, subject="demo", session_name="synthetic",
+        check_channels=True, max_bad_channels=0, exclude_channels=()):
     from mne_lsl.lsl import local_clock
     from nova2026.streaming import prepare
     from nova2026.streaming.bootstrap import StreamSession
@@ -49,7 +58,10 @@ def run(trial, model, stream, *, source_unit_exponent=0, output="wav", window=No
     metadata = SimpleNamespace(sample_rate=float(stream.info["sfreq"]),
                                channel_names=tuple(model.contract["eeg_channels"]),
                                reference=trial.reference, upstream_processing=trial.upstream_processing)
-    settings = stream_config(metadata, model.config, history)
+    settings = stream_config(metadata, model.config, history,
+                             check_channels=check_channels,
+                             max_bad_channels=max_bad_channels,
+                             exclude_channels=exclude_channels)
     processor = AuditoryProcessor(settings)
     if processor.contract != model.contract:
         raise ValueError("Connected source/processing/window differs from model; retrain through this chain.")
@@ -67,6 +79,8 @@ def run(trial, model, stream, *, source_unit_exponent=0, output="wav", window=No
     pipeline = AuditoryPipeline(model, local_clock)
     stop = Event()
     errors, rendered, estimates = [], [], []
+    bad_channel_windows = {}
+    windows_with_bad_channels = 0
     position = 0
 
     def block(count, audible):
@@ -130,6 +144,13 @@ def run(trial, model, stream, *, source_unit_exponent=0, output="wav", window=No
             data, times = session.ingest(data, times)
             data, times = scaler(data, times)
             for raw in processor.feed((data, times)):
+                # A tolerated dead electrode still belongs in the run record:
+                # "which channels were bad, and how often" is what decides the
+                # next session's exclusion list.
+                if raw.bad_channels:
+                    windows_with_bad_channels += 1
+                    for name in raw.bad_channels:
+                        bad_channel_windows[name] = bad_channel_windows.get(name, 0) + 1
                 raw.available_at = local_clock()
                 aligned = provider.align(raw)
                 estimate, _ = pipeline.rundown(aligned)
@@ -175,6 +196,16 @@ def run(trial, model, stream, *, source_unit_exponent=0, output="wav", window=No
         "recovery_events": list(processor.recovery.events),
         "acquire_max_lag_seconds": float(session.acquire.max_lag),
         "acquire_gaps": int(session.acquire.gaps),
+        # Channel policy is run configuration, never part of the model
+        # contract: the decoder is the same one whatever the cap tolerates.
+        "quality": {
+            "check_channels": bool(settings.check_channels),
+            "max_bad_channels": int(settings.max_bad_channels),
+            "exclude_channels": list(settings.exclude_channels),
+            "windows_with_bad_channels": windows_with_bad_channels,
+            "bad_channel_windows": dict(sorted(bad_channel_windows.items())),
+            "repair_held_rows": int(processor.repair.held_rows),
+        },
         **provider.diagnostics(),
     }
     return np.concatenate(rendered), report
@@ -194,8 +225,18 @@ def main():
     parser.add_argument("--record", help="Recording root for the raw run (provenance + offline replay)")
     parser.add_argument("--subject", default="demo", help="Subject identity stored with --record")
     parser.add_argument("--session", default="synthetic", help="Session identity stored with --record")
+    parser.add_argument("--max-bad-channels", type=int, default=0,
+                        help="Bad EEG channels tolerated in one window before quality rejects it "
+                             "(default 0: any faulty channel rejects)")
+    parser.add_argument("--no-channel-check", action="store_true",
+                        help="Record bad channels but never let them reject a window "
+                             "(dry caps with dead electrodes)")
+    parser.add_argument("--exclude-channels", default="",
+                        help="Comma-separated labels of known-dead channels; they are still "
+                             "recorded but cannot reject a window")
     parser.add_argument("--force", action="store_true", help="Overwrite existing files under --out")
     args = parser.parse_args()
+    exclude_channels = channel_list(args.exclude_channels)
     trial, model = load_trial(args.trial), RidgeDecoder.load(args.model)
     destination = Path(args.out)
     guard_outputs(
@@ -208,6 +249,9 @@ def main():
                             output=args.output, window=args.window,
                             record=args.record, subject=args.subject,
                             session_name=args.session,
+                            check_channels=not args.no_channel_check,
+                            max_bad_channels=args.max_bad_channels,
+                            exclude_channels=exclude_channels,
                             timing_profile=json.loads(Path(args.timing_profile).read_text()) if args.timing_profile else None)
     finally:
         stream.disconnect()

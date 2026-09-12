@@ -549,10 +549,11 @@ EEG/EOG split, and a verdict (`valid`/`reasons`) that travels with the data.
 
 | Member | Purpose |
 | --- | --- |
-| `EEGWindow(data, eog, timestamps, valid, reasons, start_sample, segment=0, artifact_id=None, channel_names=(), contract=None, available_at=None)` | One window. Arrays are **copied** on construction, so the object is safe to hand to worker threads. |
+| `EEGWindow(data, eog, timestamps, valid, reasons, start_sample, segment=0, artifact_id=None, channel_names=(), contract=None, available_at=None, bad_channels=())` | One window. Arrays are **copied** on construction, so the object is safe to hand to worker threads. |
 | `len(window)` | Number of samples. |
 | `.data`, `.eog` | µV samples: EEG columns and auxiliary columns separately. |
 | `.valid`, `.reasons` | Verdict: valid windows have empty reasons. |
+| `.bad_channels` | Labels of the EEG channels a judge found faulty inside this window. **Evidence, not a verdict**: a run that tolerates a dead electrode still lists it here while the window stays `valid` (see Section 9 A3). |
 | `.timestamps`, `.start_sample`, `.segment`, `.channel_names`, `.contract`, `.available_at` | Provenance for models and recording. |
 
 **Expected usage** — never constructed by hand in a script;
@@ -645,20 +646,66 @@ notch = SosFilter(design_notch(60.0, 30.0, 500.0), n)
 data, ts = notch(data, ts)     # every block
 ```
 
-#### `preprocess/quality.py` — `QualityMonitor`
+#### `preprocess/quality.py` — `QualityMonitor` and `BadChannelJudge`
 
 **Why.** Detect bad raw data (large excursion, saturation, flatline) *before*
 filtering, so filters cannot hide a stuck electrode. Reports faults by
 *timestamp interval*, so results do not depend on how the stream was chunked.
 
-**Public surface.** `QualityMonitor(n_eeg, sfreq, ...limits...)`;
-`feed(data_uv, timestamps)` (observer, per block); `reasons(start, end) ->
-tuple[str, ...]` (ask about a finished window); `reset()`.
+**The three faults are channel faults.** They are computed per electrode —
+`flatline` is a dead electrode, `saturation` is a railed one, `amplitude` is a
+pop or a drifting one — and the monitor resolves *which* channels were involved
+**before** it collapses the per-sample masks across channels. That is what lets
+a window verdict name the offending electrodes instead of only naming the fault
+type.
+
+**Public surface.** `QualityMonitor(*, n_eeg, sfreq, ...limits...,
+channel_names=None, check_channels=True, max_bad_channels=0,
+exclude_channels=())`; `feed(data_uv, timestamps)` (observer, per block);
+`reasons(start, end) -> tuple[str, ...]` (ask about a finished window, applies
+the channel policy); `bad_channels(start, end) -> tuple[str, ...]` (every
+faulting channel in the span, policy aside); `fault_channels(start, end) ->
+{name: channels}`; `reset()`.
+
+**Policy versus evidence.** `check_channels`, `max_bad_channels` and
+`exclude_channels` only decide whether a window is **rejected**. The evidence
+accessors always report every faulting channel, including the ones the operator
+declared dead, because "which electrode was bad and how often" is what decides
+the next session's list. `ChannelScope` (in `preprocess/scope.py`) resolves
+excluded labels to column positions and is shared with `Repair`, so a dead
+column cannot stop the run through one stage while being ignored by another.
 
 **Expected usage:** scripts wrap `feed` in a stage closure and register the
 monitor as a judge on `StreamSession`; `wrap` then asks `reasons(window_start,
 window_end)` for every finished window. Feed every block after scaling and
-before filters.
+before filters. Ask about windows in non-decreasing `start` order: queries prune
+expired intervals.
+
+**`BadChannelJudge`** is the plugin form: a judge that wraps a monitor and
+reports its bad-channel census without ever rejecting, unless it is built with
+`block_on_bad_channels=True`, in which case a window with at least
+`min_channels` bad channels is rejected with the `"bad_channels"` reason. Use it
+when a script wants a census rule that is independent of `max_bad_channels`
+(which is counted per fault type).
+
+#### `preprocess/scope.py` — `ChannelScope`
+
+**Why.** A dry cap arrives with electrodes that are dead for the whole session,
+and a labelled montage makes "this column is not signal" an operator assertion
+rather than something a detector should rediscover every window. One object
+carries that assertion to every stage that would otherwise stop the run for it.
+
+**Public surface.** `ChannelScope(channel_names=None, exclude_channels=())`,
+with `.channel_names`, `.exclude_channels`, `.excluded_indices`,
+`mask(channels)` (boolean in-scope mask), `excluded_mask(channels)` and
+`contains(index)`.
+
+**Two rules.** A label that is not part of `channel_names` **raises** (silently
+excluding nothing would leave the run stopping for an electrode the operator
+believes is handled), and exclusions need labels because a column index is not a
+stable identity across runs. Columns beyond the montage stay in scope, so
+auxiliary channels are judged exactly as before. Nothing here removes a column:
+the decoder's channel contract stays valid.
 
 #### `preprocess/repair.py` — `Repair`
 
@@ -669,10 +716,12 @@ must be fixed *before* any filter. Repair bridges short runs (default up to
 20 ms) linearly between the two finite samples on either side, per channel,
 never rewriting healthy values.
 
-**Public surface.** `Repair(sfreq, *, max_seconds=0.02, ...)` is both a
-transform stage — `(data, timestamps) -> (data, timestamps)` — and a judge
-with `reasons(start, end)` (returns `("interpolated",)` when a window touches
-a repaired span, so those windows are rejected); `reset()`.
+**Public surface.** `Repair(sfreq, *, max_seconds=0.02, ..., channel_names=None,
+exclude_channels=())` is both a transform stage — `(data, timestamps) ->
+(data, timestamps)` — and a judge with `reasons(start, end)` (returns
+`("interpolated",)` when a window touches a repaired span, so those windows are
+rejected); `reset()`; counters `repaired_samples`, `dropped_rows`,
+`held_rows`.
 
 **Behaviour.** Missing rows are detected from timestamp gaps and repaired the
 same way. A damaged tail without a finite right endpoint is held back and
@@ -683,6 +732,13 @@ bad values into filters. Damage before the first finite sample is dropped (the
 run simply starts later). Damage it cannot repair raises
 `UnrepairableError`; Section 9 A2's `Recovery` guard turns that into a bounded
 restart or, beyond its limits, a stop.
+
+**Out-of-scope columns.** With `exclude_channels`, damage is judged on the
+in-scope columns only. A non-finite value in an excluded column is *held* at its
+last finite level (zero before any exists) instead of waiting for a right
+endpoint that may never arrive, and the endpoint safety check ignores those
+columns. Without `exclude_channels` the scope is every column, which reproduces
+the historical behaviour exactly.
 
 #### `preprocess/resample.py` — `Resampler`
 
@@ -1007,6 +1063,8 @@ preprocessing). The class bundles the data with its verdict:
 
 - µV EEG columns (`data`) and auxiliary columns (`eog`) split apart;
 - `valid` plus rejection `reasons` (warm-up, quality faults);
+- `bad_channels`: which electrodes a judge found faulty, recorded whether or
+  not they rejected the window (Section 9 A3);
 - provenance: `start_sample`, `segment`, `channel_names`, `timestamps`,
   optional `contract` and `available_at`.
 
@@ -1034,7 +1092,7 @@ python -B -m scripts.streaming_demo --duration 8 --record records
 python -B -m scripts.streaming_demo --duration 8 --compute 0.8 --workers 0
 python -B -m scripts.streaming_demo --duration 8 --compute 0.8 --workers 2
 
-# Full test suite for the package (181 tests):
+# Full test suite for the package (258 tests):
 python -B -m unittest discover -s tests/streaming -t .
 
 # Real-recording check (needs the COG-BCI dataset in datasets/):
@@ -1067,7 +1125,9 @@ once the recovery budget is exhausted). Executed result: PASS on
 
 ## 9. Robustness: what can go wrong, and the guardrails (A–E)
 
-> **Status: implemented.** A1 (`Repair`), A2 (`Recovery`), B
+> **Status: implemented.** A1 (`Repair`), A2 (`Recovery`), A3
+> (`ChannelScope`, channel-resolved `QualityMonitor` evidence, the
+> bad-channel policy and `BadChannelJudge`), B
 > (`preflight.resolve_outlet` before connecting, then `prepare` /
 > `validate_source`), C (`spatial.SpatialOperator` / `fit_ssp` /
 > `processing_contract`, with `cut_epochs` as the already-processed-data
@@ -1091,6 +1151,7 @@ source; the guardrails below close the failure classes one by one:
 | Broken values, short | isolated `NaN`/`Inf`, a few ms of missing samples | **A1** — repair short spans by interpolation (**implemented**) |
 | Broken values / timing, severe | a whole damaged chunk, gaps > 0.5 s, overlapping or irregular timestamps | **A2** — bounded recovery: discard and restart, or fail (**implemented**) |
 | Slow decay | minutes of near-flat or saturated signal | **A2** — persistent-fault watch on windows (**implemented**) |
+| Permanently bad electrodes | a dry cap with dead/labelled channels, one electrode is enough | **A3** — channel scope + bad-channel evidence, so the run survives and records who was bad (**implemented**) |
 | Wrong source | wrong sampling rate, units, channel labels/types | **B** — validate the source before the first sample (**implemented**) |
 | Eye artefacts | blinks/saccades leaking into frontal EEG | **C** — calibrated spatial projection (EOG-guided SSP) (**implemented**) |
 | No provenance | cannot replay a run, cannot tell which operator/files were used | **D** — richer run metadata and snapshots (**implemented**) |
@@ -1197,6 +1258,113 @@ script's loop catches it and hands it to the guard.
   script tells the guard which components are resettable. The **reset
   protocol** is one rule — every registered component implements `reset()` —
   and `Recovery` stays completely independent of `StreamSession`.
+
+---
+
+### A3. Dry caps: one dead electrode must not stop the run (implemented)
+
+**The problem.** A dry cap does not have a bad session, it has bad
+*electrodes*. On the ANT Neuro waveguard CA-208 the same two or three leads are
+usually the dead ones (poor contact, high impedance, a labelled bad channel),
+and they stay dead for the whole recording. Before this change the streaming
+package had no concept of a bad channel at all: it had channel-level *faults*,
+and every one of them was collapsed across channels before anybody could act on
+it. The measured consequence was blunt:
+
+| Dead electrodes out of 64 | What happened |
+| --- | --- |
+| 0 | ran the full 40 s |
+| **1** | `RuntimeError: EEG quality faults persisted beyond the allowed duration (15s)` |
+| 4 / 10 / 30 | the same error, the same ~15 s |
+
+One electrode, not "many", and the run is over about 15 s in. Three separate
+mechanisms produced that, and all three asked "did *any* channel fault?" instead
+of "which channel faulted?":
+
+1. **The window verdict.** `QualityMonitor` computed `amplitude`, `saturation`
+   and `flatline` per electrode and then took `np.any(..., axis=1)` across
+   channels. Every window overlapping the dead electrode came out
+   `valid=False`, and `Recovery.watch` stops the run once
+   `persistent_fault_seconds` (15 s on the auditory path) of badness accumulate.
+2. **The repair decision.** `Repair` treated a row as damaged when *any* of its
+   values was non-finite, and its endpoint safety check also used `np.any`
+   across channels. One column that never becomes finite exhausted the bounded
+   recovery budget, and one railing column made every repair around it
+   `unsafe_endpoints`.
+3. **The evidence.** Even when a run survived, `reasons` only carried type names
+   (`("flatline",)`). Nothing recorded *which* electrode was dead, so the next
+   session could not learn from it.
+
+**The rule now: evidence is never filtered, only the verdict is.** The monitor
+resolves channels first, keeps them in every fault interval, and answers three
+different questions:
+
+- `reasons(start, end)` — does this reject the window? The channel policy is
+  applied here and only here.
+- `bad_channels(start, end)` — which channels faulted? Always everything,
+  including the ones the operator declared dead.
+- `fault_channels(start, end)` — which channels, per fault type.
+
+**The channel policy (run configuration, not model configuration).**
+
+| Option | Meaning | Default |
+| --- | --- | --- |
+| `check_channels` | `False` records bad channels but never lets them reject a window. | `True` (the historical verdict) |
+| `max_bad_channels` | How many channels may carry the same fault type in one window before it rejects. Must be below `n_eeg`; tolerating everything must be spelled `check_channels=False`. | `0` (any faulty channel rejects) |
+| `exclude_channels` | Labels of known-dead channels. Still detected and reported, but never counted and never fatal. Unknown labels raise. | `()` |
+
+`max_bad_channels` is counted **per fault type**, because the three faults mean
+different things: six flat electrodes is a cap problem, six saturated ones is a
+gain problem.
+
+**The same list reaches `Repair`.** `ChannelScope` resolves the excluded labels
+once and both stages use it, so path 2 above is closed as well: a non-finite
+value in an excluded column is held at its last finite level (causal, invents
+nothing, and the chain's high-pass removes the level), and the endpoint safety
+check ignores those columns. Without `exclude_channels` the scope is every
+column, so nothing changes for a clean montage.
+
+**How to use it.**
+
+```powershell
+# 现场：已知 E01/E07 是死导，照样跑，名字进 run report
+.venv/Scripts/python.exe -B -m scripts.auditory.live --trial ... --model ... `
+    --stream EEG --exclude-channels E01,E07 --out results/live
+
+# 容忍最多两个坏导，第三个才停机
+.venv/Scripts/python.exe -B -m scripts.auditory.live ... --max-bad-channels 2
+
+# 只观察：坏导照记，永不停机
+.venv/Scripts/python.exe -B -m scripts.auditory.live ... --no-channel-check
+```
+
+In code the same three knobs live on `stream_config(...)` /
+`AuditoryProcessor`, and `--exclude-channels` is validated against the decoder's
+own channel list, so a typo fails at start-up instead of silently excluding
+nothing.
+
+**What the run record gains.** `timing.json` now carries a `quality` block:
+`check_channels`, `max_bad_channels`, `exclude_channels`,
+`windows_with_bad_channels`, `bad_channel_windows` (per-label window counts) and
+`repair_held_rows`. That block is **run metadata and is deliberately not part of
+`processor.contract`**: the contract is compared for equality against the
+trained model, so putting policy in it would invalidate every existing decoder.
+
+**What is still not promised.**
+
+- The bad column's data still reaches the decoder. Excluding it from the
+  verdict does not remove it from `window.data` — removing it would break the
+  decoder's channel contract — so a railing electrode is still model input.
+  Interpolating or zeroing it before the model is a further decision that needs
+  its own accuracy evaluation.
+- A column that is non-finite from the *very first* sample costs one recovery
+  and then starves the run: every row is damage before the first finite anchor,
+  which `Repair` drops by design, so no window is produced at all. `live` turns
+  that into "No EEG decisions produced" at the end. `exclude_channels` is the
+  fix; the diagnosis is `repair.dropped_rows`.
+- `Repair`'s own `"interpolated"` reason stays unconditional. It describes
+  transport damage on in-scope columns, not a dead electrode, so it still
+  rejects the windows it touches.
 
 ---
 

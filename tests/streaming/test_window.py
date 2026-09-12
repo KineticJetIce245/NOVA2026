@@ -44,6 +44,16 @@ class EEGWindowTests(unittest.TestCase):
         self.assertEqual(window.start_sample, 128)
         self.assertEqual(len(window.channel_names), EEG_CHANNELS)
         self.assertEqual(window.contract, {"units": "uV"})
+        # No judge reported a channel fault.
+        self.assertEqual(window.bad_channels, ())
+
+    def test_bad_channels_are_evidence_not_a_verdict(self) -> None:
+        window = make_window(bad_channels=("E1", "E2"))
+        self.assertEqual(window.bad_channels, ("E1", "E2"))
+        # A tolerated dead electrode leaves the window usable.
+        self.assertTrue(window.valid)
+        self.assertEqual(window.reasons, ())
+        self.assertIn("bad_channels", repr(window))
 
     def test_arrays_are_copies(self) -> None:
         source = np.ones((SAMPLES, EEG_CHANNELS))

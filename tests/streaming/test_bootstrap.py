@@ -119,6 +119,50 @@ class SessionTests(unittest.TestCase):
         self.assertFalse(eeg_window.valid)
         self.assertEqual(eeg_window.reasons, ("amplitude", "flatline"))
 
+    def test_wrap_collects_bad_channels_without_changing_the_verdict(self) -> None:
+        args = parse_args(argv=[])
+
+        class CensusJudge:
+            """A judge that reports channels but never rejects."""
+
+            def reasons(self, start: float, end: float) -> tuple[str, ...]:
+                return ()
+
+            def bad_channels(self, start: float, end: float) -> tuple[str, ...]:
+                return ("F3",)
+
+        class PlainJudge:
+            """A judge written before bad-channel reporting existed."""
+
+            def reasons(self, start: float, end: float) -> tuple[str, ...]:
+                return ("flatline",)
+
+        window = np.zeros((10, 3))
+        stamps = np.arange(10) / 500.0
+
+        session = StreamSession(
+            StubStream(CHANNELS), args, CHANNELS,
+            judges=(CensusJudge(), PlainJudge()),
+        )
+        eeg_window = session.wrap(window, stamps, start_sample=session.warmup_samples)
+        self.assertEqual(eeg_window.bad_channels, ("F3",))
+        self.assertEqual(eeg_window.reasons, ("flatline",))
+        self.assertFalse(eeg_window.valid)
+
+        # A judge without the optional method contributes no channels.
+        session = StreamSession(
+            StubStream(CHANNELS), args, CHANNELS, judges=(PlainJudge(),)
+        )
+        eeg_window = session.wrap(window, stamps, start_sample=session.warmup_samples)
+        self.assertEqual(eeg_window.bad_channels, ())
+        self.assertEqual(eeg_window.reasons, ("flatline",))
+
+    def test_judge_must_implement_reasons(self) -> None:
+        args = parse_args(argv=[])
+        session = StreamSession(StubStream(CHANNELS), args, CHANNELS, judges=(object(),))
+        with self.assertRaisesRegex(TypeError, "reasons"):
+            session.wrap(np.zeros((10, 3)), np.arange(10) / 500.0, start_sample=0)
+
     def test_contract_must_come_from_the_connected_source(self) -> None:
         args = parse_args(argv=[])
         stream = StubStream(("F3", "C3", "EOG"))

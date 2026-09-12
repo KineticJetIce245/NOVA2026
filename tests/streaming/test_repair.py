@@ -184,6 +184,61 @@ class RepairTests(unittest.TestCase):
         out, _ = repair(ramp(4), grid(4))
         self.assertEqual(len(out), 4)
 
+    def test_excluded_channel_that_never_delivers_is_held_not_awaited(self) -> None:
+        """A dead electrode must not make Repair wait for an endpoint forever."""
+
+        names = ("A", "B")
+        repair = Repair(SFREQ, channel_names=names, exclude_channels=("B",))
+        data = ramp(6, channels=2)
+        data[:, 1] = np.nan
+
+        out, _ = repair(data, grid(6))
+
+        # Everything is released immediately and nothing non-finite leaks out.
+        self.assertEqual(len(out), 6)
+        self.assertTrue(np.all(np.isfinite(out)))
+        # The healthy channel is untouched; the dead one holds its last level.
+        self.assertTrue(np.allclose(out[:, 0], data[:, 0]))
+        self.assertTrue(np.allclose(out[:, 1], 0.0))
+        self.assertEqual(repair.held_rows, 6)
+        self.assertEqual(repair.repaired_samples, 0)
+        self.assertEqual(repair.reasons(float(grid(6)[0]), float(grid(6)[-1])), ())
+
+        # Without the scope the same data is unrepairable pending damage.
+        plain = Repair(SFREQ)
+        pending, _ = plain(data, grid(6))
+        self.assertEqual(len(pending), 0)
+        self.assertEqual(plain.held_rows, 0)
+
+    def test_excluded_channel_cannot_make_a_repair_unsafe(self) -> None:
+        """One railing dead electrode must not veto every repair around it."""
+
+        names = ("A", "B")
+        # Volts: A rails from 0 V to 2 V, far beyond any EEG excursion.
+        data = np.array([[0.0, 0.0], [1.0, np.nan], [2.0, 2e-5]])
+        stamps = grid(3)
+
+        with self.assertRaises(RuntimeError):
+            Repair(SFREQ, source_unit_exponent=0)(data, stamps)
+
+        scoped = Repair(
+            SFREQ, source_unit_exponent=0, channel_names=names,
+            exclude_channels=("A",),
+        )
+        out, _ = scoped(data, stamps)
+        self.assertEqual(len(out), 3)
+        self.assertTrue(np.all(np.isfinite(out)))
+        # B is bridged linearly between its two finite endpoints.
+        self.assertAlmostEqual(out[1, 1], 1e-5)
+
+    def test_scope_validation(self) -> None:
+        with self.assertRaises(ValueError):
+            Repair(SFREQ, channel_names=("A", "B"), exclude_channels=("C",))
+        with self.assertRaises(ValueError):
+            Repair(SFREQ, exclude_channels=("A",))
+        with self.assertRaises(TypeError):
+            Repair(SFREQ, channel_names=("A", "B"), exclude_channels="A")
+
 
 if __name__ == "__main__":
     unittest.main()
