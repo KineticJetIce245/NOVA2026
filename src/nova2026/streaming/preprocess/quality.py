@@ -23,7 +23,8 @@ class QualityMonitor:
         Feed data in the same units the thresholds are expressed in (uV). Fault
         intervals are recorded in timestamp space, so results do not depend on
         chunk boundaries. Non-finite rows are not flagged and are documented as
-        the future recovery component's responsibility.
+        the Repair stage's responsibility: it fixes short non-finite runs
+        upstream, and Recovery decides what to do with the rest.
     """
 
     def __init__(
@@ -89,7 +90,8 @@ class QualityMonitor:
             return
 
         eeg = data_uv[:, : self._n_eeg]
-        # Rows with NaN are the future recovery component's job, never faults.
+        # Non-finite rows are never faults here: Repair (upstream) fixes short
+        # runs, and Recovery decides what to do with the rest.
         finite = np.isfinite(eeg).all(axis=1) & np.isfinite(timestamps)
 
         if self._initial is None:

@@ -4,8 +4,7 @@ import numpy as np
 
 from nova2026.auditory.alignment import EnvelopeBuffer
 from nova2026.auditory.envelopes import EnvelopeExtractor
-from scripts.dataproc.streaming.config import StreamConfig
-from scripts.dataproc.streaming.processor import RunProcessor
+from nova2026.auditory.streaming import AuditoryProcessor, stream_config
 
 
 class ReplayFailure(RuntimeError):
@@ -14,26 +13,6 @@ class ReplayFailure(RuntimeError):
     def __init__(self, timestamp, message):
         super().__init__(message)
         self.timestamp = timestamp
-
-
-def stream_config(trial, config, history=5.0, step=1.0):
-    """Interchange EEG is in uV; input reference is declared, never guessed."""
-    return StreamConfig(
-        input_sfreq=round(trial.sample_rate, 6),
-        source_unit_exponent=-6,
-        input_reference=trial.reference,
-        upstream_processing=trial.upstream_processing,
-        stream_name="auditory-replay",
-        eeg_channels=trial.channel_names,
-        eog_channels=(),
-        output_sfreq=config.sample_rate,
-        bandpass=config.band,
-        notch_frequency=None,
-        window_seconds=history,
-        step_seconds=step,
-        buffer_seconds=history + 4,
-        warmup_seconds=2.0,
-    )
 
 
 def replay_windows(
@@ -51,8 +30,12 @@ def replay_windows(
     retain nominal source times and a separate conservative availability time.
     Pending windows wait a bounded time for the audio resampler, then reject.
     """
+    if not np.isfinite(chunk_seconds) or chunk_seconds <= 0:
+        raise ValueError("chunk_seconds must be finite and positive.")
+    if not np.isfinite(max_wait) or max_wait < 0 or not np.isfinite(audio_offset):
+        raise ValueError("Invalid audio alignment timing.")
     processing = stream_config(trial, config, history, step)
-    processor = RunProcessor(processing)
+    processor = AuditoryProcessor(processing)
     extractor = EnvelopeExtractor(trial.audio_rate, config)
     envelopes = EnvelopeBuffer(config.sample_rate, history + max_wait + 5)
     audio_start = trial.timestamps[0] + audio_offset
@@ -61,9 +44,7 @@ def replay_windows(
     envelope_position = 0
     pending = []
     now = float(trial.timestamps[0])
-    end = min(
-        float(trial.timestamps[-1]), audio_start + len(trial.audio) / trial.audio_rate
-    )
+    end = float(trial.timestamps[-1])
     while now < end:
         now = min(now + chunk_seconds, end)
         audio_end = min(
@@ -113,14 +94,16 @@ def labels_for_window(trial, window):
 
 
 class LiveAuditoryAdapter:
-    """Connect Streamer callbacks to prepared audio history and a result handoff.
+    """Connect current processed windows to audio history and a result handoff.
 
     EnvelopeBuffer is owned by the processing thread. The caller must drain a
     bounded timestamped audio-feature queue on that thread before this callback.
     The audio controller owns the independent decision-expiry clock.
     """
 
-    def __init__(self, pipeline, envelopes, handoff):
+    def __init__(self, pipeline, envelopes, handoff, *, contract):
+        if contract != pipeline.model.contract:
+            raise ValueError("Source preprocessing/montage differs from the decoder.")
         self.pipeline = pipeline
         self.envelopes = envelopes
         self.handoff = handoff

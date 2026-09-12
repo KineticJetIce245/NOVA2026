@@ -1,7 +1,8 @@
 # Auditory attention
 
-The initial implementation decodes attention between two available speech streams.
-It preserves the existing streaming core. It does not separate a room microphone
+The implementation decodes attention between two available speech streams.
+It uses the current `nova2026.streaming` core for training, replay and live EEG.
+It does not separate a room microphone
 or reuse reaction-time model weights. Human accuracy and hearing benefit have not
 been established by the software checks below.
 
@@ -28,12 +29,13 @@ on the test recording and then report its result as held-out performance.
 ## Module ownership
 
 Reusable components live in `src/nova2026/auditory`. Dataset conversion and runners
-live in `scripts/auditory`. Only the integration layer imports the experimental
-streaming implementation from `scripts/dataproc/streaming`.
+live in `scripts/auditory`. The auditory path uses `AuditoryProcessor`, composed
+from the current streaming repair, quality, causal filter, resampler and buffer.
+The live entry point acquires through `StreamSession` and `Acquire`.
 
 ```text
 Recorded audio -> EnvelopeExtractor -> EnvelopeBuffer
-Recorded EEG   -> RunProcessor      -> EEGWindow
+Recorded EEG   -> AuditoryProcessor -> EEGWindow
                                    -> aligned AuditoryWindow
                                    -> AuditoryPipeline / RidgeDecoder
                                    -> AttentionEstimate
@@ -140,8 +142,9 @@ and rejects unfinished tails. It never flushes a fake end-of-stream tail into a
 decision. Device and filter phase delays must be characterized on the intended
 hardware. Learned neural lags are not a substitute for measuring clock offsets.
 
-The controller accepts finite evidence only, applies a correlation-gap threshold,
-and expires evidence after a bounded age. Weak evidence selects neutral. Scores
+The controller accepts finite evidence only, requires a 0.5 correlation margin
+and three consecutive confident windows before committing or switching, and
+expires evidence after three seconds. Weak evidence returns to neutral. Scores
 are correlations, not calibrated probabilities. Manual selection is explicit.
 The simple baseline uses a switching margin and holds its selection; the quality
 controller deliberately abstains instead. No probabilistic state model is added.
@@ -164,10 +167,39 @@ The calling thread owns envelope processing and decoding. The audio thread owns
 the controller and mixer. A one-result queue prevents stale results accumulating.
 Worker errors reach the caller. Replay playback is not a live-brain experiment.
 
-For future live EEG, use the existing `Streamer` and `LiveAuditoryAdapter` with
-`pipeline_on_invalid=True`. The processing thread must drain a bounded timestamped
-audio-feature queue into `EnvelopeBuffer` before inference. The hardware clock
-mapping and that audio acquisition hookup are deliberately not guessed here.
+## Live EEG with timestamped candidate audio
+
+Use `python -B -m scripts.auditory.live --trial candidates.npz --model decoder.npz
+--stream OUTLET --output wav --out output/live` on one command line. WAV mode is
+paced and tests software timing without sending audio to a device. A run with no
+EEG decisions fails. Source labels/types/units are checked before acquisition;
+extra channels are selected out by name, never truncated by column count.
+
+`--output play --timing-profile measured.json` uses the sound device's DAC time,
+mapped to the local LSL clock on each callback. `timing.json` records audio sample
+positions, source-clock timestamps, block timing errors and estimated drift.
+Envelope positions come from those records, not requested EEG sample counts.
+
+The profile must match the one stored at calibration and contain exactly
+`device` (output device name), `sample_rate`, `block_size`, and
+`residual_offset_seconds` (measured remaining EEG/audio offset). The block size is
+`round(sample_rate * 0.032)`. Residuals over 0.030 seconds fail startup. This is an
+operator-supplied loopback measurement, not a measurement inferred from correlations.
+Measure the full playback/EEG path with a loopback signal, record calibration
+through the same path, and keep the device, rate and buffering fixed. The decoder's
+lag window does not absorb arbitrary offsets. Hardware timing remains unverified
+until that measurement is actually made.
+
+Train with `--window 5` (alias for `--history`) and optionally `--base base.npz` for
+a contract-checked ridge prior. Use `--timing-profile measured.json` only for
+calibration recordings acquired through that measured path. The prior keeps the
+base normalization; development provenance is carried into held-out checks.
+Live `--window` must match the model. Old models require retraining because the
+causal streaming/resampling contract has changed.
+
+No upstream 72%/82% accuracy or short-calibration recommendation is adopted here:
+those quantities describe different experiments, and the cited upstream figure
+has no reproducible generator. Personalization needs a held-out comparison.
 
 ## Evaluation scope
 
@@ -183,7 +215,8 @@ listening-effort improvement.
 ## Checks
 
 ```powershell
-.venv/Scripts/python.exe -B -m unittest scripts.auditory.tests.test_auditory -v
+.venv/Scripts/python.exe -B -m unittest discover -s scripts/auditory/tests -v
+.venv/Scripts/python.exe -B -m unittest discover -s tests/streaming -v
 .venv/Scripts/python.exe -B -m unittest discover -s scripts/dataproc/streaming/tests
 ```
 

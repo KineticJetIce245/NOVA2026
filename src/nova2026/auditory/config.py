@@ -2,6 +2,10 @@
 
 import math
 
+# Conservative for the default five-second windows. A margin is not a probability.
+# Short-window null probes exceeded the report's suggested 0.22 starting value.
+MIN_MARGIN = 0.5
+
 
 class AuditoryConfig:
     """Keep feature settings explicit and independent of thread ownership."""

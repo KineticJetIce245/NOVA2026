@@ -3,6 +3,7 @@
 import time
 import unittest
 from threading import Event, Timer
+from unittest import mock
 from uuid import uuid4
 
 import mne
@@ -11,6 +12,7 @@ from mne_lsl.lsl import local_clock
 from mne_lsl.player import PlayerLSL
 from mne_lsl.stream import StreamLSL
 
+from nova2026.streaming import acquire as acquire_module
 from nova2026.streaming.acquire import Acquire
 
 SFREQ = 500.0
@@ -156,8 +158,14 @@ class BlockAssemblyTests(unittest.TestCase):
         self.assertEqual(pending, feeder.generated - samples)
 
     def test_one_large_chunk_leaves_a_remainder(self) -> None:
-        feeder = Feeder((250,))
-        acquire = acquire_for(feeder, 100)
+        # This test checks block sizes, not time guards, so it must not depend
+        # on the machine's clock. Epoch 0 is the safe fixed choice: age then
+        # equals the machine's uptime (ignored, because the age guard is off),
+        # and the "future" check can never trip. A fixed epoch in the future
+        # would instead fail on a freshly booted machine, where the local clock
+        # is still smaller than that epoch.
+        feeder = Feeder((250,), start=0.0)
+        acquire = acquire_for(feeder, 100, max_lag_seconds=None)
         feeder.feed(250)
 
         try:
@@ -170,7 +178,15 @@ class BlockAssemblyTests(unittest.TestCase):
         self.assertEqual(pending, 50)
         self.assertEqual(first[0, 0], 0)
         self.assertEqual(second[0, 0], 100)
-        self.assertEqual(first_times[-1], second_times[0] - 1.0 / feeder.sfreq)
+        # Adjacent timestamps come from two different arithmetic paths
+        # (multiplication inside the chunk grid vs. the recorded anchor), so
+        # compare the spacing with a tolerance far below 1/sfreq instead of
+        # exact float equality. Wall-clock-derived starts would make even this
+        # tolerance brittle across machines and uptimes.
+        interval = 1.0 / feeder.sfreq
+        self.assertAlmostEqual(
+            second_times[0] - first_times[-1], interval, delta=1e-9
+        )
 
     def test_empty_chunks_are_ignored(self) -> None:
         feeder = Feeder()
@@ -213,6 +229,44 @@ class BlockAssemblyTests(unittest.TestCase):
 
         data[:] = -1.0
         self.assertTrue(np.array_equal(source_data, original))
+
+
+class ClockIndependenceTests(unittest.TestCase):
+    """Timing-guard tests must not change with the machine's uptime.
+
+    A fixed epoch in the *future* relative to the local clock trips the
+    "samples are ahead of the clock" guard, which happens on any freshly
+    booted machine or fresh CI container. Epoch 0 keeps that guard safe while
+    the age guard, unrelated to this concern, is disabled explicitly.
+    """
+
+    def test_epoch_zero_is_safe_on_a_freshly_booted_machine(self) -> None:
+        with mock.patch.object(acquire_module, "local_clock", lambda: 5.0):
+            feeder = Feeder((250,), start=0.0)
+            acquire = acquire_for(feeder, 100, max_lag_seconds=None)
+            feeder.feed(250)
+            try:
+                first, first_times = acquire.read(timeout=0.05)
+                _, second_times = acquire.read(timeout=0.05)
+            finally:
+                acquire.close()
+
+        self.assertEqual(first[0, 0], 0)
+        self.assertAlmostEqual(
+            second_times[0] - first_times[-1], 1.0 / SFREQ, delta=1e-9
+        )
+
+    def test_a_future_epoch_would_fail_on_a_fresh_machine(self) -> None:
+        # Documents the trap the fixed epoch above avoids.
+        with mock.patch.object(acquire_module, "local_clock", lambda: 5.0):
+            feeder = Feeder((250,), start=1000.0)
+            acquire = acquire_for(feeder, 100, max_lag_seconds=None)
+            feeder.feed(250)
+            try:
+                with self.assertRaisesRegex(RuntimeError, "ahead"):
+                    acquire.read(timeout=0.05)
+            finally:
+                acquire.close()
 
 
 class FailureTests(unittest.TestCase):

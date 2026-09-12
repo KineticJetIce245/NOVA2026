@@ -47,7 +47,8 @@ class EnvelopeBuffer:
     def align(self, window):
         reasons = list(window.reasons)
         envelopes = np.zeros((len(window.timestamps), 2))
-        available_at = window.available_at or float(window.timestamps[-1])
+        available_at = (window.available_at if window.available_at is not None
+                        else float(window.timestamps[-1]))
         if len(self.timestamps) < 2 or (
             window.timestamps[0] < self.timestamps[0] - 1e-6
             or window.timestamps[-1] > self.timestamps[-1] + 1e-6

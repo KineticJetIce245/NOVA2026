@@ -9,17 +9,19 @@ from scipy.io import wavfile
 
 from nova2026.auditory.audio import AudioMixer
 from nova2026.auditory.controller import AttentionController
+from nova2026.auditory.config import MIN_MARGIN
 from nova2026.auditory.data import AttentionEstimate, load_trial
 from nova2026.auditory.decoder import RidgeDecoder
-from nova2026.auditory.evaluation import inject_fault, selection_metrics
+from nova2026.auditory.evaluation import assert_held_out, inject_fault, selection_metrics
 from nova2026.auditory.pipeline import AuditoryPipeline
 
 from .runner import ReplayFailure, replay_windows
 
 
-def replay(trial, model, margin=0.03, delay=0.0, audio_offset=0.0, mode="quality"):
+def replay(trial, model, margin=MIN_MARGIN, delay=0.0, audio_offset=0.0, mode="quality"):
     """Evaluate emitted decisions on a virtual clock, never historical hindsight."""
-    if delay < 0:
+    assert_held_out(trial, model)
+    if not np.isfinite(delay) or delay < 0:
         raise ValueError("Inference delay cannot be negative.")
     history = model.training_info["history"]
     now = [0.0]
@@ -89,7 +91,7 @@ def replay(trial, model, margin=0.03, delay=0.0, audio_offset=0.0, mode="quality
         labels.append(truth)
     if not times:
         raise ValueError("Trial contains no playable interval.")
-    metrics = selection_metrics(times, choices, labels)
+    metrics = selection_metrics(times, choices, labels, end_time=start + end / trial.audio_rate)
     metrics["invalid_estimates"] = sum(not estimate.valid for estimate in estimates)
     metrics["audio_underruns"] = None  # Offline rendering is not a hardware test.
     metrics["mode"] = mode
@@ -116,7 +118,7 @@ def main():
     )
     parser.add_argument("--delay", type=float, default=0.0)
     parser.add_argument("--audio-offset", type=float, default=0.0)
-    parser.add_argument("--margin", type=float, default=0.03)
+    parser.add_argument("--margin", type=float, default=MIN_MARGIN)
     parser.add_argument("--zero-model", action="store_true")
     args = parser.parse_args()
     trial = inject_fault(load_trial(args.trial), args.fault)

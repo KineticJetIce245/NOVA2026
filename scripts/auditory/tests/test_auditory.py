@@ -160,10 +160,10 @@ class AuditoryTests(unittest.TestCase):
         )
         damaged = inject_fault(synthetic_trial("test"), "dropout")
         audio, estimates, metrics = replay(damaged, model)
-        self.assertIsNotNone(metrics["processing_failure"])
+        self.assertIsNone(metrics["processing_failure"])
         self.assertGreater(len(audio), damaged.audio_rate * 20)
         self.assertTrue(
-            any("processing_failed" in estimate["reasons"] for estimate in estimates)
+            any(not estimate["valid"] for estimate in estimates)
         )
 
     def test_envelope_chunk_invariance(self):
@@ -178,10 +178,10 @@ class AuditoryTests(unittest.TestCase):
         np.testing.assert_allclose(whole, chunked, atol=1e-10)
 
     def test_controller_null_invalid_stale_and_manual(self):
-        controller = AttentionController()
+        controller = AttentionController(min_switch_windows=1)
         controller.update(AttentionEstimate([0, 0], 1, 1), 1)
         np.testing.assert_equal(controller.gains(1), [1, 1])
-        controller.update(AttentionEstimate([0.1, 0], 2, 2), 2)
+        controller.update(AttentionEstimate([0.5, 0], 2, 2), 2)
         self.assertEqual(controller.choice(2), 0)
         self.assertIsNone(controller.choice(6))
         controller.update(AttentionEstimate([np.nan, 1], 7, 7), 7)
@@ -208,7 +208,7 @@ class AuditoryTests(unittest.TestCase):
         eeg[2:, 0] = envelopes[:-2, 0]
         config = AuditoryConfig(lag_seconds=2 / 64)
         window = AuditoryWindow(
-            eeg, envelopes, np.arange(500) / 64, 8, contract={"channels": ["F3"]}
+            eeg, envelopes, np.arange(500) / 64, 8, contract={"eeg_channels": ["F3"]}
         )
         model = RidgeDecoder(config, 0.01).fit([(window, np.zeros(500, dtype=int))])
         self.assertGreater(model.score(window)[0], 0.99)

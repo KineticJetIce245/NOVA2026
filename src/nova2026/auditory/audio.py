@@ -20,6 +20,8 @@ def read_audio(path):
         samples = samples.mean(axis=1)
     if samples.ndim != 1 or not np.all(np.isfinite(samples)):
         raise ValueError("Invalid audio file.")
+    if len(samples) and np.max(np.abs(samples)) > 1:
+        samples /= np.max(np.abs(samples))
     return samples, rate
 
 

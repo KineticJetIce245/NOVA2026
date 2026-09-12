@@ -15,7 +15,7 @@ def check_split(training, validation, testing=()):
         groups = set()
         for trial in partition:
             trials.add((trial.subject, trial.trial_id))
-            groups.add(trial.group)
+            groups.update(trial.group.split("|"))
         if trials & seen_trials or groups & seen_groups:
             raise ValueError("Split reuses a trial or stimulus group.")
         seen_trials.update(trials)
@@ -37,12 +37,31 @@ def inject_fault(trial, kind, start=8.0, duration=0.25):
     return result
 
 
-def selection_metrics(times, choices, labels):
+def assert_held_out(trial, model):
+    """Library and command-line evaluation share the same leakage guard."""
+    for partition in ("training", "validation"):
+        for subject, identity, group in model.training_info.get(partition, []):
+            if ((subject, identity) == (trial.subject, trial.trial_id)
+                    or set(str(group).split("|")) & set(trial.group.split("|"))):
+                raise ValueError("Evaluation overlaps model development data.")
+
+
+def selection_metrics(times, choices, labels, *, end_time=None):
     """Durations use each sample's following interval; unknown truth is excluded."""
     times = np.asarray(times)
     choices = np.asarray(choices)
     labels = np.asarray(labels)
-    duration = np.diff(times, append=times[-1])
+    if (times.ndim != 1 or not len(times) or choices.shape != times.shape
+            or labels.shape != times.shape or not np.all(np.isfinite(times))
+            or np.any(np.diff(times) <= 0)):
+        raise ValueError("Metrics require matching arrays and increasing finite times.")
+    if end_time is None:
+        if len(times) < 2:
+            raise ValueError("A single block requires its explicit end_time.")
+        end_time = times[-1] + times[-1] - times[-2]
+    if not np.isfinite(end_time) or end_time < times[-1]:
+        raise ValueError("Invalid final interval end.")
+    duration = np.diff(times, append=end_time)
     known = np.isin(labels, [0, 1])
     neutral = choices == -1
     correct = known & (choices == labels)
@@ -50,6 +69,7 @@ def selection_metrics(times, choices, labels):
     total = float(duration[known].sum())
     changes = (choices[1:] != choices[:-1]) & (labels[1:] == labels[:-1])
     changes &= known[1:] & known[:-1]
+    changes &= (choices[1:] != labels[1:]) & (choices[1:] != -1)
     switch_delays = []
     missed = 0
     switches = []

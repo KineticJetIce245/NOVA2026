@@ -20,8 +20,9 @@ class Acquire:
     """Deliver fixed-size sample blocks from a connected, manually acquired stream.
 
     The caller owns the inlet: it connects, validates metadata and selects
-    channels before constructing this object. ``Acquire`` only drives
-    ``stream.acquire()`` and reassembles whatever the source delivers into
+    channels before constructing this object. ``Acquire`` only pulls from the
+    source (``stream.acquire()``, plus a one-sample ``get_data`` call that
+    clears MNE-LSL's unread counter) and reassembles whatever arrives into
     blocks of exactly ``block_samples`` samples, oldest first. It keeps no ring
     buffer, emits no windows and applies no processing; buffering, unit
     conversion, filtering, resampling and window assembly belong to other

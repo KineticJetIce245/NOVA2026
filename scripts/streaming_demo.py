@@ -210,7 +210,9 @@ def main() -> None:
         f"source: {session.n_channels} ch @ {args.sfreq:g} Hz, "
         f"chunk_size={args.chunk_size}\n"
         f"chain : V->uV, notch {args.notch:g} Hz, band {args.lpass:g}-{args.hpass:g} Hz, "
-        f"resample {args.sfreq:g}->{session.out_sfreq:g} Hz ({args.resample_quality})\n"
+        f"resample {args.sfreq:g}->{session.out_sfreq:g} Hz "
+        f"(requested {args.resample_quality}, using {resampler.quality}, "
+        f"startup delay {resampler.startup_delay_seconds:.2f}s)\n"
         f"buffer: window={session.window_samples} hop={session.hop_samples} "
         f"capacity={session.capacity_samples} @ {session.out_sfreq:g} Hz\n"
         f"analysis: compute={args.compute:g}s workers={args.workers} queue={args.queue}"
@@ -224,7 +226,10 @@ def main() -> None:
     # A2: bounded recovery over every stateful stage of THIS chain. When the
     # Repair stage meets damage it cannot fix, the guard resets all of these
     # and keeps going (up to its limits); segment lets windows say which
-    # restart they belong to.
+    # restart they belong to. Keep persistent_fault_seconds above the window
+    # length plus any judge settling: one bad sample invalidates every
+    # overlapping window, so a short threshold can turn a single transient
+    # into a "persistent" fault and stop the run.
     recovery = Recovery(
         resettable=(repair, quality, notch, bandpass, resampler, session.buffer),
         recorder=session.recorder,
@@ -279,9 +284,9 @@ def main() -> None:
                 for stage in STAGES:
                     data, timestamps = stage(data, timestamps)
             except UnrepairableError as error:
-                recovery.handle(error)          # raises when the run must stop
+                recovery.handle(error)  # raises when the run must stop
                 stats.recoveries = recovery.recoveries
-                continue                        # this chunk is discarded
+                continue  # this chunk is discarded
 
             stats.repairs = repair.repaired_samples
             stats.dropped = repair.dropped_rows
@@ -350,9 +355,7 @@ def main() -> None:
         f"\ninput_samples={session.acquire.samples} "
         f"max_lag={session.acquire.max_lag:.3f}s gaps={session.acquire.gaps}"
     )
-    print(
-        f"resampled_output={resampler.output_samples} @ {session.out_sfreq:g} Hz"
-    )
+    print(f"resampled_output={resampler.output_samples} @ {session.out_sfreq:g} Hz")
     print(
         f"windows: valid={stats.valid} rejected={stats.rejected} "
         f"buffer_windows={session.buffer.windows}\n"

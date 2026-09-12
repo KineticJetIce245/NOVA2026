@@ -23,6 +23,8 @@ class RidgeDecoder:
 
     def design(self, eeg):
         """Row t uses EEG[t:t+lag+1]; unavailable trailing rows are excluded."""
+        if eeg.ndim != 2 or self.mean is None or eeg.shape[1] != len(self.mean):
+            raise ValueError("EEG channel count differs from the fitted decoder.")
         count = len(eeg) - self.config.lag_samples
         if count < 2:
             raise ValueError("Window is too short for the configured lags.")
@@ -32,7 +34,7 @@ class RidgeDecoder:
             columns.append(normalized[lag : lag + count])
         return np.concatenate(columns, axis=1)
 
-    def fit(self, examples, training_info=None):
+    def fit(self, examples, training_info=None, base=None):
         """Examples are (AuditoryWindow, per-sample candidate labels)."""
         examples = list(examples)
         usable = []
@@ -57,6 +59,13 @@ class RidgeDecoder:
         self.scale = np.sqrt(variance)
         if np.any(self.scale < 1e-9):
             raise ValueError("Training contains a flat EEG channel.")
+        if base is not None:
+            if base.contract != self.contract or base.config.to_dict() != self.config.to_dict():
+                raise ValueError("Base decoder preprocessing contract differs from calibration.")
+            if base.weights is None or base.mean.shape != self.mean.shape:
+                raise ValueError("Base decoder dimensions differ from calibration.")
+            # A weight prior is meaningful only in the base model's feature coordinates.
+            self.mean, self.scale = base.mean.copy(), base.scale.copy()
         width = len(self.mean) * (self.config.lag_samples + 1)
         covariance = np.zeros((width, width))
         target_covariance = np.zeros(width)
@@ -80,11 +89,16 @@ class RidgeDecoder:
         if target_count == 0:
             raise ValueError("No varying labeled speech targets.")
         regularized = covariance + self.alpha * np.eye(width)
-        self.weights = np.linalg.solve(regularized, target_covariance)
+        prior = 0 if base is None else self.alpha * base.weights
+        self.weights = np.linalg.solve(regularized, target_covariance + prior)
         self.training_info = dict(training_info or {})
         return self
 
     def validate(self, window):
+        expected = (len(self.mean) if self.mean is not None else
+                    len((self.contract or {}).get("eeg_channels", [])))
+        if expected and (window.eeg.ndim != 2 or window.eeg.shape[1] != expected):
+            raise ValueError("EEG channel count differs from the model contract.")
         if window.contract != self.contract:
             raise ValueError("EEG preprocessing contract does not match the model.")
         if (
@@ -132,13 +146,16 @@ class RidgeDecoder:
             "contract": self.contract,
             "training_info": self.training_info,
         }
-        np.savez_compressed(
-            path,
-            weights=self.weights,
-            mean=self.mean,
-            scale=self.scale,
-            metadata=json.dumps(metadata),
-        )
+        if str(path).lower().endswith(".npy"):
+            raise ValueError("Decoder bundles require an explicit .npz path.")
+        with open(path, "wb") as output:
+            np.savez_compressed(
+                output,
+                weights=self.weights,
+                mean=self.mean,
+                scale=self.scale,
+                metadata=json.dumps(metadata),
+            )
 
     @classmethod
     def load(cls, path):
@@ -147,6 +164,8 @@ class RidgeDecoder:
             if metadata["version"] != 1:
                 raise ValueError("Unsupported model version.")
             features = dict(metadata["features"])
+            if set(features) != set(AuditoryConfig().to_dict()):
+                raise ValueError("Incomplete or unknown model feature contract.")
             method = features.pop("envelope_method")
             config = AuditoryConfig(**features)
             if method != config.to_dict()["envelope_method"]:
@@ -157,6 +176,11 @@ class RidgeDecoder:
             model.weights = archive["weights"].copy()
             model.mean = archive["mean"].copy()
             model.scale = archive["scale"].copy()
+        if model.mean.ndim != 1 or not len(model.mean):
+            raise ValueError("Model normalization must be a nonempty vector.")
+        names = (model.contract or {}).get("eeg_channels", [])
+        if len(names) != len(model.mean) or len(set(names)) != len(names):
+            raise ValueError("Model channel names do not match normalization.")
         width = len(model.mean) * (config.lag_samples + 1)
         if model.weights.shape != (width,) or model.scale.shape != model.mean.shape:
             raise ValueError("Model array dimensions are inconsistent.")

@@ -1,4 +1,34 @@
-# Audio branch software verification
+# Audio v2 software verification - September 12 update
+
+The supported path now uses `nova2026.streaming` for auditory training, replay
+and live EEG. Old saved models must be retrained. The current streaming suite
+passes 181 tests on Windows, including LSL transport and recording. The 38 auditory
+tests and 32 legacy streaming tests also pass (251 total). Added auditory
+regressions cover the report's latency, faults, confidence, timing, model contracts,
+metrics, held-out grouping, worker error and shutdown findings. A real LSL test
+publishes EEG with timestamps anchored to paced audio and verifies correct
+synthetic candidate scores and fresh evidence.
+
+```powershell
+python -B -m unittest discover -s tests/streaming -q
+python -B -m unittest discover -s scripts/auditory/tests -q
+python -B -m unittest discover -s scripts/dataproc/streaming/tests -q
+python -B -m scripts.auditory.demo --out tmp/auditory_validation
+python -B -m scripts.auditory.evaluate --trial tmp/auditory_validation/test.npz --model tmp/auditory_validation/decoder.npz --seed 7 --out tmp/auditory_validation/evaluation.json
+```
+
+Evaluation now reports counts, abstentions and binomial intervals alongside
+controller comparisons. Zero output abstains. Intervals over windows do not
+describe independent human participants. No amplifier, microphone, headphone
+loopback or human calibration was performed. Device playback requires a measured,
+calibration-matched timing profile with residual offset <=30 ms; the software
+cannot certify that the supplied measurement was actually performed.
+
+See `documents/AUDIO_V2_ISSUE_RESOLUTION.md` for all 26 report issues and D1-D11.
+
+## Historical audio-branch baseline (superseded)
+
+The following describes the original implementation, not current guarantees.
 
 Verified locally using the existing Windows project environment.
 

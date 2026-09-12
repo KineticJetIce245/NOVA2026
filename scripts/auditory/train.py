@@ -25,7 +25,7 @@ def prepare(trials, config, history):
     return examples
 
 
-def train(training, validation, history=5.0, alphas=(10.0, 100.0, 1000.0)):
+def train(training, validation, history=5.0, alphas=(10.0, 100.0, 1000.0), base=None):
     check_split(training, validation)
     config = AuditoryConfig()
     # Training and inference use the same history and hop contract. We use
@@ -43,7 +43,13 @@ def train(training, validation, history=5.0, alphas=(10.0, 100.0, 1000.0)):
             "history": history,
             "step": 1.0,
         }
-        model.fit(training_examples, info)
+        if base is not None:
+            from nova2026.auditory.evaluation import assert_held_out
+            for trial in validation:
+                assert_held_out(trial, base)
+            info["training"] += base.training_info.get("training", [])
+            info["training"] += base.training_info.get("validation", [])
+        model.fit(training_examples, info, base=base)
         correct = 0
         total = 0
         for window, labels in validation_examples:
@@ -72,11 +78,20 @@ def main():
     parser.add_argument("--train", nargs="+", required=True)
     parser.add_argument("--validation", nargs="+", required=True)
     parser.add_argument("--model", required=True)
-    parser.add_argument("--history", type=float, default=5.0)
+    parser.add_argument("--history", "--window", type=float, default=5.0)
+    parser.add_argument("--base", help="Optional .npz decoder prior with matching contract")
+    parser.add_argument("--timing-profile", help="Measured audio profile for calibration recorded through that exact path")
     args = parser.parse_args()
     training = [load_trial(path) for path in args.train]
     validation = [load_trial(path) for path in args.validation]
-    model, report = train(training, validation, args.history)
+    base = RidgeDecoder.load(args.base) if args.base else None
+    model, report = train(training, validation, args.history, base=base)
+    if args.timing_profile:
+        from nova2026.auditory.timing import validate_audio_profile
+        profile = json.loads(Path(args.timing_profile).read_text())
+        for trial in training + validation:
+            validate_audio_profile(profile, trial.audio_rate, max(1, round(trial.audio_rate * .032)))
+        model.training_info["audio_timing_profile"] = profile
     path = Path(args.model)
     path.parent.mkdir(parents=True, exist_ok=True)
     model.save(path)

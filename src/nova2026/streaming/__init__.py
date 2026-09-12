@@ -11,7 +11,11 @@ from .preflight import (
     validate_source,  # check a connected inlet's metadata
 )
 from .preprocess.repair import UnrepairableError  # damage Repair cannot fix
-from .preprocess.resample import Resampler   # stateful 500->128 Hz (SoXR)
+from .preprocess.resample import (  # stateful 500->128 Hz (SoXR)
+    Resampler,
+    ResamplerQualityWarning,
+    select_quality,
+)
 from .recording import RunRecorder, RunSpec  # per-run SQLite recording + identity
 from .recovery import Recovery          # bounded recovery: reset or stop (A2)
 from .spatial import (
@@ -29,6 +33,7 @@ __all__ = [
     "CircularBuffer",
     "TaskOffloader",
     "Resampler",
+    "ResamplerQualityWarning",
     "RunRecorder",
     "RunSpec",
     "SpatialOperator",
@@ -41,5 +46,6 @@ __all__ = [
     "prepare",
     "processing_contract",
     "resolve_outlet",
+    "select_quality",
     "validate_source",
 ]

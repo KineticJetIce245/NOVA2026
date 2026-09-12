@@ -102,6 +102,16 @@ class StreamSession:
         if contract is not None:
             if tuple(contract.expected_channels) != self.channels:
                 raise ValueError("The provided contract does not match channels.")
+            if tuple(contract.source_channels) != tuple(stream.ch_names):
+                # A contract built for another outlet maps columns by name and
+                # would silently reorder this stream's data. Reject it instead:
+                # contracts must come from preflight.prepare() on THIS stream.
+                raise ValueError(
+                    "The provided contract was built for a different source "
+                    f"({tuple(contract.source_channels)!r} != "
+                    f"{tuple(stream.ch_names)!r}); build it with "
+                    "preflight.prepare() for the connected outlet."
+                )
             self.contract = contract
         else:
             self.contract = ChannelContract(stream.ch_names, self.channels)

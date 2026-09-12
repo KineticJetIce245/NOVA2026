@@ -36,6 +36,12 @@ class AuditoryTrial:
         self.group = str(group if group is not None else trial_id)
         if self.eeg.ndim != 2 or self.eeg.shape[1] != len(self.channel_names):
             raise ValueError("EEG must have samples by named channels.")
+        if not self.channel_names or len(set(self.channel_names)) != len(self.channel_names):
+            raise ValueError("Channel names must be nonempty and unique.")
+        if not all(np.all(np.isfinite(a)) for a in (self.eeg, self.timestamps, self.audio)):
+            raise ValueError("Trial arrays must be finite; inject runtime faults after loading.")
+        if np.any(np.abs(self.audio) > 1):
+            raise ValueError("Trial audio must be normalized to [-1, 1].")
         if len(self.timestamps) != len(self.eeg) or len(self.labels) != len(self.eeg):
             raise ValueError("Each EEG row requires a timestamp and label.")
         if len(self.timestamps) < 2 or not np.all(np.diff(self.timestamps) > 0):

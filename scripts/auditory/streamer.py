@@ -6,6 +6,9 @@ from time import monotonic
 from nova2026.auditory.audio import AudioPlayback, LatestEstimate
 from nova2026.auditory.controller import AttentionController
 from nova2026.auditory.pipeline import AuditoryPipeline
+from nova2026.auditory.data import AttentionEstimate
+from nova2026.auditory.evaluation import assert_held_out
+from nova2026.auditory.streaming import AuditoryProcessor, stream_config
 
 from .runner import replay_windows
 
@@ -29,6 +32,11 @@ class AuditoryReplayStreamer:
         self.error = None
 
     def initialize(self):
+        assert_held_out(self.trial, self.model)
+        processor = AuditoryProcessor(stream_config(
+            self.trial, self.model.config, self.model.training_info["history"]))
+        if processor.contract != self.model.contract:
+            raise ValueError("Playback source contract differs from decoder; retrain first.")
         if self.worker is not None and self.worker.is_alive():
             raise RuntimeError("Stop the active run before initializing again.")
         self.handoff = LatestEstimate()
@@ -64,6 +72,8 @@ class AuditoryReplayStreamer:
         pipeline = AuditoryPipeline(self.model, self.clock)
         self.worker = Thread(target=self.play, name="auditory-audio", daemon=True)
         self.worker.start()
+        processing_error = None
+        deadline = self.started_at + len(self.trial.audio) / self.trial.audio_rate + 3.0
         try:
             history = self.model.training_info["history"]
             for window in replay_windows(self.trial, self.model.config, history):
@@ -74,15 +84,22 @@ class AuditoryReplayStreamer:
                 self.handoff.put(estimate)
                 if self.on_result is not None:
                     self.on_result((estimate, original))
-            while self.worker.is_alive() and not self.stop_event.is_set():
-                self.stop_event.wait(0.05)
+        except Exception as error:
+            processing_error = error
+            now = self.clock()
+            self.handoff.put(AttentionEstimate(None, now, now, False, ("processing_failed",)))
         finally:
+            while (self.worker.is_alive() and not self.stop_event.is_set()
+                   and monotonic() < deadline):
+                self.stop_event.wait(min(0.05, max(0, deadline - monotonic())))
             self.stop()
             self.worker.join(timeout=3)
         if self.worker.is_alive():
             raise RuntimeError("Audio device did not stop within the timeout.")
         if self.error is not None:
-            raise self.error
+            raise self.error from processing_error
+        if processing_error is not None:
+            raise processing_error
 
     def stop(self):
         self.stop_event.set()

@@ -17,3 +17,7 @@ __pycache__/
 *.pyc
 *.pyo
 dist/
+
+# Local comparison material and disposable verification outputs.
+/tmp/
+/.tmp_tests/
