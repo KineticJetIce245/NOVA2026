@@ -6,23 +6,27 @@ Two uses, both of them fixtures rather than part of a normal acceptance run:
   exists for (the ``relay_smoke`` flow drives plain source -> relay -> getlive);
 * ``--jitter``: a regular grid plus Gaussian jitter, so
   :mod:`scripts.getlive.ts_check` can validate its own probe and show what the
-  LSL ``dejitter`` post-processing flag does to the timestamp grid.
+  LSL ``dejitter`` post-processing flag does to the timestamp grid;
+* ``--within-chunk-us``: a chunk-stamped source - one stamp per block, with the
+  samples inside the block a few microseconds apart - so the probe's chunk
+  detector and its verdict can be tested against the shape a live Unicorn
+  Recorder produces.
 
 Run it in its own terminal; it publishes until ``--seconds`` elapses:
 
     python -B -m scripts.getlive.publish_raw --name raw-1 --jitter 0.0003
+    python -B -m scripts.getlive.publish_raw --name chunked-1 --chunk 8 --within-chunk-us 12
 
 It declares no channel names, types or units on purpose: the relay is what adds
 them, and the package's pre-flight check is what refuses a source without them.
 
-``--stamp-per-chunk`` reached for the stamping shape a live Unicorn Recorder
-produces (many samples per timestamp), and it does hand liblsl a scalar time.
-It does **not** reproduce that shape on the measured side: mne-lsl's inlet then
-delivers a clean one-sample grid anyway, so a run of
-``ts_check --name <this fixture>`` reports ``samples/chunk=1``. Only the real
-device produced the chunk-stamped readings, so treat the flag as documentation
-of the intent, not as a validated fixture - the measured numbers from the rig
-are the evidence to work from.
+``--stamp-per-chunk`` sends liblsl a scalar time, which its documentation calls
+"the acquisition timestamp of the last sample". It does **not** reproduce the
+chunk-stamped shape on the measured side: an mne-lsl inlet spreads that value
+back over the block and delivers a clean one-sample grid. Use
+``--within-chunk-us`` to reproduce the shape instead - it puts distinct
+timestamps on the block's samples, all inside one nominal sampling interval,
+which is what a recorder that re-stamps a block does.
 """
 
 import argparse
@@ -63,9 +67,17 @@ def main() -> int:
         "--stamp-per-chunk",
         action="store_true",
         help="stamp the whole chunk with one timestamp instead of one per sample, "
-        "the way a recorder that passes push_chunk a scalar does - the shape "
-        "ts_check diagnoses as chunk-stamped. NOTE: not reproducible through "
-        "mne-lsl on this host (see the module docstring)",
+        "the way a recorder that passes push_chunk a scalar does. NOTE: mne-lsl "
+        "then delivers a clean grid anyway; use --within-chunk-us to reproduce a "
+        "chunk-stamped source instead",
+    )
+    parser.add_argument(
+        "--within-chunk-us",
+        type=float,
+        default=0.0,
+        help="spread a chunk's timestamps over this many microseconds, ending on "
+        "the block's own stamp; 8-12 reproduces the chunk-stamped shape a live "
+        "Unicorn Recorder produces (one stamp per ~8 samples)",
     )
     args = parser.parse_args()
 
@@ -84,12 +96,14 @@ def main() -> int:
     print(
         f"publishing {args.name!r}: {args.channels} channels, {args.sfreq:g} Hz, "
         f"jitter={args.jitter * 1e3:.2f} ms, metadata={args.metadata}, "
-        f"chunk={args.chunk}, stamp_per_chunk={args.stamp_per_chunk}",
+        f"chunk={args.chunk}, stamp_per_chunk={args.stamp_per_chunk}, "
+        f"within_chunk={args.within_chunk_us:.1f} us",
         flush=True,
     )
 
     rng = np.random.default_rng(0)
     chunk = args.chunk
+    within = args.within_chunk_us * 1e-6
     # Lead time so an inlet in another process can attach before data flows.
     started = local_clock() + 1.0
     index = 0
@@ -101,15 +115,36 @@ def main() -> int:
         stamps = grid + rng.normal(0.0, args.jitter, size=chunk) if args.jitter else grid
         # A scalar timestamp is liblsl's "acquisition timestamp of the last
         # sample", applied to every sample of the chunk; an array stamps each
-        # sample individually.
+        # sample individually. --within-chunk-us keeps the block's own stamp on
+        # its last sample while the earlier ones sit a few microseconds behind,
+        # which is the shape a recorder that re-stamps a block produces: distinct
+        # timestamps, all of them inside one nominal sampling interval.
         outlet.push_chunk(
             rng.normal(0, 15.0, (chunk, args.channels)).astype("float32"),
-            float(stamps[-1]) if args.stamp_per_chunk else stamps,
+            _shared_block_stamps(stamps, chunk, within, args.stamp_per_chunk),
         )
         index += chunk
         time.sleep(chunk / args.sfreq)
 
     return 0
+
+
+def _shared_block_stamps(
+    stamps: np.ndarray, chunk: int, within: float, per_chunk: bool
+):
+    """Return what to hand ``push_chunk`` for one block.
+
+    ``per_chunk`` sends a scalar (liblsl's last-sample timestamp, which this
+    mne-lsl path spreads out again). ``within`` sends an array whose samples sit
+    a few microseconds apart, ending on the block stamp: the chunk-stamped shape
+    with distinct stamps.
+    """
+
+    if per_chunk:
+        return float(stamps[-1])
+    if within <= 0:
+        return stamps
+    return float(stamps[-1]) - within * np.arange(chunk)[::-1]
 
 
 if __name__ == "__main__":

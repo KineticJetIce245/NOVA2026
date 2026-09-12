@@ -62,6 +62,10 @@ PACKAGE_TOLERANCE_SECONDS = 2e-4
 # the fingerprint of one timestamp shared by a whole chunk.
 ZEROISH_STEPS = 0.5
 
+# Above this share of sub-half-sample steps, a source is called chunk-stamped even
+# when the chunks are not exactly equal stamps.
+CHUNK_ZEROISH_PCT = 10.0
+
 FLAG_SETS = (
     ("clocksync", ("clocksync",)),
     ("+dejitter", ("clocksync", "dejitter")),
@@ -174,22 +178,30 @@ def chunk_structure(stamps: np.ndarray, sfreq: float) -> dict:
     """Measure how many samples share one timestamp, and what rate that implies.
 
     A source stamped per sample gives ``samples_per_chunk = 1``. A source that
-    hands a whole block to ``push_chunk`` with a scalar timestamp gives the block
-    size, and the effective rate is then the block size divided by the time
-    between two block anchors - the independent check on ``--sfreq``.
+    stamps a whole block once gives the block size, and the effective rate is the
+    block size divided by the time between two block anchors - the independent
+    check on ``--sfreq``, and the number to use before rebuilding a grid.
+
+    A boundary is a gap of at least ``ZEROISH_STEPS`` samples, the same threshold
+    the ``zeroish%`` column uses. It must not be an equality test: a chunk-stamped
+    source often shares one timestamp only to within a few microseconds, so equal
+    stamps are the special case, not the rule.
     """
 
     if stamps.size < 2:
         return {}
-    # Samples sharing a timestamp form one chunk; the first sample of each chunk
-    # is where the source advanced its clock.
-    boundary = np.concatenate(([True], np.diff(stamps) != 0.0))
+    gap_seconds = ZEROISH_STEPS / sfreq
+    # The first sample of each chunk is where the source advanced its clock; the
+    # samples that follow it share that stamp (exactly, or to within a few us).
+    boundary = np.concatenate(([True], np.diff(stamps) >= gap_seconds))
     index = np.flatnonzero(boundary)
     if index.size < 2:
         return {"chunks": int(index.size)}
     per_chunk = np.diff(index)
-    anchors = stamps[index]
-    interval = np.median(np.diff(anchors))
+    # Anchor on the first sample of each chunk, never on a per-sample step: on a
+    # chunk-stamped source the within-chunk spacings are noise, while the anchor
+    # spacing is the sampling interval.
+    interval = np.median(np.diff(stamps[index]))
     size = float(np.median(per_chunk))
     effective = None if interval <= 0 else size / interval
     return {
@@ -322,8 +334,9 @@ def _report_chunks(rows: list[dict], sfreq: float) -> None:
         print(line)
     print(
         "  samples/chunk = 1 means the source stamps every sample; a larger\n"
-        "  number is the block a scalar push_chunk stamped once. 'effective' is\n"
-        "  the independent rate estimate: samples per chunk / anchor interval."
+        "  number is the block whose samples share one timestamp (exactly, or to\n"
+        "  within a few microseconds). 'effective' is the independent rate estimate:\n"
+        "  samples per chunk / anchor interval."
     )
 
 
@@ -340,20 +353,30 @@ def verdict(rows: list[dict], sfreq: float) -> str:
         f"{best['roundoff_pct']:.2f})"
     ]
 
-    # Stamp granularity is evidence, not inference: a median above one sample per
-    # chunk is the block a scalar push_chunk stamped once.
+    # Stamp granularity is evidence, not inference. A median above one sample per
+    # chunk is the block a source stamped once; a median of one with a high
+    # zeroish% is the same damage with a few microseconds of spacing inside the
+    # block, which is what a recorder that re-stamps a block does.
     sizes = [
         row["samples_per_chunk_median"]
         for row in judged
         if row.get("samples_per_chunk_median")
     ]
     block = max(sizes) if sizes else 0.0
+    zeroish = max(row.get("zeroish_pct", 0.0) for row in judged)
     if block > 1.0:
         lines.append(
             f"the source is chunk-stamped: ~{block:g} samples share one timestamp,"
             " so Repair refuses the grid at every flag set and no tolerance helps."
             " Fix it in the publisher (per-sample timestamps, or a chunk size of"
             " 1), or in an adapter that rebuilds the grid from the chunk anchors."
+        )
+    elif zeroish >= CHUNK_ZEROISH_PCT:
+        lines.append(
+            f"the source is chunk-stamped too: {zeroish:.2f}% of steps are shorter"
+            " than half a sample, but the samples inside a block differ by a few"
+            " microseconds, so the exact-equality chunk size stays 1. The grid"
+            " still has to be rebuilt from the block anchors."
         )
     elif best["compressed_pct"] > 0.0:
         lines.append(
@@ -369,6 +392,18 @@ def verdict(rows: list[dict], sfreq: float) -> str:
         )
     else:
         lines.append("this flag set leaves the grid `Repair` requires.")
+    rates = [
+        row["effective_sfreq_hz"]
+        for row in judged
+        if row.get("effective_sfreq_hz")
+    ]
+    if rates and (max(rates) - min(rates)) / max(rates) > 0.01:
+        lines.append(
+            "the flag sets disagree on the effective rate ("
+            + ", ".join(f"{rate:.2f} Hz" for rate in rates)
+            + "); dejitter fits its own rate, so take the `clocksync` anchor"
+            " measurement as the device rate before rebuilding a grid."
+        )
     return "\n".join(lines)
 
 

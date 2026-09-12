@@ -248,11 +248,12 @@ so allow about `3 x (--window + 1)` seconds.
 
 liblsl documents `StreamOutlet.push_chunk(data, timestamp=float)` as *"the
 acquisition timestamp of the last sample"*: one float stamps **every** sample of
-that block with the same time. The steps inside a block are then ~0 and the
-steps between blocks are the block size, so `median` sits near 0, `mean` sits at
-1.0, and `zeroish%` is roughly `1 - 1/chunk_size`. Such a source is faithfully
-delivered but its grid is unusable: `Repair` raises on the first intra-block
-step. The three flag sets behave as follows.
+that block with the same time. Recorders that re-stamp a block themselves produce
+the same shape with distinct stamps a few microseconds apart, so the steps inside
+a block are ~0 while the steps between blocks are the block size. `median` then
+sits near 0, the mean at 1.0, and `zeroish%` is roughly `1 - 1/chunk_size`. Such
+a source is faithfully delivered but its grid is unusable: `Repair` raises on the
+first intra-block step. The three flag sets behave as follows.
 
 | Flag set | Effect on a chunk-stamped source |
 | --- | --- |
@@ -266,17 +267,26 @@ the grid from the chunk anchors, or a publisher that stamps per sample
 sub-nominal steps. A publisher with a chunk size of 1 makes the scalar form
 equivalent to per-sample stamping.
 
-The `samples/chunk` and `effective` rate lines are the check on `--sfreq`: a
-source stamped per sample reports 1 sample/chunk, and any source reports the rate
-implied by its own anchors, so a mismatch with `--sfreq` shows up there rather
-than being absorbed silently.
+The `samples/chunk` and `effective` rate lines are the check on `--sfreq`, and the
+two numbers to use before rebuilding a grid. A source stamped per sample reports
+1 sample/chunk. On a chunk-stamped source, `samples/chunk` is the block size and
+`effective` is the block size divided by the anchor interval - the device rate
+measured without dejitter's own rate fit, so the `clocksync` row is the honest
+one and the flag sets may disagree with each other by design.
 
-**This shape is only reproducible on the real device.** `publish_raw.py
---stamp-per-chunk` hands liblsl a scalar time for a whole block, yet an mne-lsl
-inlet then delivers a clean one-sample grid (`samples/chunk=1`, every step at
-1.0). So the chunk-stamped readings quoted above come from a live Unicorn
-Recorder, not from a local fixture: use the flag to document the intent, and
-treat the rig's numbers as the evidence.
+Reproduce the shape locally with the fixture - one stamp per block, the samples
+inside it a few microseconds apart:
+
+```powershell
+python -B -m scripts.getlive.publish_raw --name chunked-1 --chunk 8 --within-chunk-us 12 --seconds 90
+python -B -m scripts.getlive.ts_check --name chunked-1 --sfreq 250 --window 5
+```
+
+That reports `zeroish% ~88`, `compressed% ~88` on `clocksync`, `samples/chunk=8`
+and `effective` back at 250 Hz, which is what the detector has to say on a source
+whose blocks are stamped once. `--stamp-per-chunk` (a scalar time) does **not**
+reproduce it: an mne-lsl inlet spreads that value back over the block and delivers
+a clean one-sample grid.
 
 A source that publishes a regular grid with Gaussian jitter is what
 `publish_raw.py --jitter` simulates. Two things it does **not** cover, and both
