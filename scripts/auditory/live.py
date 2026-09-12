@@ -22,8 +22,11 @@ from nova2026.auditory.pipeline import AuditoryPipeline
 from nova2026.auditory.streaming import AuditoryProcessor, stream_config
 from nova2026.auditory.timing import TimestampedAudio, validate_audio_profile
 
+from .outputs import guard_outputs
 
-def run(trial, model, stream, *, source_unit_exponent=0, output="wav", window=None, timing_profile=None):
+
+def run(trial, model, stream, *, source_unit_exponent=0, output="wav", window=None,
+        timing_profile=None, record=None, subject="demo", session_name="synthetic"):
     from mne_lsl.lsl import local_clock
     from nova2026.streaming import prepare
     from nova2026.streaming.bootstrap import StreamSession
@@ -36,7 +39,8 @@ def run(trial, model, stream, *, source_unit_exponent=0, output="wav", window=No
         timing_profile = validate_audio_profile(timing_profile, trial.audio_rate, frames)
         if timing_profile != model.training_info.get("audio_timing_profile"):
             raise ValueError("Audio configuration differs from model calibration; recalibrate.")
-        print(f"Verified profile residual: {timing_profile['residual_offset_seconds'] * 1000:.1f} ms; "
+        print(f"Audio profile residual: {timing_profile['residual_offset_seconds'] * 1000:.1f} ms "
+              f"(tolerance gate, not compensated); "
               f"device={timing_profile['device']}, rate={trial.audio_rate:g}, block={frames}")
     else:
         print("Paced WAV: software clock test; no acoustic offset measurement.")
@@ -53,7 +57,8 @@ def run(trial, model, stream, *, source_unit_exponent=0, output="wav", window=No
                        n_eeg=len(settings.eeg_channels), source_unit_exponent=source_unit_exponent)
     args = SimpleNamespace(sfreq=settings.input_sfreq, out_sfreq=model.config.sample_rate,
                            window=history, hop=1., capacity=history + 4, warmup=2.,
-                           block=max(1, round(settings.input_sfreq * .032)))
+                           block=max(1, round(settings.input_sfreq * .032)),
+                           record=record, subject=subject, session=session_name)
     session = StreamSession(stream, args, settings.eeg_channels, contract=contract)
     scaler = unit_scaler(source_unit_exponent, desired_exponent=-6)
     provider = TimestampedAudio(trial.audio, trial.audio_rate, model.config)
@@ -138,9 +143,20 @@ def run(trial, model, stream, *, source_unit_exponent=0, output="wav", window=No
     finally:
         # EEG failure releases acquisition but allows the independent audio to finish neutral.
         session.acquire.close()
-        session.close(status="failed" if eeg_error else "completed")
         worker.join(timeout=max(0, (len(trial.audio) - position) / trial.audio_rate) + 3)
         stop.set()
+        # Close the recorder only once the worker has settled, so the recorded
+        # status and error describe what actually happened to the whole run.
+        if worker.is_alive():
+            failure = RuntimeError("Audio worker exceeded its shutdown deadline.")
+        elif errors:
+            failure = errors[0]
+        else:
+            failure = eeg_error
+        session.close(
+            status="completed" if failure is None else "failed",
+            error=None if failure is None else repr(failure),
+        )
     if worker.is_alive():
         raise RuntimeError("Audio worker exceeded its shutdown deadline.")
     if errors:
@@ -149,7 +165,19 @@ def run(trial, model, stream, *, source_unit_exponent=0, output="wav", window=No
         raise eeg_error
     if not estimates:
         raise RuntimeError("No EEG decisions produced; run is not a successful live evaluation.")
-    return np.concatenate(rendered), {"estimates": estimates, **provider.diagnostics()}
+    # Recovery resets and transport health belong in the run record: without
+    # them a session that discarded chunks looks identical to a clean one.
+    report = {
+        "estimates": estimates,
+        "recording": None if session.recorder is None else str(session.recorder.path),
+        "audio_timing_profile": timing_profile,
+        "recovery_segments": int(processor.recovery.segment),
+        "recovery_events": list(processor.recovery.events),
+        "acquire_max_lag_seconds": float(session.acquire.max_lag),
+        "acquire_gaps": int(session.acquire.gaps),
+        **provider.diagnostics(),
+    }
+    return np.concatenate(rendered), report
 
 
 def main():
@@ -163,17 +191,26 @@ def main():
     parser.add_argument("--window", type=float, help="Must match the trained model history")
     parser.add_argument("--out", required=True)
     parser.add_argument("--timing-profile", help="Measured loopback/profile JSON required for --output play")
+    parser.add_argument("--record", help="Recording root for the raw run (provenance + offline replay)")
+    parser.add_argument("--subject", default="demo", help="Subject identity stored with --record")
+    parser.add_argument("--session", default="synthetic", help="Session identity stored with --record")
+    parser.add_argument("--force", action="store_true", help="Overwrite existing files under --out")
     args = parser.parse_args()
     trial, model = load_trial(args.trial), RidgeDecoder.load(args.model)
+    destination = Path(args.out)
+    guard_outputs(
+        [destination / "mixed.wav", destination / "timing.json"], force=args.force
+    )
     stream = StreamLSL(bufsize=4., name=args.stream)
     stream.connect(acquisition_delay=None, processing_flags=["clocksync"], timeout=10)
     try:
         audio, report = run(trial, model, stream, source_unit_exponent=args.source_unit_exponent,
                             output=args.output, window=args.window,
+                            record=args.record, subject=args.subject,
+                            session_name=args.session,
                             timing_profile=json.loads(Path(args.timing_profile).read_text()) if args.timing_profile else None)
     finally:
         stream.disconnect()
-    destination = Path(args.out)
     destination.mkdir(parents=True, exist_ok=True)
     wavfile.write(destination / "mixed.wav", round(trial.audio_rate), audio)
     (destination / "timing.json").write_text(json.dumps(report, indent=2))

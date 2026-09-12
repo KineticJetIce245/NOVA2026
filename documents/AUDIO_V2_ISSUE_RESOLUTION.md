@@ -1,5 +1,8 @@
 # Audio v2 issue resolution - 12 September 2026
 
+A follow-up audit of this branch, the fixes it produced, and the items left open
+are in `documents/AUDIO_V2_AUDIT.md`.
+
 Scope: the existing `audio_v2` branch only. Work is in a separate checkout so the
 user's `stream` checkout and its uncommitted work are preserved. No other branch
 is merged into, committed on, reset, or pushed.
@@ -77,9 +80,14 @@ files are replaced by the named local equivalent, rather than copied and patched
   timestamps are handled explicitly.
 
 The old review's direct test of a legacy `StreamingResampler(quality="LQ")` is
-superseded by the supported auditory processor's strict auto-quality test. Explicit
-LQ in the legacy module is unchanged; auditory runners no longer use that module.
-Tests which recorded the old incorrect behavior are not correctness requirements.
+superseded by an auditory regression that pins the choice actually made
+(`test_resampler_choice_is_pinned_and_its_precondition_holds`). That choice is
+`QQ`, which performs essentially no anti-aliasing: `allow_qq=True` is required
+because no clean SoXR preset fits the 3.0 - 1.0 s startup budget at this input
+rate, and the third-order 1-9 Hz band-pass runs before the resampler, which is
+the precondition the streaming package names. Explicit LQ in the legacy module
+is unchanged; auditory runners no longer use that module. Tests which recorded
+the old incorrect behavior are not correctness requirements.
 
 ## Confidence finding
 
@@ -94,8 +102,11 @@ the held-out trial whose performance is reported.
 
 ## Verification and limits
 
-All 251 tests pass on Windows/Python 3.14: 181 current streaming tests, 38 auditory
-tests, and 32 legacy streaming tests. This includes real LSL loopback recording.
+All 258 tests pass on Windows/Python 3.13.15: 181 current streaming tests, 45
+auditory tests, and 32 legacy streaming tests. (The earlier text said 3.14; the
+interpreter in `.venv` on this machine is 3.13.15, and the 38 auditory tests have
+since grown to 45 with the audit regressions below.) This includes real LSL
+loopback recording.
 Auditory regression coverage includes transient faults,
 late/duplicate evidence, noise, timing maps, metadata corruption, held-out grouping,
 warm starts, duration accounting, worker error precedence and a blocked device.
