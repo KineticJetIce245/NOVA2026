@@ -43,7 +43,7 @@ import argparse
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from time import monotonic
+from time import monotonic, sleep
 
 import numpy as np
 from mne_lsl.lsl import local_clock
@@ -53,6 +53,7 @@ from nova2026.config import WINDOW_SIZE as MODEL_WINDOW_SIZE_MS
 from nova2026.streaming import (
     Recovery,
     StreamStats,
+    TaskOffloader,
     UnrepairableError,
     prepare,
     processing_contract,
@@ -133,6 +134,7 @@ class _Run:
     repair: Repair | None = None
     quality: QualityMonitor | None = None
     resampler: Resampler | None = None
+    offloader: TaskOffloader | None = None
     stages: tuple = ()
     resettable: tuple = ()
     session: object | None = None
@@ -524,6 +526,17 @@ def _prepare(run: _Run) -> None:
     run.electrodes = ChannelStats(
         run.channels, flat_uv=args.flat_uv, noisy_uv=args.noisy_uv
     )
+    if args.workers > 0:
+        # Load test: a dummy consumer that spends --compute seconds per window on
+        # a pool of worker threads, so analysis never blocks the acquisition
+        # loop. With --workers 0 there is no offloader and nothing changes.
+        def analyze(_window, _seconds=float(args.compute)):
+            if _seconds > 0:
+                sleep(_seconds)
+
+        run.offloader = TaskOffloader(
+            analyze, workers=args.workers, capacity=args.queue
+        )
 
 
 def _handle_window(run: _Run, window, window_times, start) -> None:
@@ -566,6 +579,10 @@ def _handle_window(run: _Run, window, window_times, start) -> None:
                 eeg_window,
             )
         )
+    if run.offloader is not None:
+        # The window is a copy out of the ring buffer, so it is safe to hand to
+        # a worker: the loop keeps pulling while the dummy analysis runs.
+        run.offloader.submit(eeg_window)
 
 
 def _loop(run: _Run) -> None:
@@ -624,6 +641,12 @@ def _loop(run: _Run) -> None:
         # Authoritative count: a recovery that raised still happened, and the
         # report must not claim the chain never restarted.
         stats.recoveries = run.recovery.recoveries
+        if run.offloader is not None:
+            # Drain what is queued, then report what the load actually did:
+            # these two counters are the evidence a load test is read for.
+            run.offloader.close(drain=True, timeout=5.0)
+            stats.offload_dropped = run.offloader.dropped
+            stats.offload_failed = run.offloader.failed
         session.close(
             status="completed" if run.failure is None else "failed",
             error=None if run.failure is None else repr(run.failure),

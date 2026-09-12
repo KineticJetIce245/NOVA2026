@@ -1618,3 +1618,314 @@ synthetic checks into proof that neural activity survives a projector.
 | recovery / segment | bounded restart after unrepairable damage; each restart is a new segment |
 | not_processed | recorder event marking samples buffered when the run stopped |
 | pre-flight | checks done before the first sample: outlet resolution + metadata validation |
+
+## 11. The first real bring-up: what the rig did to us (2026-09-12)
+
+Everything in sections 1-10 was validated against `PlayerLSL` and recorded data.
+On 2026-09-12 the package was pointed at a real amplifier for the first time, and
+almost nothing about the lab's data was what the package assumed. This section is
+the post-mortem: what the rig actually published, why every guard fired, what was
+changed, and how to reproduce all of it without the cap.
+
+The regression tests that freeze these findings live in
+`tests/streaming/test_rig_bringup.py`. They are hardware-free and they **fail on
+the code as it was before this bring-up** - that is their purpose. A refactor that
+brings the old behaviour back must fail there instead of on the rig.
+
+### 11.1 The rig
+
+| Fact | Value |
+| --- | --- |
+| Outlet name | `EE511-010010-200563_on_DESKTOP-ET4GTF5` |
+| Type / channels | `EEG` / 25 (24 EEG electrodes plus one `Trigger` line) |
+| Declared rate | 500 Hz |
+| Declared units | `Volt` - **wrong**, the samples are microvolts |
+| `source_id` | empty (liblsl warns the stream cannot be recovered if the provider crashes) |
+| Host | `DESKTOP-ET4GTF5`, Windows, running the eego control software |
+| Consumer | macOS on the same LAN, `mne-lsl` over LSL multicast |
+| Declared montage | Fp1 Fp2 F9 F7 F3 Fz F4 F8 F10 M1 T7 C3 C4 T8 M2 Cz P7 P3 Pz P4 P8 Oz O1 O2 |
+
+The montage is 24 electrodes, not the CA-208 datasheet contract, so every run
+resolves the **declared** profile. The working invocation is `--cap declared
+--eog drop`: there is no EOG channel, and `Trigger` is auxiliary, so it is
+reported and dropped (`contract: 24 of 25 channels kept`).
+
+### 11.2 Finding 1: the venv had no `soxr`
+
+`Resampler.__init__` imports `soxr` lazily, so the run got all the way through
+outlet resolution and the pre-flight check before dying with
+`ImportError: The Resampler requires 'soxr'`. `pyproject.toml` lists `soxr>=1.1.0`
+twice, but the lockfile predated that and the venv had never been synced. Fixed
+with `uv sync`; a dry run confirmed it only added `soxr==1.1.0` and reinstalled
+the project itself. Not a code defect, but it is the first thing to check on a
+fresh machine.
+
+### 11.3 Finding 2: the timestamps jitter, and no tolerance can rescue them
+
+`python -m scripts.getlive.ts_check --name <outlet> --sfreq 500` measured:
+
+```
+flags            n      med      p99  zeroish%  compressed%  roundoff%  fatal%
+clocksync     5800   1.0000   1.0011      0.49         0.49       0.49    0.98
++dejitter     5800   1.0000   1.0001      0.49         0.49       0.00    0.49
+all           5800   0.9997   0.9998      0.49         0.49       0.00    0.49
+chunk structure: chunks=5772  samples/chunk=1 (min..max 1..2)  census rate=500.00 Hz
+```
+
+Read that carefully, because it rules out the two obvious fixes:
+
+* **It is not a chunk-stamped source.** `samples/chunk = 1` and the census rate is
+  500.00 Hz: the amplifier stamps every sample individually.
+* **It is not a tolerance problem.** `Repair._check_grid` first accepts a step
+  within `tolerance_seconds` of one sample, and then rejects *any* step at or
+  below one sample outright. At 500 Hz the tolerance is `min(2e-4, 0.4/500)`,
+  i.e. 0.2 ms = 0.1 sample. The offending steps are not just outside that band,
+  they are **below half a sample** - `zeroish%  ==  compressed%  ==  0.49%` says
+  every compressed step is a near-zero one. A sub-half-sample step is below
+  `1 - tolerance` for *every* tolerance `Repair` will even accept
+  (`tolerance_seconds` must stay under half a sample), so widening it changes
+  nothing.
+* **It is not a dejitter problem.** `dejitter` removes the off-grid steps above
+  one sample (`roundoff%` goes to 0.00) and leaves the compressed ones exactly
+  where they were.
+
+The consequence is arithmetic: one bad step is one `UnrepairableError`, and
+`Recovery(max_events=5)` gives up after five. At 0.48% of samples that is five
+faults per ~1000 samples - about **two seconds of data**. The live run died with
+`Too many data faults; the run requires operator attention` after 1250 samples
+and 0 windows, every time.
+
+### 11.4 Why `--regrid` cannot fix it either
+
+`relay.py --regrid` was written for the *other* half of the problem: a recorder
+that stamps a whole block once. Its rule is "a block covers the time from its own
+first stamp until the next block's first stamp", and it spreads the block's
+samples across that span. That rule **preserves the span**, so it cannot remove a
+deficit inside a block - it only divides it. A two-sample block whose second stamp
+is 0.4 samples early covers 1.4 samples, so spreading it produces two 0.7-sample
+steps: still sub-nominal, still refused.
+
+This was not a guess. Raising the block-detection threshold from the fixed 0.25
+samples to 0.9 (so that these steps *are* grouped) and re-running on the rig
+produced the same failure: `5 restart(s), 750 samples, 0 valid windows`. The
+measurement is what established that a different mechanism was needed.
+
+### 11.5 Finding 2, fixed: rebuild the grid from a counted index
+
+`relay.py` gained a second mode, `--regrid-jitter`, backed by `GridBuilder`:
+
+* sample `n` is placed at `anchor + n / rate` from a **counted index**, so the
+  grid is uniform by construction whatever the source stamps did;
+* the source stamps are still read for exactly one thing - a step of a whole
+  sample or more is data the source never sent, and it is carried into the index
+  so the gap stays visible to `Repair` instead of being closed silently;
+* nothing is held back, so unlike `Regridder` it costs no latency.
+
+The same commit fixed the shared block-detection constant. `SAME_STAMP_SAMPLES`
+was a hard-coded `0.25`, tuned for a chunk-stamped source whose repeats are
+microseconds apart; a per-sample jittered source has bad steps in the
+0.25-0.9 range, which the old threshold called a legitimate boundary and
+forwarded untouched. It is now derived from the tolerance the consumer itself
+applies, `1 - min(2e-4 * rate, 0.4)`, floored at 0.25 and capped at 0.95:
+
+| rate | threshold (samples) |
+| --- | --- |
+| 250 Hz | 0.95 |
+| 500 Hz | 0.90 |
+| 1000 Hz | 0.80 |
+| 2000 Hz | 0.60 |
+
+With `--regrid-jitter` the run reported `recovery: 0 restart(s)` and produced
+windows for the first time.
+
+### 11.6 Finding 3: the declared unit is a lie, and only the operator can catch it
+
+The outlet declares `Volt`. The samples are microvolts. Measured directly:
+
+```
+global abs-max: 83333.3      global std: 21211.8
+channel 0 first 5 raw: 12642.712 12648.246 12639.563 12644.55 12648.206
+per-channel std (first 6): 42.4  50.0  65.8  117.5  45.5  28.7
+```
+
+Read as volts that is a 12.6 kV electrode with 42 V of noise, which is absurd;
+read as microvolts it is a 12.6 mV electrode offset with ~42 uV of EEG-sized
+noise, which is exactly what a dry electrode looks like. The chain believed the
+declaration, scaled by 1e6, and **all 24 electrodes** reported `amplitude`,
+`flatline` and `saturation` at once.
+
+This is the reason `--source-units` exists and has no default: it is an operator
+assertion about the amplifier, and the rig proved it has to be. The relay carries
+the correction (`--units microvolts`), because it **declares and never rescales**.
+With it, the electrode verdict went from 24/24 faulty to 1-2.
+
+### 11.7 Finding 4: what the electrodes actually looked like
+
+Per-electrode summary of the final 30 s recording, mean peak-to-peak:
+
+| | electrodes |
+| --- | --- |
+| flat (< 1 uV) | `O1` at exactly 0.00 uV for the whole session |
+| noisy (> 200 uV) | `Fp1` 1.40 mV, `F10` 2.50 mV, `Fp2`, `F8` |
+| healthy | the posterior chain: `Pz` 108 uV, `Cz` 123 uV, `P3`/`P4` ~110 uV |
+
+`O1` is a contact problem, not a software problem, and the acceptance rules treat
+it as such (WARN, not FAIL). But because a dead electrode produces non-finite
+rows, it also drove `interpolated` rejections and, with channel checking on, ended
+a 30 s run at 21 s with `EEG quality faults persisted beyond the allowed
+duration`. The documented dry-cap workflow - `--exclude-channels O1,Fp1
+--no-channel-check` - keeps the electrodes recorded while removing them from the
+verdict, and then the same 30 s run passes.
+
+### 11.8 Finding 5: real sample loss, `unsafe_endpoints`, and the DC offset
+
+The relay counted 94 missing samples in 65,542 (~0.14%), i.e. roughly one lost
+sample per 1150. LSL runs over UDP multicast, so these are most likely network
+drops between the Windows box and the Mac, not the amplifier. The grid carries
+them as gaps, which is correct; `Repair` then synthesises the missing row and, on
+completing the repair, checks that its endpoints are inside
+`amplitude_limit_uv` - an **absolute** 500 uV rail. With a 12.6 mV electrode
+offset on every channel, that check trips, the fault is fatal, and five of them
+end the run.
+
+The honest fix is on the rig, not in the package: enable the amplifier's
+high-pass (or fix the electrode offsets). The package-side lesson is that
+`Repair`'s endpoint rail assumes a roughly zero-centred signal, which a raw
+eego stream is not.
+
+### 11.9 Finding 6: an option that was parsed and then ignored
+
+The shared parser hands every live script `--workers`, `--compute` and `--queue`.
+`scripts/streaming_demo.py` uses them; `scripts/getlive/live.py` did not. A load
+test on the rig therefore measured **nothing** while looking like it worked -
+precisely the class of silent misbehaviour this package refuses everywhere else.
+
+`live.py` is now wired: `_prepare` builds a `TaskOffloader` when `--workers > 0`
+whose handler sleeps `--compute` seconds, `_handle_window` submits each finished
+`EEGWindow` (a copy out of the ring buffer, so it is safe to hand over), and
+`_loop` drains the pool and copies `dropped`/`failed` into
+`stats.offload_dropped` / `stats.offload_failed`, which land in the run report.
+`--workers 0` is the default and changes nothing.
+
+### 11.10 Finding 7: the relay falls behind, and the age guard is right to stop
+
+A relay left running for a few minutes drifts behind real time (roughly 1.5 s per
+minute observed). The consumer protects itself with `Acquire`'s age guard and
+stops with `Source samples are 4.221 seconds old` - which is the intended
+behaviour, not a bug. Operationally: **restart the relay immediately before a
+session.** This is a tooling wart worth fixing, but it is not a pipeline defect.
+
+### 11.11 The verified end state
+
+Full 30 s recorded run through the relay, dry-cap policy on:
+
+| | |
+| --- | --- |
+| verdict | **USABLE** - 9 pass, 8 warn, 0 fail |
+| duration / samples | 30.8 s of 30 / 15,600 (104%) |
+| windows | 40 valid of 58 (14 `interpolated`, 4 warm-up) |
+| recovery / repair / gaps | 0 restarts / 5 repaired rows / 5 gaps |
+| resampler | LQ, 1.88 s startup delay, 128 Hz output |
+| recording | 15,600 raw samples, read back clean: 0 NaN, 24 channels, 31.20 s |
+
+Dummy-offloader load test at `--compute 0.5 --queue 8` on the same rig:
+
+| | `--workers 8` | `--workers 1` |
+| --- | --- | --- |
+| valid windows | 47 / 58 | 39 / 58 |
+| `offload_dropped` | 0 | 0 |
+| `offload_failed` | 0 | 0 |
+| verdict | USABLE | USABLE |
+
+No problem appeared at 0.50 s, even single-threaded, and the arithmetic says why:
+the run produced 1.91 windows/s while one worker at 0.5 s/window supplies 2.0/s -
+95% utilisation, with an 8-slot queue absorbing the jitter. The cliff is just
+above 0.5 s; `--compute 0.8` is the load that should start dropping frames.
+
+### 11.12 Reproducing the rig data by hand
+
+Two terminals, from the repository root. Terminal 1, the relay (leave it
+running; restart it if it has been up for minutes - see 11.10):
+
+```bash
+.venv/bin/python -u -B -m scripts.getlive.relay \
+  --source-name EE511-010010-200563_on_DESKTOP-ET4GTF5 --keep 0-23 \
+  --labels Fp1,Fp2,F9,F7,F3,Fz,F4,F8,F10,M1,T7,C3,C4,T8,M2,Cz,P7,P3,Pz,P4,P8,Oz,O1,O2 \
+  --units microvolts --regrid-jitter --out-name NOVA_Relay
+```
+
+Terminal 2, the acceptance run (`--record` is what makes it a dataset):
+
+```bash
+MPLCONFIGDIR=/tmp/mplconfig .venv/bin/python -B -m scripts.getlive \
+  --stream-name NOVA_Relay --cap declared --sfreq 500 --source-units uV --eog drop \
+  --duration 30 --exclude-channels O1,Fp1 --no-channel-check \
+  --record records --subject nova2026 --session bringup30 \
+  --out records/getlive_bringup30.json
+```
+
+The run lands in `records/<subject>/<session>/run-<timestamp>/` as a SQLite file
+whose `chunks` table holds the raw float32 samples, plus per-window verdicts in
+`windows` and provenance in `meta`. Read it back without the package:
+
+```python
+import sqlite3, json
+import numpy as np
+
+connection = sqlite3.connect("records/nova2026/bringup30/run-.../run-....sqlite")
+meta = dict(connection.execute("select key, value from meta"))
+channels = json.loads(meta["channels"])
+parts = [
+    np.frombuffer(blob, dtype=np.float32).reshape(n, len(channels))
+    for n, _, blob in connection.execute(
+        "select n_samples, first_timestamp, data from chunks order by seq"
+    )
+]
+data = np.concatenate(parts)          # (15600, 24) @ 500 Hz, microvolts
+```
+
+And the `windows` table is the label set - `select valid, reasons, count(*) from
+windows group by valid, reasons` is the quickest health check there is:
+
+```
+valid  reasons           n
+0      ["interpolated"]  14
+0      []                 4     <- warm-up, unavoidable
+1      []                40
+```
+
+To reproduce the *characteristics* rather than the recording - which is what the
+tests do - use `tests/streaming/test_rig_bringup.py:rig_stamps()`. It builds an
+exact 500 Hz grid with one step in 211 shortened to 0.4 samples and optional
+one-sample losses, i.e. the measured `0.48%` and `~1/1150` rates.
+
+### 11.13 Which test guards which finding
+
+| Finding | Test |
+| --- | --- |
+| 11.3 the rig's grid is refused before any rebuild | `RigGridIsUnusableRawTests.test_the_raw_rig_grid_is_refused_by_repair` |
+| 11.4/11.5 the relay must offer a per-sample rebuild | `RelayPerSampleJitterTests.test_the_relay_cli_can_ask_for_a_uniform_grid` |
+| 11.5 the rebuilt grid must survive `Repair` | `...test_a_per_sample_jittered_source_becomes_a_grid_repair_accepts` |
+| 11.8 real loss must stay visible and be counted | `...test_the_rebuild_keeps_real_data_loss_visible` |
+| 11.5 re-stamping must never rewrite samples | `...test_the_rebuild_moves_timestamps_only` |
+| 11.5 the rebuilt grid sits on the nominal grid | `...test_every_rebuilt_step_is_a_whole_number_of_samples` |
+| 11.9 the offload options must not be silently ignored | `LiveOffloadWiringTests.*` |
+
+Run them with:
+
+```bash
+.venv/bin/python -B -m unittest tests.streaming.test_rig_bringup -v
+```
+
+### 11.14 Checklist for the next rig session
+
+1. `python -m scripts.getlive.probe` - is the outlet publishing, at what rate,
+   with which channels and units?
+2. Restart the relay (age guard, 11.10) and check `--units` matches reality, not
+   the declaration (11.6).
+3. `ts_check --name NOVA_Relay --sfreq 500` before a long session: `fatal%` must
+   be 0. If it is not, the grid is not fixed and `Repair` will stop the run.
+4. Run with `--exclude-channels <dead>` `--no-channel-check` on a dry cap, and
+   read `bad_channel_windows` afterwards to decide the next exclusion list.
+5. Check `offload_dropped`/`offload_failed` in the report when running with
+   `--workers`.

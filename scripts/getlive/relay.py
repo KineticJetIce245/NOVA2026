@@ -54,11 +54,37 @@ from mne_lsl.lsl import StreamInfo, StreamInlet, StreamOutlet, resolve_streams
 UNIT_CHOICES = ("volts", "millivolts", "microvolts", "nanovolts")
 
 # Two samples whose timestamps differ by less than this many nominal samples were
-# stamped together: the block boundary is where the spacing is real. The threshold
-# may sit anywhere between the microseconds a chunk-stamped source repeats inside a
-# block and the one sample it takes to reach the next one - three orders of
-# magnitude apart - so a quarter of a sample is nowhere near either edge.
-SAME_STAMP_SAMPLES = 0.25
+# stamped together: the block boundary is where the spacing is real. The old fixed
+# value was a quarter of a sample, chosen for a chunk-stamped source whose repeats
+# are microseconds apart. A per-sample source jitters instead: its unusable steps
+# sit a few tenths of a sample below the grid, and the quarter threshold called
+# those a real boundary and forwarded them untouched. The threshold is therefore
+# derived per rate from the tolerance ``Repair`` itself applies, so exactly the
+# steps it would refuse are the ones this relay re-spaces. The floor keeps the
+# chunk-stamped case covered; the ceiling keeps a stray step from swallowing the
+# whole stream into a single block.
+SAME_STAMP_FLOOR = 0.25
+SAME_STAMP_CEILING = 0.95
+
+# The grid tolerance ``live._build_chain`` hands to ``Repair``, in the same terms
+# ``Repair`` uses: ``min(2e-4 s, 0.4 samples)``.
+REPAIR_TOLERANCE_SECONDS = 2e-4
+REPAIR_TOLERANCE_SAMPLES_MAX = 0.4
+
+
+def same_stamp_threshold(rate: float) -> float:
+    """Fraction of a nominal sample below which two stamps are one block.
+
+    ``Repair`` accepts a step within ``min(2e-4 s, 0.4 samples)`` of the nominal
+    grid and refuses every sub-nominal step below that, at any tolerance. Those
+    are exactly the steps that must be re-spaced, whatever their size, so the
+    threshold sits just below what the consumer still accepts.
+    """
+
+    tolerance_samples = min(
+        REPAIR_TOLERANCE_SECONDS * rate, REPAIR_TOLERANCE_SAMPLES_MAX
+    )
+    return min(max(1.0 - tolerance_samples, SAME_STAMP_FLOOR), SAME_STAMP_CEILING)
 
 # A block whose span is more than this multiple of the time its samples can
 # account for has lost a whole block: at least half again the nominal block length.
@@ -152,12 +178,22 @@ def build_parser() -> argparse.ArgumentParser:
         default=32,
         help="samples pulled and pushed per iteration",
     )
-    out.add_argument(
+    regrid_modes = out.add_mutually_exclusive_group()
+    regrid_modes.add_argument(
         "--regrid",
         action="store_true",
         help="rebuild a per-sample timestamp grid for a chunk-stamped source: each "
         "block is spread over the time from its own first stamp until the next "
         "block's first stamp, so the grid is real and no error accumulates",
+    )
+    regrid_modes.add_argument(
+        "--regrid-jitter",
+        action="store_true",
+        help="rebuild a uniform per-sample grid for a source that stamps every "
+        "sample but jitters a few tenths of a sample below the nominal grid: the "
+        "grid is placed from a counted sample index at --regrid-rate, so jitter is "
+        "absorbed; the source's stamps are read only to carry real data loss into "
+        "the grid, which keeps a gap visible instead of closing it silently",
     )
     out.add_argument(
         "--regrid-rate",
@@ -218,7 +254,10 @@ def build_outlet_info(args: argparse.Namespace, labels: tuple[str, ...], sfreq: 
     # A regridded outlet carries timestamps this relay invented, so say so in
     # the source id: downstream provenance must not have to guess whose clock a
     # window was built on.
-    source_id = args.out_source_id + REGRID_SOURCE_ID_SUFFIX if args.regrid else args.out_source_id
+    invented = args.regrid or args.regrid_jitter
+    source_id = (
+        args.out_source_id + REGRID_SOURCE_ID_SUFFIX if invented else args.out_source_id
+    )
     sinfo = StreamInfo(
         name=args.out_name,
         stype=args.out_type,
@@ -285,6 +324,7 @@ class Regridder:
             raise ValueError("lost_ratio must be finite and at least 1.")
         self._rate = float(rate)
         self._interval = 1.0 / float(rate)
+        self._same_stamp = same_stamp_threshold(float(rate))
         self._channels = int(n_channels)
         self._lost_ratio = float(lost_ratio)
         self._data: list[np.ndarray] = []
@@ -317,11 +357,13 @@ class Regridder:
     def _groups(self, stamps: np.ndarray) -> np.ndarray:
         """Start index of every block, plus the index one past the last sample.
 
-        A gap between samples ``i`` and ``i + 1`` means sample ``i`` is the last of
-        its block, so the next block starts at ``i + 1``.
+        A gap at or above the threshold means sample ``i`` is the last of its
+        block, so the next block starts at ``i + 1``. Anything closer was stamped
+        together - a chunk-stamped source repeats stamps outright, a jittered one
+        slips a few tenths of a sample - and is re-spaced by :meth:`_emit`.
         """
 
-        boundary = np.diff(stamps) >= SAME_STAMP_SAMPLES * self._interval
+        boundary = np.diff(stamps) >= self._same_stamp * self._interval
         return np.concatenate(([0], np.flatnonzero(boundary) + 1, [stamps.size]))
 
     def _spread(self, data, stamps, start: float, stop: float):
@@ -415,6 +457,81 @@ class Regridder:
         return self._emit(data, stamps, groups)
 
 
+class GridBuilder:
+    """Rebuild a uniform per-sample grid for a source that jitters below it.
+
+    A source can be per-sample and still unusable: its steps sit on the nominal
+    grid most of the time and a few tenths of a sample short the rest of the
+    time. ``Repair`` refuses every sub-nominal step beyond its tolerance, and
+    :class:`Regridder` cannot help - spreading preserves the time a block covers,
+    so a deficit inside a block reappears divided across its samples.
+
+    This builder stops trusting the source's stamps for *placement* and counts
+    samples instead: sample ``n`` goes to ``anchor + n / rate``, which is regular
+    by construction whatever the stamps did. The stamps are still read for one
+    thing only: a step of a whole sample or more is data the source never sent,
+    and it is carried into the counted index so the gap stays visible to
+    ``Repair`` rather than being closed silently. Anything below the nominal grid
+    is jitter and is absorbed.
+
+    Nothing is held back: a uniform grid needs no successor stamp to be known, so
+    unlike :class:`Regridder` this costs no latency.
+
+    Args:
+        rate: Samples per second the grid is placed at. It is the relay's own
+            assertion, because a jittered source's stamps cannot supply one.
+        n_channels: Data columns expected on every call.
+
+    Attributes:
+        gaps: Steps that skipped whole samples, within a chunk or across the seam.
+        lost_samples: Samples those steps account for.
+    """
+
+    def __init__(self, rate: float, n_channels: int) -> None:
+        """Validate the settings and wait for the first stamp to anchor on."""
+
+        if not math.isfinite(rate) or rate <= 0:
+            raise ValueError("rate must be finite and positive.")
+        if n_channels < 1:
+            raise ValueError("n_channels must be positive.")
+        self._interval = 1.0 / float(rate)
+        self._channels = int(n_channels)
+        self._anchor: float | None = None
+        self._last_stamp: float | None = None
+        self._next_index = 0
+        self.gaps = 0
+        self.lost_samples = 0
+
+    def feed(
+        self, data: np.ndarray, timestamps: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Place a pulled chunk on the grid and return it immediately."""
+
+        stamps = np.asarray(timestamps, dtype=float)
+        count = int(stamps.size)
+        if count == 0 or data.size == 0:
+            return np.empty((0, self._channels)), np.empty(0)
+        if self._anchor is None:
+            self._anchor = float(stamps[0])
+
+        # Whole samples the source skipped: at the seam with the previous chunk,
+        # then inside this one. A step below one sample is jitter, not a gap.
+        seam = 0
+        if self._last_stamp is not None:
+            step = (float(stamps[0]) - self._last_stamp) / self._interval
+            seam = max(int(round(step)) - 1, 0)
+        self._last_stamp = float(stamps[-1])
+        steps = np.diff(stamps) / self._interval
+        skipped = np.maximum(np.rint(steps) - 1.0, 0.0).astype(np.int64)
+        offsets = np.concatenate(([seam], np.cumsum(skipped)))
+
+        index = self._next_index + np.arange(count, dtype=np.int64) + offsets
+        self._next_index = int(index[-1]) + 1
+        self.lost_samples += int(offsets[-1])
+        self.gaps += int(seam > 0) + int(np.count_nonzero(skipped))
+        return data, self._anchor + index * self._interval
+
+
 def main(argv: list[str] | None = None) -> int:
     """Forward one outlet to another, adding the metadata, until interrupted."""
 
@@ -478,6 +595,17 @@ def main(argv: list[str] | None = None) -> int:
                 "counted and reported as lost; the grid is invented, so one block "
                 "is held back as latency"
             )
+        grid = None
+        if args.regrid_jitter:
+            rate = float(info.sfreq if args.regrid_rate is None else args.regrid_rate)
+            if not math.isfinite(rate) or rate <= 0:
+                raise SystemExit("--regrid-rate must be finite and positive.")
+            grid = GridBuilder(rate, len(labels))
+            print(
+                f"regrid    : uniform grid at {rate:g} Hz from a counted sample "
+                "index; jitter is absorbed, and the source's own stamps are read "
+                "only to carry real data loss into the grid"
+            )
         print("Ctrl+C to stop.\n")
 
         columns = np.asarray(keep, dtype=int)
@@ -497,6 +625,8 @@ def main(argv: list[str] | None = None) -> int:
                 data, timestamps = regridder.feed(data, np.asarray(timestamps, dtype=float))
                 if timestamps.size == 0:
                     continue
+            elif grid is not None:
+                data, timestamps = grid.feed(data, np.asarray(timestamps, dtype=float))
             outlet.push_chunk(data, timestamps)
             forwarded += int(timestamps.size)
             since_report += int(timestamps.size)
@@ -507,6 +637,11 @@ def main(argv: list[str] | None = None) -> int:
                         f" ({regridder.spread_blocks} block(s) spread, "
                         f"{regridder.lost_blocks} with lost data, "
                         f"{regridder.samples} sample(s) buffered)"
+                    )
+                if grid is not None:
+                    line += (
+                        f" ({grid.gaps} gap(s) carried, "
+                        f"{grid.lost_samples} sample(s) recorded as missing)"
                     )
                 print(line)
                 since_report = 0
