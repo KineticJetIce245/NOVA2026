@@ -1343,6 +1343,18 @@ In code the same three knobs live on `stream_config(...)` /
 own channel list, so a typo fails at start-up instead of silently excluding
 nothing.
 
+On the rig, the same three knobs are on the hardware bring-up tool
+(`scripts/getlive`, with its own README): `--exclude-channels Fp1,F7`,
+`--max-bad-channels N` and `--no-channel-check`. That tool resolves the **cap
+profile** at run time - the CA-208 datasheet contract when the outlet publishes
+exactly that cap, the declared montage otherwise - so a different cap needs no
+code change, and its `probe` prints the profile (and the electrode split) the
+live run would use. Its acceptance report carries the same per-channel evidence
+(`channels.bad_channel_windows`, `held_rows`), plus a `channel_scope` check that
+names the exclusions the run was allowed to survive and a `model_channels` check
+that says how much of the offline model's electrode set the connected cap
+covers.
+
 **What the run record gains.** `timing.json` now carries a `quality` block:
 `check_channels`, `max_bad_channels`, `exclude_channels`,
 `windows_with_bad_channels`, `bad_channel_windows` (per-label window counts) and
