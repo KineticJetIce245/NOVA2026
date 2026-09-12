@@ -174,13 +174,35 @@ def classify_steps(steps: np.ndarray, tolerance_steps: float) -> dict:
     }
 
 
-def chunk_structure(stamps: np.ndarray, sfreq: float) -> dict:
-    """Measure how many samples share one timestamp, and what rate that implies.
+def steady_rate_hz(stamps: np.ndarray, sfreq: float) -> float | None:
+    """Samples per second over the timestamps' own end-to-end span.
 
-    A source stamped per sample gives ``samples_per_chunk = 1``. A source that
-    stamps a whole block once gives the block size, and the effective rate is the
-    block size divided by the time between two block anchors - the independent
-    check on ``--sfreq``, and the number to use before rebuilding a grid.
+    Only trustworthy on a source whose stamps are already a grid: a chunk-stamped
+    source's stamps cover a fraction of real time (one block's stamps all sit
+    inside a single sampling interval), so this reads far too high there. It is
+    reported because it is the one rate measurement that needs no model of the
+    source at all; ``chunk_structure``'s census rate is the one to read when the
+    source is chunk-stamped, and its ``samples_per_chunk_min``/``max`` say how far
+    to trust it.
+    """
+
+    if stamps.size < 2:
+        return None
+    elapsed = float(stamps[-1] - stamps[0])
+    if elapsed <= 0:
+        return None
+    return float(stamps.size / elapsed)
+
+
+def chunk_structure(stamps: np.ndarray, sfreq: float) -> dict:
+    """Measure how many samples share one timestamp, and the rate that implies.
+
+    A source stamped per sample gives ``samples_per_chunk = 1`` and its
+    ``same_stamp_rate_hz`` (derived from the timestamps alone) is its real rate. A
+    source that stamps a whole block once gives the block size, so
+    ``census_rate_hz`` - samples per chunk times the anchor rate - is its real rate,
+    as long as the blocks are whole: read ``samples_per_chunk_min``/``max`` first,
+    because a consumer that splits a block into fragments inflates the census.
 
     A boundary is a gap of at least ``ZEROISH_STEPS`` samples, the same threshold
     the ``zeroish%`` column uses. It must not be an equality test: a chunk-stamped
@@ -211,8 +233,9 @@ def chunk_structure(stamps: np.ndarray, sfreq: float) -> dict:
         "samples_per_chunk_max": int(per_chunk.max()),
         "anchor_interval_seconds": float(interval),
         "anchor_rate_hz": None if interval <= 0 else 1.0 / interval,
-        "effective_sfreq_hz": effective,
+        "census_rate_hz": effective,
         "sfreq_ratio": None if effective is None else effective / sfreq,
+        "same_stamp_rate_hz": steady_rate_hz(stamps, sfreq),
     }
 
 
@@ -324,19 +347,15 @@ def _report_chunks(rows: list[dict], sfreq: float) -> None:
             f"  {str(row['flags']):<12} chunks={row['chunks']:<6} "
             f"samples/chunk={size:g} (min..max {span})"
         )
-        if row.get("effective_sfreq_hz"):
-            ratio = row["sfreq_ratio"]
-            line += (
-                f"  anchor rate={row['anchor_rate_hz']:7.2f} Hz"
-                f"  effective={row['effective_sfreq_hz']:7.2f} Hz"
-                f" ({ratio:+.3f}x of {sfreq:g} Hz)"
-            )
+        if row.get("census_rate_hz"):
+            line += f"  census rate={row['census_rate_hz']:7.2f} Hz"
         print(line)
     print(
-        "  samples/chunk = 1 means the source stamps every sample; a larger\n"
-        "  number is the block whose samples share one timestamp (exactly, or to\n"
-        "  within a few microseconds). 'effective' is the independent rate estimate:\n"
-        "  samples per chunk / anchor interval."
+        "  samples/chunk = 1 means the source stamps every sample; a larger number\n"
+        "  is the block whose samples share one timestamp (exactly, or to within a\n"
+        "  few microseconds). 'census rate' = samples per chunk x anchor rate: the\n"
+        "  device rate for a chunk-stamped source, but only as trustworthy as the\n"
+        "  census - a wide min..max means the consumer is splitting blocks."
     )
 
 
@@ -369,7 +388,8 @@ def verdict(rows: list[dict], sfreq: float) -> str:
             f"the source is chunk-stamped: ~{block:g} samples share one timestamp,"
             " so Repair refuses the grid at every flag set and no tolerance helps."
             " Fix it in the publisher (per-sample timestamps, or a chunk size of"
-            " 1), or in an adapter that rebuilds the grid from the chunk anchors."
+            " 1), or in an adapter that rebuilds the grid from the chunk anchors:"
+            " `relay.py --regrid` is that adapter."
         )
     elif zeroish >= CHUNK_ZEROISH_PCT:
         lines.append(
@@ -392,17 +412,18 @@ def verdict(rows: list[dict], sfreq: float) -> str:
         )
     else:
         lines.append("this flag set leaves the grid `Repair` requires.")
-    rates = [
-        row["effective_sfreq_hz"]
-        for row in judged
-        if row.get("effective_sfreq_hz")
-    ]
-    if rates and (max(rates) - min(rates)) / max(rates) > 0.01:
+    # The device rate, measured the way that suits the source: the block census
+    # when the source is chunk-stamped, the timestamps themselves otherwise. The
+    # flag sets must agree, because they measure the same device.
+    chunked = block > 1.0 or zeroish >= CHUNK_ZEROISH_PCT
+    key = "census_rate_hz" if chunked else "same_stamp_rate_hz"
+    rates = [row[key] for row in judged if row.get(key)]
+    if len(rates) > 1 and (max(rates) - min(rates)) / max(rates) > 0.01:
         lines.append(
-            "the flag sets disagree on the effective rate ("
+            "the flag sets disagree on the delivered rate ("
             + ", ".join(f"{rate:.2f} Hz" for rate in rates)
-            + "); dejitter fits its own rate, so take the `clocksync` anchor"
-            " measurement as the device rate before rebuilding a grid."
+            + "): the census is only stable while the blocks are whole, so a wide"
+            " samples/chunk range or a reconnecting flag set is the likely cause."
         )
     return "\n".join(lines)
 
