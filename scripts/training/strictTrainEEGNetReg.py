@@ -10,8 +10,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from nova2026.architecture.cnn import EEGNet
 from nova2026.config import DATA_DIR, PROJECT_ROOT
-from nova2026.metrics import Metric
-from nova2026.trainer import SupervisedTrainer
+from nova2026.training import Metric, SupervisedTrainer
 
 ROOT = DATA_DIR / "COG-BCI"
 DATASET = ROOT / "outputs/PVT_128Hz_AttUPipeline.pt"
@@ -30,7 +29,7 @@ N_BOOT_MEAN = 10000  # fold-level bootstrap resamples for the mean CIs
 # model hyperparameters
 # criterion = torch.nn.CrossEntropyLoss()
 criterion = torch.nn.MSELoss()
-permutates = {
+callbacks = {
     "epoch": lambda d: print(
         f"At epoch {d['epoch']}, train_loss={d['train_loss']:.4f}, "
         f"best_metric={d['best_metric']:.4f}"
@@ -204,7 +203,7 @@ def organizer(
     return chkpt
 
 
-trainer = SupervisedTrainer()
+trainer = SupervisedTrainer(seed=SEED)
 trainer.fetch(Path(DATASET))
 
 meta = trainer.chkpt["metadata"]
@@ -236,13 +235,12 @@ for i, sub in enumerate(subs):  # main LOSO loop
         criterion,
         regularizer,
         predict_func=lambda out: out.squeeze(-1),
-        metric=Metric(
+        metric=Metric.maximize(
             # yt/yp are z scores; f=to_ms maps them back to ms (rho is
             # scale-invariant, but the inverse transform keeps intent clear).
             # Default arguments f=to_ms / g=val_groups bind THIS fold's mu/sd
             # and subject labels, avoiding late binding on the next fold.
             lambda yt, yp, f=to_ms, g=val_groups: grouped_spearman(yt, yp, f, g),
-            greater_is_better=True,
             name="spearman_subject_mean",
         ),
     )
@@ -250,7 +248,7 @@ for i, sub in enumerate(subs):  # main LOSO loop
         f"=== Fold test_sub={sub} | "
         f"train {len(d['train'].dataset)} | test {len(d['test'].dataset)} | val {len(d['val'].dataset)} ==="
     )
-    result = trainer.train(EPOCHS, permutates)
+    result = trainer.train(EPOCHS, callbacks)
     print(f"Completed training for subject {sub}.")
     preds = np.asarray(result["test_preds"])
     targets = np.asarray(result["test_targets"])

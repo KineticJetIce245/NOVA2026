@@ -21,3 +21,11 @@ dist/
 # Local comparison material and disposable verification outputs.
 /tmp/
 /.tmp_tests/
+.tmp_mne_home/
+.tmp_uv_cache/
+
+# recorded runs and generated outputs (keep the folders, not their content)
+records/*
+!records/.gitkeep
+results/*
+!results/.gitkeep
