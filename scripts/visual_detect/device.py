@@ -27,16 +27,21 @@ EEG_CHANNELS = (
     "AF4", "F2",
 )  # fmt: skip
 
-#: ``occipital`` is the set a visual evoked response is expected in and stays
-#: caudal enough to be clear of the motor plan for the button press.
-#: ``posterior`` adds the lateral-occipital and parietal-occipital ring as a
-#: sensitivity check. Both are stored in cap order.
+#: ``occipital`` is the minimal visual set (8 electrodes at the back of the
+#: head). ``posterior`` widens it to 17 by adding the surrounding ring --
+#: lateral-occipital (PO7/PO8), the parietal-occipital row (P7/P5/P3/P1/Pz/
+#: P2/P4/P6/P8) and PO3/POz/PO4 -- on the argument that a visual response is
+#: spatially broader than the four midline sites, and that more electrodes also
+#: give a spatial filter more to work with. ``all`` is the whole cap, used as a
+#: control: if 17 electrodes do not beat 8, adding more sensors is not the
+#: bottleneck. All are stored in cap order.
 CHANNEL_SETS = {
     "occipital": ["O1", "Oz", "O2", "PO7", "PO3", "POz", "PO4", "PO8"],
     "posterior": [
         "Pz", "P3", "P7", "O1", "Oz", "O2", "P4", "P8", "P1", "P5",
         "PO7", "PO3", "POz", "PO4", "PO8", "P6", "P2",
     ],  # fmt: skip
+    "all": list(EEG_CHANNELS),
 }
 
 #: Output directory and data-type tag of the PVT-visual checkpoints.

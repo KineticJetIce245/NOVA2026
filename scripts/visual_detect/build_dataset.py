@@ -71,6 +71,7 @@ from nova2026.config import DATA_DIR, SAMPLE_RATE
 from nova2026.data.eeg import Loader, save_chkpt
 
 from .device import VIS_DATA_TYPE, VIS_DIR, channels_for, output_path, stem
+from .pipeline import RAW_SAMPLE_RATE, VisualPipeline, missing_channels
 
 COG_ROOT = DATA_DIR / "COG-BCI"
 DIR_MASK = COG_ROOT.parts
@@ -78,109 +79,6 @@ DIR_MASK = COG_ROOT.parts
 STIM_CODE = "13"
 RESPONSE_CODE = "14"
 PREMATURE_CODE = "12"
-
-#: EEG sampling rate of the raw PVT recordings, in Hz.
-RAW_SAMPLE_RATE = 500.0
-
-IIR_PARAMS = {"order": 4, "ftype": "butter", "output": "sos"}
-
-
-class VisualPipeline:
-    """Occipital-bandpass pipeline for post-stimulus epochs.
-
-    Same operator family as ``scripts/dataproc/pipelines.py:AttUPipeline``
-    (notch -> band-pass -> optional resample -> band-pass -> per-channel
-    centre/scale/clip) with a configurable band and output rate. The default
-    band is wider than AttentivU's 4-20 Hz because a single-trial visual evoked
-    response carries energy above 20 Hz that band-pass removes.
-    """
-
-    def __init__(
-        self,
-        l_freq: float = 1.0,
-        h_freq: float = 40.0,
-        sample_rate: float = float(SAMPLE_RATE),
-        notch_freq: float = 60.0,
-        notch_widths: float = 10.0,
-        normalize: bool = False,
-        iir_params: dict | None = None,
-        verbose: bool = False,
-    ) -> None:
-        if l_freq <= 0 or h_freq <= l_freq:
-            raise ValueError(f"Invalid band ({l_freq}, {h_freq}) Hz.")
-        if sample_rate <= 2 * h_freq:
-            raise ValueError(
-                f"Sample rate {sample_rate} Hz cannot carry a {h_freq} Hz "
-                "low-pass; raise --sample-rate or lower --band."
-            )
-        if h_freq >= RAW_SAMPLE_RATE / 2.0:
-            raise ValueError(
-                f"High cutoff {h_freq} Hz is at or above the raw Nyquist "
-                f"({RAW_SAMPLE_RATE / 2.0} Hz)."
-            )
-        self.l_freq = float(l_freq)
-        self.h_freq = float(h_freq)
-        self.sample_rate = float(sample_rate)
-        self.notch_freq = float(notch_freq)
-        self.notch_widths = float(notch_widths)
-        self.normalize = bool(normalize)
-        self.iir_params = dict(iir_params or IIR_PARAMS)
-        self.verbose = verbose
-
-
-def _center_scale_clip(values_v: np.ndarray) -> np.ndarray:
-    """AttentivU per-channel centre/scale/clip, estimated on the whole session.
-
-    The location and scale come from the full recording, never from the epoch
-    under test, so this cannot leak the test trial into its own input.
-    """
-    values_uv = values_v * 1e6
-    return np.clip((values_uv - values_uv.mean()) / 8.0, -4.0, 4.0) / 1e6
-
-
-def preprocess(raw: mne.io.BaseRaw, pipe: VisualPipeline) -> mne.io.BaseRaw:
-    """Apply :class:`VisualPipeline` to ``raw`` in place and return it.
-
-    ``pipe.normalize`` controls AttentivU's per-channel centre/scale/clip. It is
-    off by default for this task: the operator divides by 8 uV, which scales the
-    ~4 uV 100-150 ms evoked response in this dataset down to ~0.5 uV and makes
-    single-trial detection far harder. Leaving the data in microvolts keeps the
-    task honest; per-trial scaling is available at training time instead.
-    """
-    nyq = raw.info["sfreq"] / 2.0
-    if pipe.h_freq >= nyq:
-        raise ValueError(
-            f"High cutoff {pipe.h_freq} Hz is at or above Nyquist ({nyq} Hz)."
-        )
-    # MNE only accepts one stop-band per call for an IIR notch, and a stop-band
-    # is pointless once the pass-band already ends below the line frequency.
-    harmonics = [
-        f
-        for f in np.arange(pipe.notch_freq, pipe.h_freq, pipe.notch_freq)
-        if f > pipe.l_freq
-    ]
-    for harmonic in harmonics:
-        raw.notch_filter(
-            freqs=float(harmonic),
-            notch_widths=pipe.notch_widths,
-            method="iir",
-            iir_params=pipe.iir_params,
-            verbose=pipe.verbose,
-        )
-    band = dict(
-        l_freq=pipe.l_freq,
-        h_freq=pipe.h_freq,
-        method="iir",
-        iir_params=pipe.iir_params,
-        verbose=pipe.verbose,
-    )
-    raw.filter(**band)
-    if not np.isclose(raw.info["sfreq"], pipe.sample_rate):
-        raw.resample(pipe.sample_rate, verbose=pipe.verbose)
-        raw.filter(**band)  # the antialiasing filter leaves edge transients
-    if pipe.normalize:
-        raw.apply_function(_center_scale_clip, channel_wise=True, verbose=pipe.verbose)
-    return raw
 
 
 @dataclass
@@ -307,13 +205,6 @@ def deterministic_seed(subject: str, session: str) -> int:
     return digits(subject) * 100 + digits(session)
 
 
-def _require_channels(raw: mne.io.BaseRaw, channels: list[str]) -> mne.io.BaseRaw:
-    missing = sorted(set(channels) - set(raw.ch_names))
-    if missing:
-        raise ValueError(f"Recording is missing requested channels: {missing}")
-    return raw
-
-
 def build(args: argparse.Namespace) -> None:
     channels = channels_for(args.channel_set)
     pipe = VisualPipeline(
@@ -328,15 +219,19 @@ def build(args: argparse.Namespace) -> None:
     loader.tag(_tag)
     tagged = loader.load(mode="eeglab")
 
-    # 1. preprocess, then keep only the channels of interest
+    # 1. preprocess every channel, then keep only the channels of interest
     print(
         f"Preprocessing {len(tagged)} recordings "
         f"({pipe.l_freq:g}-{pipe.h_freq:g} Hz -> {pipe.sample_rate:g} Hz, "
-        f"{len(channels)} channels) ..."
+        f"{len(channels)} of {len(pipe.channels())} channels) ..."
     )
-    loader.run(lambda raw: preprocess(raw, pipe))
-    loader.run(lambda raw: _require_channels(raw, channels))
-    loader.run(lambda raw: raw.pick(channels))
+    pipe.run([item.raw for item in tagged])
+    for item in tagged:
+        if missing := missing_channels(channels, item.raw.ch_names):
+            raise ValueError(
+                f"{'/'.join(item.tags)} is missing requested channels: {missing}"
+            )
+        item.raw.pick(channels)
 
     # 2. read the trial structure *after* preprocessing: MNE rescales annotation
     #    onsets when it resamples, so onsets read before the pipeline are in the
@@ -359,10 +254,12 @@ def build(args: argparse.Namespace) -> None:
     vr_cuts: list[np.ndarray] = []
     vr_labels: list[np.ndarray] = []
     vr_meta: list[tuple] = []
+    vr_onset: list[int] = []
     rt_cuts: list[np.ndarray] = []
     rt_labels: list[np.ndarray] = []
     rt_values: list[np.ndarray] = []
     rt_meta: list[tuple] = []
+    rt_onset: list[int] = []
     n_unanswered = 0
     run = 0
 
@@ -379,6 +276,7 @@ def build(args: argparse.Namespace) -> None:
         rt_values.append(trials.rt_ms[usable])
         rt_labels.append(np.zeros(int(usable.sum()), dtype=np.int64))
         rt_meta.extend([(subject, session, "stim")] * int(usable.sum()))
+        rt_onset.extend(trials.stim_ms[usable].tolist())
 
         if args.null_scheme == "vr":
             keep = inside
@@ -415,6 +313,11 @@ def build(args: argparse.Namespace) -> None:
         )
         vr_meta.extend([(subject, session, "stim")] * n_stim)
         vr_meta.extend([(subject, session, "null")] * int(null_ms.size))
+        # alignment time of every VR epoch, in milliseconds: the stimulus onset
+        # for class 1 and the drawn silence onset for class 0. Downstream
+        # averaging code needs it to know which epochs are consecutive in time.
+        vr_onset.extend(trials.stim_ms[keep].tolist())
+        vr_onset.extend(null_ms.tolist())
 
     rt_all = np.concatenate(rt_values) if rt_values else np.empty(0, np.float64)
     rt_labels = [(v < args.rt_threshold_ms).astype(np.int64) for v in rt_values]
@@ -461,12 +364,26 @@ def build(args: argparse.Namespace) -> None:
         raise ValueError("VR labels and VR epochs disagree in length.")
 
     data_type = f"{VIS_DATA_TYPE}_{stem(args.channel_set, args.pre_ms, args.post_ms)}"
+    onset_ms = np.asarray(vr_onset, dtype=np.int64)
+    if onset_ms.size != len(metadata):
+        raise ValueError(
+            f"Collected {onset_ms.size} onset times for {len(metadata)} VR epochs."
+        )
+    rt_onset_ms = np.asarray(rt_onset, dtype=np.int64)
+    if rt_onset_ms.size != len(rt_meta):
+        raise ValueError(
+            f"Collected {rt_onset_ms.size} onset times for {len(rt_meta)} RT epochs."
+        )
     checkpoint = {
         # (n_vr, C, T) stimulus + silence, and (n_rt, C, T) stimulus only
         "data_vr": data_vr,
         "data_rt": data_rt,
         "labels": labels,
         "metadata": metadata,
+        # alignment time of each VR epoch in ms, for averaging consecutive trials
+        "onset_ms": onset_ms,
+        # the same for the RT-side epochs, which are stimulus trials only
+        "rt_onset_ms": np.asarray(rt_onset, dtype=np.int64),
         "rt_metadata": rt_meta,
         "channel_names": list(channels),
         "sample_rate_hz": pipe.sample_rate,
