@@ -12,6 +12,15 @@ from nova2026.streaming.preprocess import (
 )
 from nova2026.streaming.window import EEGWindow
 
+# The unit this chain's callers feed: the KU Leuven trials are microvolts, and
+# the live path scales its source to microvolts before this chain. For
+# microvolts, ``Repair``'s endpoint check (``10 ** (exponent + 6)``) is an
+# identity on the values, which is the behaviour this chain has always had. A
+# source whose own unit is volts -- the ANT amplifier -- is described by passing
+# 0 at the call site instead.
+DEFAULT_SOURCE_UNIT_EXPONENT = -6
+SUPPORTED_SOURCE_UNIT_EXPONENTS = (0, -3, -6, -9)
+
 
 def stream_config(
     trial,
@@ -22,14 +31,30 @@ def stream_config(
     check_channels=True,
     max_bad_channels=0,
     exclude_channels=(),
+    source_unit_exponent=DEFAULT_SOURCE_UNIT_EXPONENT,
 ):
     """Build the chain settings for one trial and decoder configuration.
 
     The channel options are run policy, not part of the processing contract:
     ``AuditoryProcessor.contract`` is compared against a trained model's
     contract, so adding keys there would invalidate every existing decoder.
+
+    ``source_unit_exponent`` is the power of ten of the *source* unit relative to
+    volts (0 = volts, -6 = microvolts), the convention of
+    ``nova2026.streaming.preprocess.units.unit_scaler``. It reaches only
+    ``Repair``'s endpoint safety check, which converts endpoints to microvolts to
+    compare them against its saturation and amplitude limits; no stage rescales
+    samples with it. The default is -6 because this chain's callers feed
+    microvolts (the KU Leuven trials are microvolts, and the live path scales its
+    source to microvolts first), which makes the check an identity on the values.
+    A caller feeding a source whose own unit is volts -- the ANT amplifier -- must
+    pass 0, or the check would compare 0.0833 V against a microvolt saturation
+    limit and pass a saturated signal through. Like the channel options, it is run
+    policy and must not be added to ``contract``.
     """
 
+    if source_unit_exponent not in SUPPORTED_SOURCE_UNIT_EXPONENTS:
+        raise ValueError("Supported source exponents are 0, -3, -6, -9.")
     for name, value in (("history", history), ("step", step)):
         if not math.isfinite(value) or value <= 0:
             raise ValueError(f"{name} must be finite and positive.")
@@ -47,6 +72,7 @@ def stream_config(
         persistent_fault_seconds=max(15.0, 2 * history + 2),
         check_channels=check_channels, max_bad_channels=max_bad_channels,
         exclude_channels=tuple(exclude_channels),
+        source_unit_exponent=int(source_unit_exponent),
     )
 
 
@@ -68,7 +94,10 @@ class AuditoryProcessor:
         max_bad_channels = int(getattr(settings, "max_bad_channels", 0))
         exclude_channels = tuple(getattr(settings, "exclude_channels", ()) or ())
         self.repair = Repair(
-            settings.input_sfreq, source_unit_exponent=-6,
+            settings.input_sfreq,
+            source_unit_exponent=int(getattr(
+                settings, "source_unit_exponent", DEFAULT_SOURCE_UNIT_EXPONENT
+            )),
             channel_names=names, exclude_channels=exclude_channels,
         )
         self.quality = QualityMonitor(

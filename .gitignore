@@ -58,6 +58,12 @@ results/*
 # step 2 (shape/rate/label invariants, naming derivation, on-disk size). The
 # converted trials it describes stay out of git under datasets/.
 !results/kuleuven_conversion_*.json
+# Exception: the step-4 data audit is the reviewable evidence for the frozen
+# feature contract (per-trial shapes, durations, labels, the group map, the
+# channel subsets and the unit convention). It is derived from the dataset but
+# contains no signal, only measurements, and step 5 is measured against it.
+!results/kuleuven_audit.md
+!results/kuleuven_audit_*.json
 
 # macOS metadata. On exFAT (this repository lives on one) macOS cannot store
 # extended attributes, so it writes an AppleDouble sidecar next to every file it
