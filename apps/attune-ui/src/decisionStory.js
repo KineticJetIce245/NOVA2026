@@ -78,23 +78,57 @@ export function gainConsequence(gain) {
     note: lowered.length ? `${lowered.map(([id, db]) => `${decisionPhrase(id)} turned down to ${formatDb(db)}`).join(' · ')}; the other source is unchanged` : null };
 }
 
+// The decision strip is capped at this many seconds.
+//
+// The media can be fifteen minutes long -- the ANT demo's candidates are 900 s --
+// and a strip drawn across the whole of it compresses a minute of decisions into
+// 7 % of the width: the marks pile into a stub at the left edge and the reader
+// learns nothing from them. The strip therefore shows one window at a time, so its
+// length is bounded whatever the source is.
+//
+// The window SLIDES: it ends at the newest reported position and is one cap long.
+// Advancing it in whole-cap steps instead was measured at 8-17 % full for most of
+// every cycle (a 130 s source drew 41 of its 521 marks, across the left sixth of
+// the strip) -- the same stub, moved rather than fixed. Sliding keeps the strip
+// full from the first cap onwards, and the frames that fall off the left are the
+// refresh.
+export const TIMELINE_WINDOW_SECONDS = 60;
+
+/** The window the strip is showing, and the frames that belong to it. */
+export function timelineWindow(frames = [], { currentTime = null } = {}) {
+  const times = (frames ?? []).map(frame => frame.mediaTime).filter(finite);
+  // Anchored on the NEWEST FRAME, never on the playhead. The backend's position
+  // copy lags this page's clock (measured at up to ~6.5 s), so anchoring on the
+  // playhead pushed the window past the data the moment a boundary was crossed and
+  // the strip drew nothing at all -- the exact opposite of the point.
+  const newest = Math.max(0, ...(times.length ? times : [0]));
+  const end = Math.max(TIMELINE_WINDOW_SECONDS, newest);
+  const start = end - TIMELINE_WINDOW_SECONDS;
+  return { start, end,
+    shown: (frames ?? []).filter(frame => finite(frame.mediaTime) && frame.mediaTime >= start && frame.mediaTime <= end),
+    position: finite(currentTime) ? Math.min(Math.max(currentTime, start), end) : null };
+}
+
 const percent = value => `${value}%`;
 const svgProps = { viewBox: '0 0 1000 100', preserveAspectRatio: 'none', role: 'img' };
 
 function StoryTimeline({ layout }) {
-  const { frames, viewEnd, playhead } = layout;
-  const x = time => Math.min(100, Math.max(0, (finite(time) ? time : 0) / viewEnd * 100));
-  const lastReceived = frames.reduce((max, frame) => Math.max(max, frame.mediaTime ?? 0), 0);
-  // Before the first frame there is no position to point at: show 0, not a guess.
-  const position = finite(playhead) ? playhead : 0;
+  const { frames, playhead } = layout;
+  const window = timelineWindow(frames, { currentTime: playhead });
+  const { start, end, shown } = window;
+  const x = time => Math.min(100, Math.max(0, (finite(time) ? time - start : 0) / TIMELINE_WINDOW_SECONDS * 100));
+  const lastReceived = shown.reduce((max, frame) => Math.max(max, frame.mediaTime ?? start), start);
+  // Before the first frame there is no position to point at: show the window's
+  // start, not a guess.
+  const position = window.position ?? start;
   // One frame per 0.25 s of a 124 s trial: ~0.16 % wide, distinct at any length.
-  const markWidth = Math.max(0.1, Math.min(0.9, 100 / Math.max(1, frames.length)));
+  const markWidth = Math.max(0.1, Math.min(0.9, 100 / Math.max(1, shown.length)));
   return h('div', { className: 'timeline-block' },
     h('h3', { className: 'timeline-heading' }, 'Decision timeline · every frame of this session'),
     h('div', { className: 'timeline-track' },
       h('svg', { ...svgProps, className: `timeline-strip${layout.present ? '' : ' empty'}`,
-        'aria-label': `Decisions for ${frames.length} received frames across ${viewEnd.toFixed(1)} seconds of playback` },
-        ...frames.map(frame => h('rect', { key: frame.sequence, x: percent(x(frame.mediaTime)), y: 0, height: '100%',
+        'aria-label': `Decisions for ${shown.length} received frames in the last ${TIMELINE_WINDOW_SECONDS} seconds of playback, ${start.toFixed(1)} to ${end.toFixed(1)} s` },
+        ...shown.map(frame => h('rect', { key: frame.sequence, x: percent(x(frame.mediaTime)), y: 0, height: '100%',
           width: percent(markWidth), className: `timeline-mark decision-${frame.decision}` }))),
       layout.present ? h('span', { className: 'timeline-absent', style: { left: percent(x(lastReceived)) }, 'aria-hidden': true }) : null,
       h('span', { className: 'timeline-playhead', style: { left: percent(x(position)) } },
@@ -104,7 +138,7 @@ function StoryTimeline({ layout }) {
         h('i', { className: `legend-swatch decision-${decision}`, 'aria-hidden': true }),
         `${decisionPhrase(decision)} · ${layout.coverage.byDecision[decision]}`)),
       h('span', { className: 'legend-item legend-absent' }, h('i', { className: 'legend-swatch', 'aria-hidden': true }), 'nothing received yet')),
-    h('p', { className: 'timeline-note' }, `One mark per attention packet this page received, placed at the playback position the backend reported for it, from 0 to ${viewEnd.toFixed(1)} s. No interpolation: the hatched area right of the playhead has not been streamed yet, and gaps inside it are frames that never arrived.`));
+    h('p', { className: 'timeline-note' }, `One mark per attention packet this page received in the last ${TIMELINE_WINDOW_SECONDS} s — ${start.toFixed(1)} to ${end.toFixed(1)} s — placed at the playback position the backend reported for it. The strip is capped at ${TIMELINE_WINDOW_SECONDS} s and slides, so a fifteen-minute source cannot compress the decisions into a sliver; older frames fall off the left. No interpolation: the hatched area right of the playhead has not been streamed yet, and gaps inside it are frames that never arrived.`));
 }
 
 export function DecisionStory({ history = [], state, inactive = false }) {
