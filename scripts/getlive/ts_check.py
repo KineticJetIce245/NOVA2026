@@ -54,9 +54,10 @@ from pathlib import Path
 import numpy as np
 from mne_lsl.lsl import StreamInlet, resolve_streams
 
-# The package's own default (``Repair.tolerance_seconds``), which is what
-# ``live._build_chain`` also passes at any rate below 2 kHz.
-PACKAGE_TOLERANCE_SECONDS = 2e-4
+from nova2026.streaming import (
+    grid_tolerance_samples,
+    grid_tolerance_seconds,
+)
 
 # A step shorter than this is treated as "the source did not advance its clock":
 # the fingerprint of one timestamp shared by a whole chunk.
@@ -275,7 +276,7 @@ def measure(info, flags, sfreq: float, window: float, debug: bool = False) -> di
     if settled.size == 0:
         return row
 
-    tolerance_steps = PACKAGE_TOLERANCE_SECONDS * sfreq
+    tolerance_steps = grid_tolerance_samples(sfreq)
     row["tolerance_steps"] = tolerance_steps
     row.update(classify_steps(settled, tolerance_steps))
     row.update(
@@ -295,9 +296,9 @@ def measure(info, flags, sfreq: float, window: float, debug: bool = False) -> di
 def report(rows: list[dict], sfreq: float) -> None:
     """Print one line per flag set, and the reading of each column."""
 
-    tolerance_steps = PACKAGE_TOLERANCE_SECONDS * sfreq
+    tolerance_steps = grid_tolerance_samples(sfreq)
     print(
-        f"\nsfreq {sfreq:g} Hz, tolerance {PACKAGE_TOLERANCE_SECONDS * 1e3:.2f} ms "
+        f"\nsfreq {sfreq:g} Hz, tolerance {grid_tolerance_seconds(sfreq) * 1e3:.2f} ms "
         f"= {tolerance_steps:.3f} samples"
     )
     header = (
@@ -452,8 +453,8 @@ def build_report(args, rows: list[dict], sfreq: float, name: str, verdict_text: 
     return {
         "sfreq": sfreq,
         "window_seconds": args.window,
-        "tolerance_seconds": PACKAGE_TOLERANCE_SECONDS,
-        "tolerance_steps": PACKAGE_TOLERANCE_SECONDS * sfreq,
+        "tolerance_seconds": grid_tolerance_seconds(sfreq),
+        "tolerance_steps": grid_tolerance_samples(sfreq),
         "settle_steps_dropped": SETTLE_STEPS,
         "outlet": name,
         "source_id": args.source_id,

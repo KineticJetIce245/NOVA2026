@@ -50,6 +50,8 @@ import numpy as np
 
 from mne_lsl.lsl import StreamInfo, StreamInlet, StreamOutlet, resolve_streams
 
+from nova2026.streaming import grid_tolerance_samples
+
 # What the package accepts as a per-channel unit string.
 UNIT_CHOICES = ("volts", "millivolts", "microvolts", "nanovolts")
 
@@ -66,25 +68,21 @@ UNIT_CHOICES = ("volts", "millivolts", "microvolts", "nanovolts")
 SAME_STAMP_FLOOR = 0.25
 SAME_STAMP_CEILING = 0.95
 
-# The grid tolerance ``live._build_chain`` hands to ``Repair``, in the same terms
-# ``Repair`` uses: ``min(2e-4 s, 0.4 samples)``.
-REPAIR_TOLERANCE_SECONDS = 2e-4
-REPAIR_TOLERANCE_SAMPLES_MAX = 0.4
-
-
 def same_stamp_threshold(rate: float) -> float:
     """Fraction of a nominal sample below which two stamps are one block.
 
-    ``Repair`` accepts a step within ``min(2e-4 s, 0.4 samples)`` of the nominal
+    ``Repair`` accepts a step within the package's grid tolerance of the nominal
     grid and refuses every sub-nominal step below that, at any tolerance. Those
     are exactly the steps that must be re-spaced, whatever their size, so the
-    threshold sits just below what the consumer still accepts.
+    threshold sits just below what the consumer still accepts. The tolerance is
+    the package's, not a copy of it: see
+    :func:`nova2026.streaming.grid_tolerance_samples`.
     """
 
-    tolerance_samples = min(
-        REPAIR_TOLERANCE_SECONDS * rate, REPAIR_TOLERANCE_SAMPLES_MAX
+    return min(
+        max(1.0 - grid_tolerance_samples(rate), SAME_STAMP_FLOOR),
+        SAME_STAMP_CEILING,
     )
-    return min(max(1.0 - tolerance_samples, SAME_STAMP_FLOOR), SAME_STAMP_CEILING)
 
 # A block whose span is more than this multiple of the time its samples can
 # account for has lost a whole block: at least half again the nominal block length.

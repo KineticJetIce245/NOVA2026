@@ -10,7 +10,11 @@ from .preflight import (
     resolve_outlet,  # confirm an outlet exists before connecting (B1)
     validate_source,  # check a connected inlet's metadata
 )
-from .preprocess.repair import UnrepairableError  # damage Repair cannot fix
+from .preprocess.repair import (  # damage Repair cannot fix, and its grid rule
+    UnrepairableError,
+    grid_tolerance_samples,
+    grid_tolerance_seconds,
+)
 from .preprocess.resample import (  # stateful 500->128 Hz (SoXR)
     Resampler,
     ResamplerQualityWarning,
@@ -30,7 +34,6 @@ from .timebase import (                  # one owner for the LSL timeline
     TimeBase,
     TimeBaseEvent,
     TimeBaseState,
-    repair_tolerance_samples,
 )
 from .window import EEGWindow            # one window + verdict, for consumers
 
@@ -56,7 +59,8 @@ __all__ = [
     "fit_ssp",
     "prepare",
     "processing_contract",
-    "repair_tolerance_samples",
+    "grid_tolerance_seconds",
+    "grid_tolerance_samples",
     "resolve_outlet",
     "select_quality",
     "validate_source",

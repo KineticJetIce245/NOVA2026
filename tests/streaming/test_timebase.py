@@ -17,14 +17,17 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from nova2026.streaming import UnrepairableError
+from nova2026.streaming import (
+    UnrepairableError,
+    grid_tolerance_samples,
+    grid_tolerance_seconds,
+)
 from nova2026.streaming.preprocess import Repair
 from nova2026.streaming.timebase import (
     GridPolicy,
     TimeBase,
-    repair_tolerance_samples,
 )
-from scripts.getlive import live
+from scripts.getlive import live, relay
 
 RATE = 500.0
 
@@ -98,11 +101,36 @@ class GridPolicyTests(unittest.TestCase):
                 policy = GridPolicy.for_rate(rate)
                 self.assertAlmostEqual(
                     policy.tolerance_samples,
-                    repair_tolerance_samples(rate),
+                    grid_tolerance_samples(rate),
                     places=12,
                 )
                 self.assertAlmostEqual(
-                    policy.tolerance_seconds, min(2e-4, 0.4 / rate), places=12
+                    policy.tolerance_seconds, grid_tolerance_seconds(rate), places=12
+                )
+
+    def test_the_live_script_asks_the_package_for_the_tolerance(self) -> None:
+        for rate in (250.0, 500.0, 1000.0, 2000.0, 10000.0):
+            with self.subTest(rate=rate):
+                args = live.build_parser().parse_args(
+                    ["--sfreq", str(rate), "--source-units", "uV"]
+                )
+                self.assertAlmostEqual(
+                    live.timebase_policy(args).tolerance_seconds,
+                    grid_tolerance_seconds(rate),
+                    places=12,
+                )
+
+    def test_the_relay_re_spaces_everything_the_consumer_refuses(self) -> None:
+        # The relay groups steps below its threshold into one block and re-spaces
+        # them. If the threshold ever rose above what Repair still accepts, the
+        # steps it exists to fix would be forwarded untouched - which is the bug
+        # the fixed 0.25 floor had.
+        for rate in (100.0, 250.0, 500.0, 1000.0, 2000.0, 10000.0):
+            with self.subTest(rate=rate):
+                self.assertLessEqual(
+                    relay.same_stamp_threshold(rate),
+                    1.0 - grid_tolerance_samples(rate),
+                    "a step Repair refuses must fall below the relay's threshold",
                 )
 
     def test_a_policy_the_consumer_could_not_satisfy_is_refused(self) -> None:

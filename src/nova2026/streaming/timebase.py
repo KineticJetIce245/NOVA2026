@@ -36,18 +36,11 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-# The grid tolerance the live chain has always handed to ``Repair``, in the
-# terms ``Repair`` uses: ``min(2e-4 s, 0.4 samples)``. It is defined here once;
-# ``live.py``, ``relay.py``, ``ts_check.py`` and ``repair.py`` used to carry a
-# copy each, which is four chances to disagree.
-REPAIR_TOLERANCE_SECONDS = 2e-4
-REPAIR_TOLERANCE_SAMPLES_MAX = 0.4
+from .preprocess.repair import grid_tolerance_samples
 
-
-def repair_tolerance_samples(sfreq: float) -> float:
-    """The grid tolerance ``Repair`` is given at this rate, in samples."""
-
-    return min(REPAIR_TOLERANCE_SECONDS * sfreq, REPAIR_TOLERANCE_SAMPLES_MAX)
+# The grid tolerance is not this module's to define: it belongs to the stage that
+# applies it. ``grid_tolerance_samples`` is imported from ``Repair`` and used
+# here, so the timeline can never be held to a rule the consumer will refuse.
 
 
 @dataclass(frozen=True)
@@ -88,7 +81,7 @@ class GridPolicy:
             raise ValueError("nominal_sfreq must be finite and positive.")
         tolerance = self.tolerance_samples
         if tolerance is None:
-            tolerance = repair_tolerance_samples(self.nominal_sfreq)
+            tolerance = grid_tolerance_samples(self.nominal_sfreq)
             object.__setattr__(self, "tolerance_samples", tolerance)
         if not math.isfinite(tolerance) or not 0.0 < tolerance < 0.5:
             # Repair itself refuses a tolerance at or above half a sample, so a

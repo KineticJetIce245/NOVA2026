@@ -49,6 +49,27 @@ class UnrepairableError(RuntimeError):
         self.gap_seconds = gap_seconds
 
 
+# One rule, one place. A step counts as on the grid when it is within
+# ``TOLERANCE_SECONDS`` of a whole number of samples, or ``TOLERANCE_SAMPLES_MAX``
+# samples at high rates, whichever is the tighter. ``live.py``, ``relay.py``,
+# ``ts_check.py`` and this module's own default each carried a copy of it, which
+# is four chances to disagree about the grid the run is held to.
+TOLERANCE_SECONDS = 2e-4
+TOLERANCE_SAMPLES_MAX = 0.4
+
+
+def grid_tolerance_seconds(sfreq: float) -> float:
+    """The grid tolerance at this rate, in the units :class:`Repair` takes."""
+
+    return min(TOLERANCE_SECONDS, TOLERANCE_SAMPLES_MAX / sfreq)
+
+
+def grid_tolerance_samples(sfreq: float) -> float:
+    """The same tolerance expressed in samples."""
+
+    return min(TOLERANCE_SECONDS * sfreq, TOLERANCE_SAMPLES_MAX)
+
+
 class Repair:
     """Repair short NaN/Inf runs and report which windows they touch.
 
@@ -56,7 +77,10 @@ class Repair:
         sfreq: Source sampling rate in Hz.
         max_seconds: Longest repairable damage; longer runs stop the run.
             Defaults to 0.02 s (10 samples at 500 Hz).
-        tolerance_seconds: Permitted timestamp jitter around the nominal grid.
+        tolerance_seconds: Timestamp jitter still counted as on the nominal grid.
+            Defaults to ``TOLERANCE_SECONDS``, which is what
+            :func:`grid_tolerance_seconds` returns at any rate up to 2 kHz; above
+            that, ask for the rule rather than take the flat default.
         settle_seconds: Extra interval after a repair that still flags
             windows (filter history stays suspect).
         source_unit_exponent: Power of ten of the source unit, used only to
@@ -101,7 +125,7 @@ class Repair:
         sfreq: float,
         *,
         max_seconds: float = 0.02,
-        tolerance_seconds: float = 2e-4,
+        tolerance_seconds: float = TOLERANCE_SECONDS,
         settle_seconds: float = 0.0,
         source_unit_exponent: int | None = None,
         n_eeg: int | None = None,
