@@ -17,6 +17,7 @@ import contextlib
 import hashlib
 import io
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -31,6 +32,7 @@ from nova2026.auditory.envelopes import (
     envelope_timestamps,
     extract_envelope,
     load_envelope,
+    resolve_source_path,
     verify_envelope_metadata,
 )
 from scripts.auditory import envelopes as cli
@@ -214,7 +216,7 @@ class RoundTripTests(unittest.TestCase):
 
     def test_a_relocated_tree_still_verifies_through_the_recorded_relative_path(self):
         # A clone or a copied tree loses the generating machine's absolute paths.
-        # The recorded path is retried relative to the envelope's grandparent, so
+        # The recorded path is retried relative to the envelope's ancestors, so
         # the copy is still checked against its own audio instead of being trusted.
         moved = self.root / "elsewhere" / "audio"
         moved.mkdir(parents=True)
@@ -225,6 +227,12 @@ class RoundTripTests(unittest.TestCase):
         self.audio.unlink()
         record = load_envelope(relocated, self.config)
         self.assertEqual(record.metadata["source_sha256"], hashlib.sha256(relocated_audio.read_bytes()).hexdigest())
+        # The hash equality above is only evidence if the file was found at all:
+        # an unresolved record skips the comparison and passes vacuously.
+        self.assertEqual(
+            resolve_source_path(record.metadata["source_path"], relocated),
+            relocated_audio,
+        )
 
     def test_metadata_helper_rejects_a_missing_key(self):
         with np.load(self.path, allow_pickle=False) as stored:
@@ -256,6 +264,130 @@ class RoundTripTests(unittest.TestCase):
             metadata = json.loads(str(stored["metadata"]))
         metadata.update(changes)
         cli.save_envelope(self.path, envelope, timestamps, metadata)
+
+
+class MovedEnvelopeTests(unittest.TestCase):
+    """An envelope written on one machine is still checked against another tree's audio.
+
+    The recorded path is the only link between an envelope and the stimulus it
+    was derived from, and it is written on one machine and read on another. The
+    defect pinned here: for an **absolute** record, re-rooting it at the
+    envelope's ancestors returns that same absolute path, so nothing resolved,
+    ``source_sha256`` was never compared, and a session started with the
+    stale-envelope guard silently off -- on a copied drive, which is exactly the
+    case the retry was written for. The falsifiable half of each test below is
+    that a stimulus which changed must fail to load.
+    """
+
+    # The shape the shipped envelopes had: the generating machine's absolute
+    # path. ``D:\builds\NOVA2026`` stands in for the checkout that wrote it.
+    FOREIGN = "D:\\builds\\NOVA2026\\datasets\\AAD-KULeuven\\stimuli\\candidate_a.wav"
+    RELATIVE = "datasets/AAD-KULeuven/stimuli/candidate_a.wav"
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.root = Path(self.directory.name)
+        # A copied checkout: the envelopes must verify against *this* audio.
+        self.repo = self.root / "checkout"
+        self.stimuli = self.repo / "datasets" / "AAD-KULeuven" / "stimuli"
+        self.stimuli.mkdir(parents=True)
+        self.audio = write_wav(self.stimuli / "candidate_a.wav", synthetic_speech())
+        self.out = self.repo / "datasets" / "audio"
+        self.config = AuditoryConfig()
+        # The recording step anchors at the repository it lives in; here that is
+        # the temporary checkout, so an in-tree source is recorded relative to it.
+        original = cli.REPO
+        cli.REPO = self.repo
+        try:
+            envelope, timestamps, metadata = cli.convert_audio(self.audio, self.config)
+        finally:
+            cli.REPO = original
+        self.recorded = metadata["source_path"]
+        metadata["source_path"] = self.FOREIGN
+        self.envelope = self.out / "candidate_a.npz"
+        cli.save_envelope(self.envelope, envelope, timestamps, metadata)
+
+    def tearDown(self):
+        self.directory.cleanup()
+
+    def rewrite_source_path(self, recorded):
+        with np.load(self.envelope, allow_pickle=False) as stored:
+            envelope = stored["envelope"]
+            timestamps = stored["timestamps"]
+            metadata = json.loads(str(stored["metadata"]))
+        metadata["source_path"] = recorded
+        cli.save_envelope(self.envelope, envelope, timestamps, metadata)
+
+    def test_the_recording_step_writes_a_repository_relative_posix_path(self):
+        # Inside the repository the record is relative to its root and spelled
+        # with forward slashes, which is what survives Windows -> macOS.
+        self.assertEqual(self.recorded, self.RELATIVE)
+
+    def test_a_source_outside_the_repository_is_recorded_absolute(self):
+        outside = self.root / "elsewhere.wav"
+        self.assertEqual(
+            cli.recorded_source_path(outside, repo=self.repo), str(outside.resolve())
+        )
+
+    def test_a_foreign_absolute_path_is_re_resolved_into_this_tree(self):
+        self.assertEqual(
+            resolve_source_path(self.FOREIGN, self.envelope), self.audio.resolve()
+        )
+        record = load_envelope(self.envelope, self.config)
+        self.assertEqual(record.source_path, self.FOREIGN)
+        np.testing.assert_array_equal(
+            record.timestamps,
+            envelope_timestamps(len(record), record.sample_rate),
+        )
+
+    def test_a_foreign_absolute_path_does_not_turn_the_hash_check_off(self):
+        # Same name, different samples, and the recorded path belongs to a machine
+        # that is not here: the load must fail, not skip the comparison.
+        write_wav(self.audio, synthetic_speech() * 0.5)
+        with self.assertRaises(EnvelopeVerificationError) as caught:
+            load_envelope(self.envelope, self.config)
+        self.assertIn("SHA256", str(caught.exception))
+
+    def test_a_posix_relative_record_resolves_from_any_working_directory(self):
+        # What the external drive ships and what a macOS checkout reads:
+        # relative to the repository root, read from an unrelated directory.
+        self.rewrite_source_path(self.RELATIVE)
+        unrelated = self.root / "unrelated"
+        unrelated.mkdir()
+        previous = os.getcwd()
+        os.chdir(unrelated)
+        try:
+            self.assertEqual(
+                resolve_source_path(self.RELATIVE, self.envelope), self.audio.resolve()
+            )
+            write_wav(self.audio, synthetic_speech() * 0.5)
+            with self.assertRaises(EnvelopeVerificationError) as caught:
+                load_envelope(self.envelope, self.config)
+        finally:
+            os.chdir(previous)
+        self.assertIn("SHA256", str(caught.exception))
+
+    def test_verify_checks_the_hash_from_any_working_directory(self):
+        # The CLI entry point passes the recorded location explicitly, so it must
+        # resolve it the same way a session does instead of trusting the caller's
+        # working directory. Before the fix it failed loudly here; the point of
+        # this test is that it now succeeds *and* still notices a changed source.
+        self.rewrite_source_path(self.RELATIVE)
+        unrelated = self.root / "unrelated"
+        unrelated.mkdir()
+        previous = os.getcwd()
+        os.chdir(unrelated)
+        try:
+            self.assertEqual(cli.verify_outputs([self.envelope], self.config), 0)
+            write_wav(self.audio, synthetic_speech() * 0.5)
+            self.assertEqual(cli.verify_outputs([self.envelope], self.config), 1)
+        finally:
+            os.chdir(previous)
+
+    def test_verify_reports_a_record_it_cannot_resolve(self):
+        # An unresolved record is a failure on the --verify path, never a skip.
+        self.rewrite_source_path("datasets/absent/candidate_a.wav")
+        self.assertEqual(cli.verify_outputs([self.envelope], self.config), 1)
 
 
 class CommandLineTests(unittest.TestCase):

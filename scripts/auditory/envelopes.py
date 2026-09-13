@@ -41,6 +41,7 @@ from nova2026.auditory.envelopes import (
     envelope_timestamps,
     extract_envelope,
     load_envelope,
+    resolve_source_path,
     source_sha256,
 )
 from scripts.auditory.outputs import guard_outputs
@@ -61,6 +62,30 @@ def channel_count(path):
         return int(stream.getnchannels())
 
 
+def recorded_source_path(path, repo=None):
+    """How ``source_path`` is stored: repository-relative when the source is inside.
+
+    An envelope outlives the machine that wrote it, and an absolute path does not
+    survive a different drive letter, a different mount point or a different
+    operating system. A source inside the repository is therefore recorded
+    relative to the repository root -- ``datasets/AAD-KULeuven/stimuli/x.wav`` --
+    which :func:`~nova2026.auditory.envelopes.load_envelope` re-roots at whichever
+    copy is reading it (via the working directory first, then the envelope's own
+    ancestors).
+
+    A source from outside the repository has no such anchor and stays absolute.
+    The spelling is POSIX on every platform (``as_posix``), so an envelope written
+    on Windows verifies on macOS and the other way round.
+    """
+
+    anchor = Path(REPO if repo is None else repo).resolve()
+    resolved = Path(path).resolve()
+    try:
+        return resolved.relative_to(anchor).as_posix()
+    except ValueError:
+        return str(resolved)
+
+
 def metadata_for(path, samples, rate, config, generated_at):
     """The provenance record stored beside the envelope.
 
@@ -70,7 +95,7 @@ def metadata_for(path, samples, rate, config, generated_at):
 
     recorded = config.to_dict()
     return {
-        "source_path": str(Path(path).resolve()),
+        "source_path": recorded_source_path(path),
         "source_sha256": source_sha256(path),
         "source_rate": int(rate),
         "source_samples": int(len(samples)),
@@ -176,7 +201,14 @@ def verify_outputs(paths, config):
     failed = []
     for path in paths:
         try:
-            record = load_envelope(path, config, audio_path=recorded_path(path))
+            recorded = recorded_path(path)
+            # Resolve the way a session would rather than trusting the recorded
+            # path to be relative to the caller's working directory, so --verify
+            # says the same thing whether it is run from the root or elsewhere.
+            resolved = resolve_source_path(recorded, path)
+            record = load_envelope(
+                path, config, audio_path=resolved if resolved else recorded
+            )
         except EnvelopeVerificationError as error:
             failed.append(f"{path}: {error}")
             continue

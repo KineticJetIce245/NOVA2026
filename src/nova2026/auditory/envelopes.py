@@ -199,6 +199,77 @@ def _as_band(value):
     return None
 
 
+def _recorded_spellings(recorded):
+    """The recorded path, plus a POSIX spelling when it was written with backslashes.
+
+    A relative path written on Windows (``datasets\\a\\b.wav``) is a *single file
+    name* on POSIX, where a backslash is an ordinary character. Both spellings
+    are therefore tried, so an envelope written on one platform still resolves on
+    the other. Neither spelling is trusted on its own: what resolves is re-hashed.
+    """
+
+    recorded = str(recorded)
+    spellings = [recorded]
+    if "\\" in recorded:
+        normalised = recorded.replace("\\", "/")
+        if normalised != recorded:
+            spellings.append(normalised)
+    return spellings
+
+
+def source_candidates(recorded, envelope_path):
+    """Where an envelope's recorded source may be on *this* machine, in order.
+
+    An envelope outlives the machine that wrote it, so the recorded path is a
+    hint and never a fact. The candidates are:
+
+    * **as recorded** -- an absolute path on the generating machine, or a path
+      relative to the process's working directory, which is the same thing when
+      the record is relative to the repository root and the process runs there;
+    * **the envelope's grandparent** -- for the shipped ``datasets/audio/``, the
+      directory that holds ``datasets/`` (a record relative to ``datasets/``);
+    * **the envelope's great-grandparent** -- for ``datasets/audio/``, the
+      repository root, which is what ``scripts.auditory.envelopes`` writes;
+    * for a record that is **absolute**, and so anchored to a root this machine
+      does not have, every trailing component suffix of it under both roots.
+      That is what turns ``C:\\Files\\git\\NOVA2026\\datasets\\a\\b.wav`` or
+      ``/Volumes/disk/NOVA2026/datasets/a/b.wav`` back into
+      ``datasets/a/b.wav``, and it is the case the old single retry could not
+      reach: re-rooting an absolute path returns that same absolute path.
+
+    A wrong pick cannot pass unnoticed -- the caller re-hashes whatever was
+    found against the recorded ``source_sha256`` -- and the search is a handful
+    of ``stat`` calls, run only when the earlier candidates have already missed.
+    """
+
+    envelope = Path(envelope_path).resolve()
+    roots = []
+    for parent in envelope.parents[1:3]:
+        if parent != envelope and parent not in roots:
+            roots.append(parent)
+    candidates = []
+    for spelling in _recorded_spellings(recorded):
+        path = Path(spelling)
+        forms = [path]
+        if path.is_absolute():
+            tail = path.parts[1:]
+            forms.extend(Path(*tail[start:]) for start in range(len(tail)))
+        for form in forms:
+            for candidate in (form, *(root / form for root in roots)):
+                if candidate not in candidates:
+                    candidates.append(candidate)
+    return candidates
+
+
+def resolve_source_path(recorded, envelope_path):
+    """The first candidate of :func:`source_candidates` that is a file, else None."""
+
+    for candidate in source_candidates(recorded, envelope_path):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def verify_envelope_metadata(metadata, config, *, audio_path=None):
     """Check a stored envelope against the live config and, optionally, the audio.
 
@@ -329,21 +400,18 @@ def load_envelope(path, config, *, audio_path=None):
         ) from error
     # The hash is what catches a stimulus that changed under a stale envelope, so
     # it is checked whenever the recording names a file that is here. Envelopes
-    # also live in a repository that gets cloned and copied, where the absolute
-    # path of the generating machine is gone; the recorded path is then retried
-    # relative to the envelope's grandparent, which is the repository root for
-    # ``datasets/audio/``. A path that resolves nowhere is reported to the caller
-    # as "unchecked", and the CLI's ``--verify`` turns that into a failure rather
-    # than a run. What is never allowed is decoding an envelope nothing checked.
+    # also live in a repository that gets cloned, copied and moved between
+    # operating systems, where the absolute path of the generating machine is
+    # gone; :func:`source_candidates` re-roots the record at this tree and, for
+    # an absolute record, at the repository-relative tail of it. A path that
+    # resolves nowhere is reported to the caller as "unchecked", and the CLI's
+    # ``--verify`` turns that into a failure rather than a run. What is never
+    # allowed is decoding an envelope nothing checked.
     reference = audio_path
     if reference is None and isinstance(metadata, dict):
         recorded = metadata.get("source_path")
         if isinstance(recorded, str):
-            candidates = (Path(recorded), envelope_path.resolve().parents[1] / recorded)
-            for candidate in candidates:
-                if candidate.is_file():
-                    reference = candidate
-                    break
+            reference = resolve_source_path(recorded, envelope_path)
     verify_envelope_metadata(metadata, config, audio_path=reference)
     if envelope.ndim != 2 or envelope.shape[1] != 1:
         raise EnvelopeVerificationError(
