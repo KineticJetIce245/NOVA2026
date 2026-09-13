@@ -66,6 +66,31 @@ ARTIFACT_REASONS = frozenset(
 OFFLOAD_STOP_TIMEOUT = 5.0
 """Seconds the offload worker gets to finish before the session reports it stuck."""
 
+FAILURE_REASON_LIMIT = 240
+"""Characters of an exception's text kept in a reason string.
+
+Long enough for the decoder's own refusals (which name the keys that differ) and
+short enough that a published frame's reason stays readable. Truncation is marked
+rather than silent, so a clipped cause cannot be mistaken for the whole one.
+"""
+
+
+def _failure_reason(error: BaseException) -> str:
+    """One line naming what failed: its type and its own message.
+
+    ``str(error)`` alone is empty for some exceptions and ambiguous for the rest
+    (a ``ValueError`` and a ``RuntimeError`` can read identically), and the type is
+    the part that says which mechanism failed. Newlines are folded so the text
+    stays a single reason string in a packet, and the whole line - type included -
+    is what :data:`FAILURE_REASON_LIMIT` bounds.
+    """
+
+    text = " ".join(str(error).split())
+    reason = type(error).__name__ + (": " + text if text else "")
+    if len(reason) > FAILURE_REASON_LIMIT:
+        reason = reason[: FAILURE_REASON_LIMIT - 3] + "..."
+    return reason
+
 
 @dataclass(frozen=True)
 class RunPolicy:
@@ -131,6 +156,15 @@ class RunPolicy:
     margin: float = MIN_MARGIN
     warmup_seconds: float = 2.0
     frame_seconds: float = 0.25
+    display_channel: str | None = None
+    """Electrode the ``eeg_display`` tap carries; ``None`` publishes none.
+
+    Run policy, not contract: it decides what a panel draws, never what the
+    decoder receives, and adding it to ``AuditoryProcessor.contract`` would
+    invalidate every trained model. The default is ``None``, so a caller that
+    says nothing gets exactly the run it got before this field existed -- no
+    capture, no allocation, no packet.
+    """
 
     def __post_init__(self) -> None:
         if not isinstance(self.check_channels, bool):
@@ -143,6 +177,13 @@ class RunPolicy:
             raise ValueError("max_bad_channels must be an explicit non-negative integer.")
         if isinstance(self.exclude_channels, str):
             raise TypeError("exclude_channels must be an iterable of labels.")
+        if self.display_channel is not None and (
+            not isinstance(self.display_channel, str) or not self.display_channel.strip()
+        ):
+            raise TypeError(
+                "display_channel must be None or a nonempty channel label; a label "
+                "that names nothing would make the panel's channel_source text false."
+            )
         if isinstance(self.margin, bool) or not isinstance(self.margin, (int, float)):
             raise TypeError("margin must be a number.")
         if not math.isfinite(self.margin) or self.margin <= 0:
@@ -153,6 +194,8 @@ class RunPolicy:
             if not math.isfinite(value) or value <= 0:
                 raise ValueError(f"{name} must be finite and positive.")
         object.__setattr__(self, "exclude_channels", tuple(self.exclude_channels))
+        if self.display_channel is not None:
+            object.__setattr__(self, "display_channel", self.display_channel.strip())
 
     def to_dict(self) -> dict:
         """A JSON-safe record of the policy, for the run record and the packets."""
@@ -167,6 +210,7 @@ class RunPolicy:
             "margin": self.margin,
             "warmup_seconds": self.warmup_seconds,
             "frame_seconds": self.frame_seconds,
+            "display_channel": self.display_channel,
         }
 
     @classmethod
@@ -213,6 +257,16 @@ class SessionFrame:
     rejection: ``artifact`` is judged from it under a relaxed quality policy,
     where the reason set stays empty (plan section 3.17 item 6)."""
 
+    display: dict = field(default_factory=dict)
+    """The newest ``eeg_display`` payload, or ``{}`` when the tap is off.
+
+    The chain built it while the raw signal existed (see
+    :meth:`~nova2026.auditory.streaming.AuditoryProcessor._capture_display`); a
+    frame carries it so the producer publishes it on the frame cadence without
+    reaching back into the chain. Empty is the default and the off state, so the
+    field's presence never changes what a run with no display channel publishes.
+    """
+
     def to_dict(self) -> dict:
         """A JSON-safe copy, for a log or a run record."""
 
@@ -230,6 +284,7 @@ class SessionFrame:
             "window_end": self.window_end,
             "evidence_count": self.evidence_count,
             "media_time_s": self.media_time_s,
+            "display": dict(self.display),
         }
 
 
@@ -311,6 +366,19 @@ class SessionSummary:
     """Rows the chain's :class:`~nova2026.streaming.preprocess.repair.Repair`
     reconstructed, the counter behind the ``interpolated`` reason."""
 
+    scoring_failures: list = field(default_factory=list)
+    """Named causes of the scoring failures counted by :attr:`failed`.
+
+    ``failed`` alone is a count, and a count cannot say what failed: measured on
+    the operator's ANT session, ``scored 0 / failed 116`` was the whole run record
+    while the cause - every window refused by the decoder's own contract check -
+    lived only inside an exception the session discarded. Each entry is
+    ``{"count", "type", "reason"}``, deduplicated by reason so ninety identical
+    refusals read as one named cause with a count rather than ninety copies. It is
+    the same text the ``scoring_failed`` reason carries, recorded where a report
+    can print it after the run.
+    """
+
     failure: dict | None = None
 
     def to_dict(self) -> dict:
@@ -339,6 +407,7 @@ class SessionSummary:
             "recovery_events": [dict(event) for event in self.recovery_events],
             "recovery_segment": self.recovery_segment,
             "repaired_samples": self.repaired_samples,
+            "scoring_failures": [dict(entry) for entry in self.scoring_failures],
             "failure": dict(self.failure) if self.failure else None,
         }
 
@@ -414,6 +483,7 @@ class AttentionSession:
             max_bad_channels=policy.max_bad_channels,
             exclude_channels=policy.exclude_channels,
             source_unit_exponent=policy.source_unit_exponent,
+            display_channel=policy.display_channel,
         )
         # The endpoint and excursion guards are run policy, so they travel the
         # same way the channel policy and the exponent do: into the chain's
@@ -464,6 +534,10 @@ class AttentionSession:
         self.invalid = 0
         self.evidence_gaps = 0
         self.failed = 0
+        # Named causes behind `failed`, deduplicated by reason: a count alone left
+        # the operator's ANT run (0 scored, 116 failed) with no cause in its record
+        # at all, because the exception that held it was discarded here.
+        self.scoring_failures: list[dict] = []
         self.frames = 0
         self.evidence_count = 0
         self.scores: tuple[float, float] | None = None
@@ -474,6 +548,8 @@ class AttentionSession:
         self.bad_channels: tuple[str, ...] = ()
         self.bad_channel_census: dict[str, int] = {}
         self.decisions: list[tuple[float, str]] = []
+        self.display: dict = {}
+        """Newest display payload, replaced by each window and read by each frame."""
 
     # ------------------------------------------------------------------ helpers
 
@@ -627,6 +703,9 @@ class AttentionSession:
             ],
             recovery_segment=int(getattr(processor.recovery, "segment", 0)),
             repaired_samples=int(getattr(processor.repair, "repaired_samples", 0)),
+            # Read after the offloader drained, so a failure the worker raised on
+            # its way out is in the record too.
+            scoring_failures=[dict(entry) for entry in self.scoring_failures],
             failure=(
                 {"code": failure.code, "timestamp": failure.timestamp, "detail": failure.detail}
                 if failure is not None
@@ -641,6 +720,9 @@ class AttentionSession:
 
         aligned = self.references.align(window, float(self.source.audio_start))
         self.windows += 1
+        # Set before any early return: the display the last window produced is
+        # what the frame publishes, and a window the chain rejected still has one.
+        self.display = getattr(window, "display", None) or {}
         self.quality, self.artifact, self.bad_channels = self._verdict(aligned)
         for name in self.bad_channels:
             self.bad_channel_census[name] = self.bad_channel_census.get(name, 0) + 1
@@ -700,12 +782,30 @@ class AttentionSession:
         self._apply(estimate)
 
     def _note_handler_failure(self, error: BaseException) -> None:
-        """Count a scoring failure; the evidence it would have carried is absent."""
+        """Count a scoring failure, and carry the cause instead of discarding it.
 
+        The exception text is the only thing that says *why* no evidence arrived;
+        a count alone hides the next mechanism failure exactly as it hid the
+        decoder's contract refusal on the operator's ANT session (measured: 116
+        failures, one unnamed cause, ``scored 0``). The text travels both into the
+        published ``scoring_failed`` reason and into
+        :attr:`SessionSummary.scoring_failures`, so it survives past the frame
+        that carried it.
+        """
+
+        reason = _failure_reason(error)
         self.failed += 1
+        for entry in self.scoring_failures:
+            if entry["reason"] == reason:
+                entry["count"] += 1
+                break
+        else:
+            self.scoring_failures.append(
+                {"type": type(error).__name__, "reason": reason, "count": 1}
+            )
         self._apply(
             AttentionEstimate(
-                None, self._now, self._now, False, ("scoring_failed",)
+                None, self._now, self._now, False, ("scoring_failed", reason)
             )
         )
 
@@ -812,6 +912,7 @@ class AttentionSession:
                 ),
                 evidence_count=self.evidence_count,
                 media_time_s=self.audio_position(source_time),
+                display=dict(self.display),
             )
         self._census[decision] = self._census.get(decision, 0) + 1
         return frame

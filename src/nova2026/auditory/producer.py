@@ -27,6 +27,15 @@ payload here is written to the field names the vendored frontend actually reads
     set and the run policy in its metadata. This is where ``evidence_gap``,
     ``warmup`` and ``evidence_stale`` become visible in the UI instead of being
     silently absent.
+``eeg_display``
+    The newest window's EEG, per frame: the channel as it arrived and the same
+    channel after the causal band-pass the decoder consumes, each decimated for
+    drawing. The two traces and the two sample rates are separate fields because
+    they are separate signals - this chain resamples 128 Hz to 64 Hz, and a client
+    that assumed one rate would draw the filtered trace at half its real speed.
+    Published only when the run names a display channel; the payload is built by
+    the chain (:class:`~nova2026.auditory.streaming.DisplayTap`), which is the
+    only place the raw signal exists.
 
 The transport already publishes the ``session`` lifecycle packets under the
 reserved source ``server`` (``nova2026.transport.sessions``), and the frontend
@@ -266,6 +275,20 @@ class AttentionProducer:
             "simulated": self.simulated,
         }
 
+    def _eeg_display(self, frame) -> dict[str, Any]:
+        """The newest display window, marked with this producer's ``simulated``.
+
+        The payload's fields are the frozen ``eeg_display`` set and are built by
+        the chain that holds the raw signal; this method adds nothing but the
+        fixture label, so a client never has to guess whether a trace is real. A
+        frame from an older caller need not carry the field at all, and ``None`` is
+        the same absence as missing: neither is a display to publish.
+        """
+
+        payload = dict(getattr(frame, "display", None) or {})
+        payload["simulated"] = self.simulated
+        return payload
+
     def _emit_frame(self, publish, frame) -> None:
         """Publish one frame: state every frame, evidence and sync when they change.
 
@@ -288,6 +311,16 @@ class AttentionProducer:
         self._publish(publish, "attention", frame.timestamp, attention)
         self._publish(publish, "gain", frame.timestamp, gain)
         self._publish(publish, "signal_quality", frame.timestamp, self._quality(frame))
+        # Read the field the way every other optional field is read: a frame-like
+        # object from an older caller has no `display`, and absence means "nothing
+        # to publish" rather than an error on the way to the attention packet.
+        display = getattr(frame, "display", None)
+        if display:
+            # Off unless the run policy named a display channel, so a run without
+            # one is byte-for-byte the run it was before this feature existed.
+            self._publish(
+                publish, "eeg_display", frame.timestamp, self._eeg_display(frame)
+            )
         if frame.evidence_count != self._last_evidence:
             self._last_evidence = frame.evidence_count
             # A window that produced no evidence still gets a record, so the

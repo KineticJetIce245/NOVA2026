@@ -472,6 +472,19 @@ class SessionTests(FixtureCase):
         for frame in frames:
             self.assertNotIn(frame.decision, ("A", "B"))
         self.assertTrue(any("scoring_failed" in frame.reasons for frame in frames))
+        # The count is not the whole story: the exception's own text travels with
+        # it, so a run record can name what failed rather than only how often.
+        self.assertEqual(
+            [entry["reason"] for entry in summary.scoring_failures],
+            ["ValueError: scoring failed on purpose"],
+        )
+        self.assertEqual(summary.scoring_failures[0]["count"], summary.failed)
+        self.assertTrue(
+            any(
+                reason.startswith("ValueError: ")
+                for frame in frames for reason in frame.reasons
+            )
+        )
 
     def test_a_label_cannot_reach_the_decoder_input(self):
         first_frames, _ = self.run_session(self.session(trial=self.trial))
