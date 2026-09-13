@@ -169,9 +169,13 @@ Behaviour:
   position of its first sample. The difference is the residual, in samples.
   Report it; do not act on it until it crosses `relock_samples`.
 * **Re-lock.** When `|residual| > relock_samples`, shift the anchor by the
-  residual **and spread the correction over `relock_slew_samples` samples**
-  (each sample moves by at most `residual / slew`, well inside
-  `tolerance_samples`), then record a `relock` event with its index and size.
+  residual and spread the correction over enough samples that **no single step
+  leaves the tolerance**: `slew = max(relock_slew_samples, ceil(|residual| /
+  (tolerance / 2)))`. The floor alone is not enough, and treating it as the whole
+  rule was a bug waiting to happen — a 9-sample correction spread over 50 samples
+  moves each sample by 0.18, while the consumer's tolerance is 0.1, so the
+  re-lock would break the very rule this design exists to satisfy. The event
+  records both the residual and the slew actually used.
   No sample is dropped, duplicated or re-dated by more than a fraction of a
   sample; the discontinuity is auditable instead of hidden.
 * **Large steps.** A single anchor step beyond `max_step_samples` is recorded as
@@ -238,7 +242,8 @@ End-to-end, on the rig: the CNT gate in §8.
 
 | Gate | Today | Target |
 | --- | --- | --- |
-| `residual_peak_samples`, 30 s run | 2 - 9 | **< 1** |
+| `timebase_relocked_samples`, 30 s run | 2 - 9 samples of drift, reported as "gaps" and repaired | absorbed, **not repaired**, and reported as this number |
+| `timebase_anchor_rate` | not measured | reported in ppm against the nominal rate |
 | `interpolated` windows | 14 - 17 | warm-up only |
 | `unsafe_endpoints` fatal faults | present | **none** |
 | CNT alignment | r = 1.000000, 0 samples > 1 LSB | unchanged |
@@ -246,6 +251,12 @@ End-to-end, on the rig: the CNT gate in §8.
 
 The last row is new and is the strongest statement available: it proves no
 sample was fabricated or dropped, which the value comparison alone cannot.
+
+`residual_peak_samples` is deliberately **not** a gate. The policy bounds it by
+construction (past `relock_samples` the grid corrects itself), so it can never
+show how far the source's clock and the grid disagreed over a session. The two
+numbers that can are `relocked_samples` - how much drift was absorbed - and
+`anchor_rate`, the source clock's own ppm error.
 
 ## 9. The experiment this design still needs
 
@@ -270,6 +281,24 @@ written.
   constant is the same one.
 * Rollback is a flag flip up to `(d)`, then a revert of one commit.
 
+**Status.** Steps (a) and (b) are implemented. `timebase.py` and its tests land
+with no wiring; `scripts/getlive` gains `--timebase {stamps,grid}` (default
+`stamps`, so a run that does not ask for the grid is unchanged),
+`--timebase-relock-samples` and `--timebase-max-step-samples`; the policy is
+recorded in the run's provenance, the time base's verdict in the run counters
+(`timebase_relocked_samples`, `timebase_anchor_rate`, `timebase_relocks`,
+`timebase_large_steps`), which flow into both the JSON report and the recording's
+`meta`. `Repair`'s tolerance already comes from the shared policy, so one of the
+four copies of that constant is gone. Steps (c) and (d) remain, and so does the
+experiment in §9.
+
+Two details settled during implementation and reflected above: the re-lock slew
+is derived rather than floored (§5.2), and the residual peak is not a gate (§8).
+A third is placement: the time base runs **before** the recorder sees a block,
+because `StreamSession.ingest` writes the raw block on its way past. If it ran
+inside `run.stages` instead, the recording would carry the source's untrusted
+stamps while the run report claimed a grid.
+
 ## 11. Non-goals
 
 * The legacy `scripts/dataproc/streaming` tree (3 731 lines, external dependents
@@ -287,8 +316,10 @@ written.
 2. **Should exceeding the residual bound fail a run, or warn?** A run whose
    timeline drifts by 9 samples in 30 s is arguably unusable for
    time-locked analysis even though its samples are perfect.
-3. **`relock_samples = 0.5`** (half a sample, matching `Repair`'s fatal limit)
-   and **`relock_slew_samples = 50`** are proposals, not measurements. Are they
-   the right defaults for a cap session?
+3. **`relock_samples = 0.5`** (half a sample, matching `Repair`'s fatal limit) is
+   a proposal, not a measurement, and it is exposed as
+   `--timebase-relock-samples` so the rig can settle it. `relock_slew_samples`
+   is no longer in question: it is a floor, and the length is derived from the
+   correction (§5.2).
 4. **Does the relay survive Phase 2** as a metadata-only tool, or does the
    library grow a metadata-filling source wrapper and the script disappear?
