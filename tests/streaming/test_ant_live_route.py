@@ -365,6 +365,124 @@ class BlockPathTests(unittest.TestCase):
             self.assertEqual(data.shape[1], len(CHANNELS))
 
 
+class ConversionAccountingTests(unittest.TestCase):
+    """The pre-chain conversion must emit the rate ratio, to the sample.
+
+    The defect these pin down: the converter holds output back until it can
+    emit a whole output frame, and at the end of the source that hold-back was
+    never asked for, so it was dropped with the stream. On the committed run
+    record ``results/live_demo_20260913-105725`` - 3732 blocks of 25 samples at
+    500 Hz, converted to 128 Hz - that was 203 samples, 1.585 s of EEG the chain
+    never saw, which is 16x the 100 ms misalignment
+    ``documents/where_the_demo_stands.md`` section 3.4 costs the decision.
+    """
+
+    def _exhaust(self, blocks, stamps, **kwargs):
+        """Drive `chunks` the way a session does: to the end, never breaking."""
+
+        class StubAcquire:
+            stopped = False
+            pending_samples = 0
+            max_lag = 0.0
+            gaps = 0
+            max_gap = 0.0
+            max_gap_seconds = 0.0
+
+            def __init__(self, pairs):
+                self._pairs = list(pairs)
+
+            def close(self):
+                self._pairs = []
+
+            def read(self, timeout=None):
+                if not self._pairs:
+                    raise TimeoutError("no more blocks")
+                return self._pairs.pop(0)
+
+        pairs = list(zip(blocks, stamps))
+        stream = FakeStream(names=CHANNELS, nchan=len(CHANNELS))
+        source = AntStreamSource(stream, channels=CHANNELS, sfreq=RATE, **kwargs)
+        source.acquire = StubAcquire(pairs)
+        # Not pre-set, and never set below: an early stop would tear the
+        # generator down before its tail, which is the defect under test.
+        delivered = [item for item in source.chunks(threading.Event())]
+        return source, delivered
+
+    def test_the_conversion_emits_the_rate_ratio_to_the_sample(self):
+        # The recorded run's geometry, exactly: 3732 blocks of 25 samples at
+        # 500 Hz, continuous stamps, converted to the model's 128 Hz.
+        blocks, block = 3732, 25
+        total = blocks * block
+        rows = np.zeros((block, len(CHANNELS)))
+        stamps = [
+            (index * block + np.arange(block)) / RATE
+            for index in range(blocks)
+        ]
+        source, delivered = self._exhaust([rows] * blocks, stamps,
+                                          pre_resample_sfreq=128.0)
+
+        emitted = sum(samples.shape[0] for _, samples, _ in delivered)
+        expected = int(round(total * 128.0 / RATE))
+        self.assertEqual(
+            emitted, expected,
+            f"the chain was fed {emitted} samples where the rate ratio "
+            f"requires {expected} ({total} at {RATE:g} Hz -> 128 Hz): "
+            f"{expected - emitted} samples were dropped",
+        )
+        # The committed record's own numbers, so a regression is recognised as
+        # the same defect and not a new one.
+        self.assertEqual(expected, 23885)
+        self.assertEqual(source.transport.pre_resampled_samples, expected)
+
+    def test_the_delivered_grid_is_continuous_across_the_converted_boundary(self):
+        # Sample n must sit at exactly n / rate - that invariant is what lets
+        # the audio anchor and the reference envelopes stay on one axis. A tail
+        # appended on a fresh anchor, or a flush that restarted the index, shows
+        # up here as a step in the grid.
+        blocks, block = 120, 25
+        rows = np.zeros((block, len(CHANNELS)))
+        stamps = [
+            (index * block + np.arange(block)) / RATE for index in range(blocks)
+        ]
+        _, delivered = self._exhaust([rows] * blocks, stamps,
+                                     pre_resample_sfreq=128.0)
+
+        times = np.concatenate([times for _, _, times in delivered])
+        emitted = times.size
+        self.assertGreater(emitted, 0, "the conversion delivered nothing")
+        expected = int(round(blocks * block * 128.0 / RATE))
+        self.assertEqual(emitted, expected)
+        self.assertEqual(times[0], 0.0)
+        np.testing.assert_allclose(
+            times, np.arange(emitted) / 128.0, rtol=0.0, atol=1e-9
+        )
+        self.assertAlmostEqual(
+            float(times[-1]), (emitted - 1) / 128.0, places=9
+        )
+
+    def test_a_source_shorter_than_the_resampler_delay_still_delivers(self):
+        # 3699 input samples is below HQ's 3700-sample filter delay, so *every*
+        # output sample is in the buffer when the source ends. The stream must
+        # still deliver them: before the fix this delivered nothing at all, and
+        # the ratio would have read as zero rather than as a small deficit.
+        total, block = 3699, 25
+        rows = np.zeros((block, len(CHANNELS)))
+        stamps = []
+        fed = 0
+        while fed < total:
+            size = min(block, total - fed)
+            stamps.append((fed + np.arange(size)) / RATE)
+            fed += size
+        source, delivered = self._exhaust(
+            [np.zeros((part.size, len(CHANNELS))) for part in stamps], stamps,
+            pre_resample_sfreq=128.0,
+        )
+        emitted = sum(samples.shape[0] for _, samples, _ in delivered)
+        expected = int(round(total * 128.0 / RATE))
+        self.assertEqual(emitted, expected)
+        self.assertEqual(source.transport.pre_resampled_deficit_samples, 0)
+
+
 class ContractTests(unittest.TestCase):
     """Pre-flight accepts the recorded contract and refuses each wrong assertion."""
 

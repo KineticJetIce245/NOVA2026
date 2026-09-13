@@ -149,6 +149,10 @@ class Resampler:
         SoXR's internal processing latency is not compensated, matching the
         dataproc prototype. Call ``reset()`` before a new segment.
 
+        A segment must be closed with :meth:`drain`, because the buffered output
+        is otherwise never asked for and the total falls short of the rate ratio
+        by the preset's whole filter delay.
+
     Attributes:
         quality: The preset actually used.
         startup_delay_seconds: Measured delay before the first output.
@@ -272,14 +276,23 @@ class Resampler:
         self.startup_delay_seconds = delay
         self.max_delay_seconds = budget
         # ResampleStream keeps its own history between resample_chunk calls.
-        self._resampler = soxr.ResampleStream(
+        self._n_channels = n_channels
+        self._resampler = self._new_stream()
+        self._ended = False
+        self.reset()
+
+    def _new_stream(self):
+        """Build a fresh SoXR stream for the configured geometry and preset."""
+
+        import soxr
+
+        return soxr.ResampleStream(
             in_rate=self._in_sfreq,
             out_rate=self._out_sfreq,
-            num_channels=n_channels,
+            num_channels=self._n_channels,
             dtype="float64",
-            quality=chosen,
+            quality=self.quality,
         )
-        self.reset()
 
     @staticmethod
     def _report_selection(
@@ -348,6 +361,11 @@ class Resampler:
                 np.empty((0, self._channels), dtype=np.float64),
                 np.empty(0, dtype=np.float64),
             )
+        if self._ended:
+            raise RuntimeError(
+                "This Resampler was ended by drain(); call reset() before "
+                "feeding another segment."
+            )
 
         # Remember the first real time so output samples get a time grid.
         if self._anchor is None:
@@ -360,7 +378,39 @@ class Resampler:
             np.ascontiguousarray(data, dtype=np.float64),
             last=False,
         )
-        output = np.asarray(output, dtype=np.float64)
+        return self._grid(np.asarray(output, dtype=np.float64))
+
+    def drain(self) -> tuple[np.ndarray, np.ndarray]:
+        """Emit the samples SoXR is still holding, and end the stream.
+
+        Every :meth:`__call__` passes ``last=False``, which tells SoXR to keep
+        buffering output it may still refine. At the end of the source nothing
+        else is coming, so that buffer has to be asked for explicitly - without
+        this call it is silently dropped. The dropped count is not a rounding
+        residue: it is the preset's own filter delay, about 1.9 s of output for
+        ``LQ`` and 7.4 s for ``HQ`` at 500 -> 128 Hz.
+
+        The output grid is continuous with the samples already returned, and the
+        drained count completes the rate ratio exactly: after ``n`` input
+        samples the total output is ``round(n * out_sfreq / in_sfreq)``.
+
+        Idempotent: a second call returns empty rather than raising. The stream
+        is then ended, so call :meth:`reset` before feeding another segment.
+        """
+
+        if self._ended:
+            return (
+                np.empty((0, self._channels), dtype=np.float64),
+                np.empty(0, dtype=np.float64),
+            )
+        output = self._resampler.resample_chunk(
+            np.zeros((0, self._channels), dtype=np.float64), last=True
+        )
+        self._ended = True
+        return self._grid(np.asarray(output, dtype=np.float64))
+
+    def _grid(self, output: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Put one resampled block on the output rate's uniform time grid."""
 
         # Timestamps follow a uniform grid at the output rate.
         if self._anchor is None:
@@ -375,9 +425,16 @@ class Resampler:
         return output, output_times
 
     def reset(self) -> None:
-        """Clear internal history without flushing an end-of-stream tail."""
+        """Clear internal history without flushing an end-of-stream tail.
 
-        self._resampler.clear()
+        The stream is rebuilt rather than only cleared: SoXR refuses any input
+        after a ``last=True`` chunk, so a cleared stream that was already
+        drained could not be fed again, and this stage is documented as
+        reusable across segments.
+        """
+
+        self._resampler = self._new_stream()
+        self._ended = False
         self._anchor: float | None = None
         self._output_index = 0
         self.output_samples = 0

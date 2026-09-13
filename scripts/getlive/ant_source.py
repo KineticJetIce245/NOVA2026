@@ -79,6 +79,12 @@ class TransportDiagnostics:
     recovery_events: list = field(default_factory=list)
     pre_resampled_to_hz: float | None = None
     pre_resampled_samples: int = 0
+    # What the emitted count should be, and the shortfall against it. A
+    # conversion that is sample-exact leaves the deficit at zero; a non-zero
+    # value means samples the chain never saw, so it is recorded rather than
+    # left for a reader to recompute from `samples` and the two rates.
+    pre_resampled_expected_samples: int | None = None
+    pre_resampled_deficit_samples: int | None = None
 
     def to_dict(self) -> dict:
         """A JSON-safe copy, shaped for the run record."""
@@ -109,6 +115,8 @@ class TransportDiagnostics:
             "timebase_anchor_rate_hz": self.timebase_anchor_rate_hz,
             "pre_resampled_to_hz": self.pre_resampled_to_hz,
             "pre_resampled_samples": int(self.pre_resampled_samples),
+            "pre_resampled_expected_samples": self.pre_resampled_expected_samples,
+            "pre_resampled_deficit_samples": self.pre_resampled_deficit_samples,
             "recovery_events": [dict(event) for event in self.recovery_events],
         }
 
@@ -204,6 +212,12 @@ class AntStreamSource:
         self.contract: ChannelContract = ChannelContract(tuple(stream.ch_names), channels)
         self.stream = stream
         self.sample_rate = float(sfreq)
+        # The source's own rate, pinned. ``sample_rate`` is deliberately
+        # reassigned after construction by callers whose session reads its
+        # settings off the source (``scripts/auditory_ui/live.py``: the session
+        # is told the rate the adapter *delivers*), so arithmetic that means
+        # "what the transport delivered" must not read it back.
+        self._source_rate = float(sfreq)
         self.channel_names = channels
         self.reference = str(reference)
         self.upstream_processing = str(upstream_processing)
@@ -369,6 +383,15 @@ class AntStreamSource:
         finally:
             if diagnostics.ended == "running":
                 diagnostics.ended = "stopped"
+            # The converter holds output back until it has enough to emit a whole
+            # frame (see `_convert`), so the samples still inside it at the end of
+            # the source are *real samples*, not a rounding residue: they are the
+            # preset's filter delay, which at 500 -> 128 Hz is about 7.4 s for HQ.
+            # Asking for them here is what makes the emitted count match the rate
+            # ratio; without it they were dropped when the stream was torn down.
+            tail = self._drain()
+            if tail is not None:
+                yield tail
             self._close()
 
     def close(self) -> None:
@@ -425,6 +448,38 @@ class AntStreamSource:
         self.diagnostics.pre_resampled_to_hz = rate
         self.diagnostics.pre_resampled_samples += count
         return data, placed
+
+    def _drain(self) -> tuple[float, np.ndarray, np.ndarray] | None:
+        """Deliver the tail the converter is still holding, and report the count.
+
+        Called once, at the end of the source. The samples come out on the same
+        grid as the rest of the stream - sample *n* sits at ``n / rate`` - so the
+        audio anchor and the reference envelopes stay on one axis, and the run
+        record states the accounting rather than leaving it to be inferred.
+        """
+
+        if self._converter is None:
+            return None
+        data, _ = self._converter.drain()
+        data = np.asarray(data, dtype=np.float64)
+        count = int(data.shape[0])
+        rate = float(self.pre_resample_sfreq)
+        placed = (self._emitted + np.arange(count, dtype=np.float64)) / rate
+        self._emitted += count
+        self.diagnostics.pre_resampled_samples += count
+        # What the emitted count should be, given what the transport delivered:
+        # the source's own sample count, mapped through the true rate ratio. A
+        # non-zero residual is a fault in the path, not a rounding note - the
+        # conversion is sample-exact, so the two must agree to the sample.
+        expected = int(
+            round(self.diagnostics.samples * rate / self._source_rate)
+        )
+        self.diagnostics.pre_resampled_expected_samples = expected
+        self.diagnostics.pre_resampled_deficit_samples = expected - self._emitted
+        if count == 0:
+            return None
+        self.end = float(placed[-1] + 1.0 / rate)
+        return self.end, data, placed
 
     def _record(
         self, data: np.ndarray, stamps: np.ndarray, placed: np.ndarray
