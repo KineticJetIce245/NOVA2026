@@ -113,6 +113,19 @@ CAP_EEG_CHANNELS = (
 )
 
 # All 64 electrodes in pin order; EOG is connector 1 channel 32.
+EE511_EEG_CHANNELS = (
+    "Fp1", "Fp2", "F9", "F7", "F3", "Fz", "F4", "F8", "F10", "M1",
+    "T7", "C3", "C4", "T8", "M2", "Cz", "P7", "P3", "Pz", "P4",
+    "P8", "Oz", "O1", "O2",
+)
+"""The 24 electrodes on the real headset, in datasheet order (plan section 3.11).
+
+This is the bring-up rig's montage, not the CA-208 datasheet profile above: it is
+what the live and streaming tests publish, deliberately in a non-chain order so
+that selecting the model's 20 electrodes *by name* is what gets exercised. It
+lives here rather than in a test because a rehearsal publisher needs it too.
+"""
+
 CAP_CHANNELS = CAP_EEG_CHANNELS[:31] + (CAP_EOG_CHANNEL,) + CAP_EEG_CHANNELS[31:]
 
 # Electrodes the offline model contract does not use (see the legacy prototype

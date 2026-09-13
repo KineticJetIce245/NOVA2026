@@ -62,6 +62,8 @@ from scripts.getlive.live_source import (
     unit_exponent,
 )
 
+from scripts.getlive.cap import EE511_EEG_CHANNELS  # noqa: E402
+
 MODEL = Path(__file__).resolve().parents[2] / "models" / "auditory_kuleuven_live20.npz"
 
 MISSING_MODEL = (
@@ -75,12 +77,11 @@ MISSING_MODEL = (
 RATE = 500.0
 """The rig's measured rate (plan section 3.11)."""
 
-CAP = (
-    "Fp1", "Fp2", "F9", "F7", "F3", "Fz", "F4", "F8", "F10", "M1",
-    "T7", "C3", "C4", "T8", "M2", "Cz", "P7", "P3", "Pz", "P4",
-    "P8", "Oz", "O1", "O2",
-)
-"""The 24 electrodes on the real headset, in datasheet order (section 3.11)."""
+CAP = EE511_EEG_CHANNELS
+"""The 24 electrodes on the real headset, in datasheet order (section 3.11).
+
+Owned by :mod:`scripts.getlive.cap` now, so the synthetic publisher announces the
+same montage this test drives rather than a second copy of it."""
 
 
 def load_model():
