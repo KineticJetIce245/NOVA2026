@@ -49,6 +49,7 @@ import numpy as np
 
 from nova2026.streaming.offload import TaskOffloader
 
+from .config import MIN_MARGIN
 from .controller import AttentionController
 from .data import AttentionEstimate
 from .sources import AcquisitionSource, ReferenceEnvelopes
@@ -84,6 +85,16 @@ class RunPolicy:
         exclude_channels: Channels known to be dead, excluded from the census.
         source_unit_exponent: Power of ten of the source unit relative to volts
             (``-6`` for microvolts, ``0`` for the ANT amplifier).
+        margin: Correlation-difference threshold the controller commits on. The
+            default is :data:`~nova2026.auditory.config.MIN_MARGIN` (0.5), so a
+            caller that says nothing gets exactly the value it got before this
+            field existed. It is a run-policy choice, not a constant to edit:
+            step 9.6 measured (``results/aad_margin_calibration_*.md``) that 0.5
+            covers 0.15% of frames at the saved model's 5 s window, and that 0.05
+            covers 52.4% at balanced accuracy 0.688 on the decided frames. The
+            demo therefore selects
+            :data:`~nova2026.auditory.config.CALIBRATED_MARGIN` **explicitly**,
+            and the run record states the effective value (decision D-29).
         warmup_seconds: Session seconds published as ``unavailable`` before the
             decision path starts (plan section 3.5: warm up, never ``uncertain``).
         frame_seconds: Cadence of published state, in session seconds.
@@ -93,6 +104,7 @@ class RunPolicy:
     max_bad_channels: int
     exclude_channels: tuple[str, ...] = ()
     source_unit_exponent: int = -6
+    margin: float = MIN_MARGIN
     warmup_seconds: float = 2.0
     frame_seconds: float = 0.25
 
@@ -107,6 +119,11 @@ class RunPolicy:
             raise ValueError("max_bad_channels must be an explicit non-negative integer.")
         if isinstance(self.exclude_channels, str):
             raise TypeError("exclude_channels must be an iterable of labels.")
+        if isinstance(self.margin, bool) or not isinstance(self.margin, (int, float)):
+            raise TypeError("margin must be a number.")
+        if not math.isfinite(self.margin) or self.margin <= 0:
+            raise ValueError("margin must be finite and positive.")
+        object.__setattr__(self, "margin", float(self.margin))
         for name in ("warmup_seconds", "frame_seconds"):
             value = getattr(self, name)
             if not math.isfinite(value) or value <= 0:
@@ -121,6 +138,7 @@ class RunPolicy:
             "max_bad_channels": self.max_bad_channels,
             "exclude_channels": list(self.exclude_channels),
             "source_unit_exponent": self.source_unit_exponent,
+            "margin": self.margin,
             "warmup_seconds": self.warmup_seconds,
             "frame_seconds": self.frame_seconds,
         }
@@ -164,6 +182,10 @@ class SessionFrame:
     window_end: float | None
     evidence_count: int
     media_time_s: float | None
+    bad_channels: tuple[str, ...] = ()
+    """Channels the chain's census flagged in the newest window. Evidence, not a
+    rejection: ``artifact`` is judged from it under a relaxed quality policy,
+    where the reason set stays empty (plan section 3.17 item 6)."""
 
     def to_dict(self) -> dict:
         """A JSON-safe copy, for a log or a run record."""
@@ -177,6 +199,7 @@ class SessionFrame:
             "gain_b_db": self.gain_b_db,
             "quality": self.quality,
             "artifact": self.artifact,
+            "bad_channels": list(self.bad_channels),
             "reasons": list(self.reasons),
             "window_end": self.window_end,
             "evidence_count": self.evidence_count,
@@ -223,6 +246,23 @@ class SessionSummary:
     failed: int = 0
     frames: int = 0
     decisions: dict = field(default_factory=dict)
+    decision_stream: list = field(default_factory=list)
+    """``[(seconds, "A"|"B")]``, one entry per window the controller committed on.
+
+    The seconds are offset to session start and stamped with the window's own
+    evidence end, so a report can compare them with a label series without
+    re-deriving when each window ended. Entries that the controller later
+    abandoned are not removed: this is what was published, in order.
+    """
+
+    bad_channel_census: dict = field(default_factory=dict)
+    """``{channel: windows}`` for every channel the census flagged at least once.
+
+    Recorded rather than merely counted: case C7 of the plan's perturbation
+    matrix asks a bad channel to be *traceable* in the run record, and a single
+    "artifact" boolean cannot say which electrode it was.
+    """
+
     failure: dict | None = None
 
     def to_dict(self) -> dict:
@@ -246,6 +286,8 @@ class SessionSummary:
             "failed": self.failed,
             "frames": self.frames,
             "decisions": dict(self.decisions),
+            "decision_stream": [[time_s, word] for time_s, word in self.decision_stream],
+            "bad_channel_census": dict(self.bad_channel_census),
             "failure": dict(self.failure) if self.failure else None,
         }
 
@@ -262,7 +304,11 @@ class AttentionSession:
             round.
         references: The two verified candidate envelopes.
         policy: The explicit :class:`RunPolicy` for this run.
-        controller: Decision controller; a default one is built otherwise.
+        controller: Decision controller; a default one is built otherwise, with
+            its ``margin`` taken from the policy rather than from the
+            constructor's own default (decision D-29). Passing a controller
+            keeps winning, and that controller's own margin is then the
+            effective one.
         offload_workers: Scoring workers. One is the plan's decision; the
             parameter exists so a test can prove the queue is the bottleneck.
         offload_capacity: Queued windows before the overflow policy applies.
@@ -299,7 +345,11 @@ class AttentionSession:
         self.decoder = decoder
         self.references = references
         self.policy = policy
-        self.controller = controller if controller is not None else AttentionController()
+        self.controller = (
+            controller
+            if controller is not None
+            else AttentionController(margin=policy.margin)
+        )
         self.offload_workers = int(offload_workers)
         self.offload_capacity = int(offload_capacity)
         self._clock = clock
@@ -352,6 +402,9 @@ class AttentionSession:
         self.evidence_end: float | None = None
         self.quality: float | None = None
         self.artifact: bool | None = None
+        self.bad_channels: tuple[str, ...] = ()
+        self.bad_channel_census: dict[str, int] = {}
+        self.decisions: list[tuple[float, str]] = []
 
     # ------------------------------------------------------------------ helpers
 
@@ -389,11 +442,29 @@ class AttentionSession:
             raise ValueError("Insufficient history for decoder lags.")
         return float(window.timestamps[index])
 
-    def _verdict(self, aligned) -> tuple[float, bool]:
-        """Quality and artifact verdicts for the newest window, from its reasons."""
+    def _verdict(self, aligned) -> tuple[float, bool, tuple[str, ...]]:
+        """Quality and artifact verdicts for the newest window, from its evidence.
+
+        Two independent sources are read, because either alone is incomplete:
+
+        ``reasons``
+            The chain's own rejection reasons. Under the relaxed quality policy
+            (``check_channels=False``) the monitor's ``reasons()`` is empty by
+            construction, so this source says ``quality == 1.0`` even for a dry
+            cap (plan section 3.17 item 6).
+        ``bad_channels``
+            The channel census, which the policy deliberately does not turn into
+            a rejection. A dead electrode is therefore invisible in ``reasons``
+            but present here, and judging ``artifact`` from the census is what
+            makes the published ``signal_quality`` honest.
+
+        The census never makes a window invalid: that would restore the mid-run
+        halt the relaxed policy exists to avoid, and the plan forbids it.
+        """
 
         flagged = bool(ARTIFACT_REASONS.intersection(aligned.reasons))
-        return (0.0 if flagged else 1.0, flagged)
+        bad = tuple(aligned.bad_channels)
+        return (0.0 if flagged or bad else 1.0, flagged or bool(bad), bad)
 
     # --------------------------------------------------------------------- run
 
@@ -476,6 +547,8 @@ class AttentionSession:
             failed=self.failed,
             frames=self.frames,
             decisions=dict(self._census),
+            decision_stream=list(self.decisions),
+            bad_channel_census=dict(self.bad_channel_census),
             failure=(
                 {"code": failure.code, "timestamp": failure.timestamp, "detail": failure.detail}
                 if failure is not None
@@ -490,7 +563,9 @@ class AttentionSession:
 
         aligned = self.references.align(window, float(self.source.audio_start))
         self.windows += 1
-        self.quality, self.artifact = self._verdict(aligned)
+        self.quality, self.artifact, self.bad_channels = self._verdict(aligned)
+        for name in self.bad_channels:
+            self.bad_channel_census[name] = self.bad_channel_census.get(name, 0) + 1
         if not aligned.valid:
             self.invalid += 1
             # The chain rejected this window: it must not cost the worker time,
@@ -587,6 +662,19 @@ class AttentionSession:
             if scores is not None and np.all(np.isfinite(scores)) and scores.shape == (2,):
                 self.scores = (float(scores[0]), float(scores[1]))
             self.reasons = tuple(estimate.reasons)
+            # What the controller answers *now*, for this estimate's instant. It
+            # is the decision the very next frame publishes, so a report can count
+            # one decision per window without re-running the controller - the
+            # arithmetic that produced it is `AttentionController.update`, and a
+            # second implementation of it in a report would be a second truth.
+            choice = self.controller.choice(self._now)
+            if choice is not None:
+                self.decisions.append(
+                    (
+                        float(estimate.evidence_end) - float(self.source.start),
+                        "A" if int(choice) == 0 else "B",
+                    )
+                )
             # Evidence time never moves backwards. A failure report carries the
             # current instant, which can be later than the evidence it replaces;
             # a stale window arriving from the queue must not rewind the frame's
@@ -637,6 +725,7 @@ class AttentionSession:
                 gain_b_db=attenuation_db(float(gains[1])),
                 quality=self.quality,
                 artifact=self.artifact,
+                bad_channels=tuple(self.bad_channels),
                 reasons=tuple(reasons),
                 window_end=(
                     None

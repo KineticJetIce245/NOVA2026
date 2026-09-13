@@ -109,6 +109,17 @@ results/*
 !results/auditory_media_*.json
 !results/media_mutations.json
 
+# Exception: step 10's one-command demo run records. One record is the whole of
+# V1-V5's evidence: the operator's log, the effective run policy and margin
+# (decision D-29), the trial and model identity, the session summary with the
+# bad-channel census, the packet census, the gain gate's clause verdicts and the
+# replay metrics. It holds measurements, decision words and channel names - no
+# signal, no audio, and nothing that identifies a participant. The packet stream
+# itself, the rendered dashboard and the rendered WAV stay out of git under
+# output/auditory_ui/.
+!results/demo_run_*.json
+!results/demo_run_*.md
+
 # macOS metadata. On exFAT (this repository lives on one) macOS cannot store
 # extended attributes, so it writes an AppleDouble sidecar next to every file it
 # creates: "._relay.py" beside "relay.py". Those are metadata, not content, and

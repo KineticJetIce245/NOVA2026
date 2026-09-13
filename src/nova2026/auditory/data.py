@@ -59,7 +59,17 @@ class AuditoryTrial:
 
 
 class AuditoryWindow:
-    """Aligned inference data without ground-truth labels."""
+    """Aligned inference data without ground-truth labels.
+
+    ``bad_channels`` is the chain's own channel census for this window, carried
+    across from :class:`~nova2026.streaming.window.EEGWindow` unchanged. It
+    exists because the census is evidence *beside* the quality policy (plan
+    section 3.17 item 6): with ``check_channels=False`` the monitor's
+    ``reasons()`` is empty by construction, so a dead electrode would otherwise
+    disappear from the published ``signal_quality`` packet entirely. It is
+    reported, never used to reject a window - rejecting would bring back the
+    mid-run halt the relaxed policy exists to avoid.
+    """
 
     def __init__(
         self,
@@ -71,6 +81,7 @@ class AuditoryWindow:
         reasons=(),
         contract=None,
         segment=0,
+        bad_channels=(),
     ):
         self.eeg = np.asarray(eeg)
         self.envelopes = np.asarray(envelopes)
@@ -80,6 +91,7 @@ class AuditoryWindow:
         self.reasons = tuple(reasons)
         self.contract = contract
         self.segment = segment
+        self.bad_channels = tuple(str(name) for name in bad_channels)
 
 
 class AttentionEstimate:

@@ -18,7 +18,7 @@ from threading import Event
 
 import numpy as np
 
-from nova2026.auditory.config import AuditoryConfig
+from nova2026.auditory.config import CALIBRATED_MARGIN, MIN_MARGIN, AuditoryConfig
 from nova2026.auditory.controller import AttentionController
 from nova2026.auditory.envelopes import EnvelopeVerificationError
 from nova2026.auditory.producer import AttentionProducer
@@ -132,6 +132,193 @@ class PolicyTests(unittest.TestCase):
             RunPolicy(check_channels=False, max_bad_channels=0, exclude_channels="Cz")
         with self.assertRaises(TypeError):
             RunPolicy(check_channels="no", max_bad_channels=0)
+        for bad in (0.0, -0.05, float("nan"), float("inf"), True):
+            with self.assertRaises((ValueError, TypeError)):
+                RunPolicy(check_channels=False, max_bad_channels=0, margin=bad)
+
+
+class MarginPolicyTests(FixtureCase):
+    """The margin is a policy field, and leaving it out must change nothing.
+
+    Decision D-29 wires the calibrated 0.05 operating point into the demo. The
+    risk that wiring creates is the silent one: a session that was never asked
+    for a calibrated margin quietly getting one. These tests pin the default at
+    :data:`MIN_MARGIN` and prove the session reads the *policy*, not a constant.
+    """
+
+    def test_to_dict_records_the_effective_margin(self):
+        policy = RunPolicy(check_channels=False, max_bad_channels=0)
+        self.assertEqual(policy.margin, MIN_MARGIN)
+        self.assertEqual(policy.to_dict()["margin"], MIN_MARGIN)
+        self.assertEqual(
+            RunPolicy(
+                check_channels=False, max_bad_channels=0, margin=CALIBRATED_MARGIN
+            ).to_dict()["margin"],
+            CALIBRATED_MARGIN,
+        )
+
+    def test_a_session_without_a_margin_keeps_the_documented_default(self):
+        session = self.session()
+        self.assertEqual(session.controller.margin, MIN_MARGIN)
+        self.assertEqual(session.policy.to_dict()["margin"], MIN_MARGIN)
+        # The default controller path is what D-29 wired, so assert the number
+        # came from the policy: build one with a calibrated policy and read it.
+        self.assertEqual(
+            self.session(
+                policy=RunPolicy(
+                    check_channels=False, max_bad_channels=0, margin=CALIBRATED_MARGIN
+                )
+            ).policy.to_dict()["margin"],
+            CALIBRATED_MARGIN,
+        )
+        frames, summary = self.run_session(session)
+        self.assertTrue(frames)
+        self.assertEqual(summary.policy["margin"], MIN_MARGIN)
+
+    def test_the_policy_margin_reaches_the_controller(self):
+        session = self.session(
+            policy=RunPolicy(
+                check_channels=False, max_bad_channels=0, margin=CALIBRATED_MARGIN
+            )
+        )
+        self.assertEqual(session.controller.margin, CALIBRATED_MARGIN)
+        frames, summary = self.run_session(session)
+        self.assertTrue(frames)
+        self.assertEqual(summary.policy["margin"], CALIBRATED_MARGIN)
+
+    def test_an_explicit_controller_still_wins(self):
+        controller = AttentionController(margin=0.25)
+        session = self.session(
+            policy=RunPolicy(
+                check_channels=False, max_bad_channels=0, margin=CALIBRATED_MARGIN
+            ),
+            controller=controller,
+        )
+        self.assertIs(session.controller, controller)
+        self.assertEqual(session.controller.margin, 0.25)
+
+    def test_a_lower_margin_decides_more_frames(self):
+        """The calibration's own claim, on controlled evidence.
+
+        The same trial, the same windows, three margins and one fixed score
+        difference: what the margin buys is the number of committed frames. This
+        is a plumbing check, not an accuracy claim - a real trial's scores are
+        not a constant, which is exactly why the operating point is calibrated on
+        held-out data and not here.
+        """
+
+        class FixedGapModel:
+            """A decoder whose two correlations always differ by the same amount."""
+
+            def __init__(self, model, gap):
+                self._model = model
+                self.gap = float(gap)
+
+            def __getattr__(self, name):
+                return getattr(self._model, name)
+
+            def score(self, window):
+                return np.array([0.6, 0.6 - self.gap])
+
+        # The fixed gap is 0.05, between the calibrated margin and the documented
+        # default: it must commit at 0.05 and must not at 0.5. Half a margin is
+        # the smallest gap that is unambiguously one side or the other.
+        counts = {}
+        for margin in (0.05, 0.5):
+            frames, _ = self.run_session(
+                self.session(
+                    model=FixedGapModel(self.model, 0.05),
+                    policy=RunPolicy(
+                        check_channels=False, max_bad_channels=0, margin=margin
+                    ),
+                )
+            )
+            counts[margin] = sum(1 for frame in frames if frame.decision in ("A", "B"))
+        self.assertGreater(counts[0.05], 0, f"0.05 must commit on a 0.05 gap; {counts}")
+        self.assertEqual(counts[0.5], 0, f"0.5 must not commit on a 0.05 gap; {counts}")
+
+
+class BadChannelEvidenceTests(FixtureCase):
+    """A dead electrode must be visible even when the policy will not reject it.
+
+    Plan section 3.17 item 6: with ``check_channels=False`` the monitor's
+    ``reasons()`` is empty *by construction*, so a dry cap would read
+    ``quality=1.0, artifact=false``. The census is carried instead, and the fix
+    must not be a new rejection - the relaxed policy exists precisely so a faulty
+    channel cannot stop the run.
+    """
+
+    @staticmethod
+    def dead_channel_trial(trial, name: str):
+        """The fixture with one electrode held at a constant value."""
+
+        index = trial.channel_names.index(name)
+        trial.eeg = trial.eeg.copy()
+        trial.eeg[:, index] = 0.5
+        return trial
+
+    def test_a_dead_channel_is_named_and_marks_the_frame(self):
+        trial = self.dead_channel_trial(self.trial, "F3")
+        frames, summary = self.run_session(self.session(trial=trial))
+        flagged = [frame for frame in frames if frame.bad_channels]
+        self.assertTrue(flagged, "a constant electrode must appear in the census")
+        for frame in flagged:
+            self.assertEqual(frame.bad_channels, ("F3",))
+            self.assertTrue(frame.artifact)
+            self.assertEqual(frame.quality, 0.0)
+        # The census counts *windows*; many frames share one window's verdict, so
+        # the two counts are only equal once the frames are deduplicated by the
+        # evidence they were published with.
+        window_verdicts = {frame.evidence_count: frame for frame in frames}
+        self.assertEqual(
+            summary.bad_channel_census.get("F3"),
+            sum(1 for frame in window_verdicts.values() if frame.bad_channels),
+        )
+
+    def test_the_relaxed_policy_still_does_not_reject_the_window(self):
+        """The fix must not re-introduce the halt the relaxed policy avoids."""
+
+        trial = self.dead_channel_trial(self.trial, "F3")
+        frames, summary = self.run_session(self.session(trial=trial))
+        self.assertIsNone(summary.failure)
+        self.assertTrue(frames)
+        self.assertLess(
+            summary.invalid,
+            summary.windows,
+            f"rejections must be the exception, not the rule: {summary.invalid} "
+            f"of {summary.windows}",
+        )
+        self.assertGreater(summary.scored, 0)
+        for frame in frames:
+            self.assertNotIn("flatline", frame.reasons)
+        # And the census is reported, not merely counted. The flatline detector
+        # cannot report before half a second of unchanged signal has been seen,
+        # so the first flagged window must end at or after 0.5 s: this is the
+        # boundary case, not "some channel was flagged somewhere".
+        self.assertGreater(summary.bad_channel_census.get("F3", 0), 0)
+        windows = sorted(
+            {
+                frame.window_end
+                for frame in frames
+                if frame.bad_channels and frame.window_end is not None
+            }
+        )
+        self.assertTrue(windows)
+        self.assertGreaterEqual(windows[0], 0.5)
+        self.assertIn(
+            "F3", {name for frame in frames for name in frame.bad_channels}
+        )
+
+    def test_a_clean_run_flags_nothing(self):
+        frames, summary = self.run_session(self.session())
+        self.assertEqual(summary.bad_channel_census, {})
+        self.assertTrue(frames)
+        judged = [frame for frame in frames if frame.quality is not None]
+        self.assertTrue(judged, "at least one window must have been judged")
+        for frame in judged:
+            self.assertEqual(frame.bad_channels, ())
+            self.assertFalse(frame.artifact)
+            self.assertEqual(frame.quality, 1.0)
 
 
 class EnvelopeTests(FixtureCase):
@@ -306,7 +493,19 @@ class SessionTests(FixtureCase):
 
         self.run_session(self.session(model=RecordingModel(self.model, delay=0.0)))
         self.assertFalse(seen["labels"])
-        self.assertEqual(seen["keys"], ["available_at", "contract", "eeg", "envelopes", "reasons", "segment", "timestamps", "valid"])
+        # The decoder's input is the window, and this is everything on it. The
+        # census travels with the window (it is what `signal_quality` is judged
+        # from when the quality policy will not reject), and it is chain evidence
+        # like `reasons` - not truth. The assertion is deliberately exhaustive:
+        # a new attribute here has to be argued for, because one of them could
+        # carry the label.
+        self.assertEqual(
+            seen["keys"],
+            [
+                "available_at", "bad_channels", "contract", "eeg", "envelopes",
+                "reasons", "segment", "timestamps", "valid",
+            ],
+        )
 
     def test_the_chain_window_and_channels_come_from_the_model_contract(self):
         session = self.session()

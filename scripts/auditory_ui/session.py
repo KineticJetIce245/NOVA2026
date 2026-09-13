@@ -40,8 +40,11 @@ REPO = Path(__file__).resolve().parents[2]
 if str(REPO) not in sys.path:  # allow `python scripts/auditory_ui/session.py`
     sys.path.insert(0, str(REPO))
 
-from nova2026.auditory.config import AuditoryConfig  # noqa: E402
-from nova2026.auditory.controller import AttentionController  # noqa: E402
+from nova2026.auditory.config import (  # noqa: E402
+    CALIBRATED_MARGIN,
+    MIN_MARGIN,
+    AuditoryConfig,
+)
 from nova2026.auditory.data import AuditoryTrial, load_trial  # noqa: E402
 from nova2026.auditory.decoder import RidgeDecoder  # noqa: E402
 from nova2026.auditory.producer import AttentionProducer  # noqa: E402
@@ -86,6 +89,19 @@ def free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
         probe.bind(("127.0.0.1", 0))
         return int(probe.getsockname()[1])
+
+
+def policy_margin(margin: float | None) -> float:
+    """The effective controller margin: the flag's value, or the policy default.
+
+    ``None`` is not "zero" and not "the calibrated value" - it is "whatever the
+    documented default is", which is :data:`MIN_MARGIN`. Naming the two cases
+    separately is the whole point of decision D-29: a run that did not ask for a
+    calibrated margin must not silently get one, and a run that did must be able
+    to say so.
+    """
+
+    return float(MIN_MARGIN if margin is None else margin)
 
 
 def clip_trial(trial: AuditoryTrial, seconds: float | None) -> AuditoryTrial:
@@ -157,16 +173,19 @@ def build_session(args, trial, model, envelope_paths):
     policy = RunPolicy(
         check_channels=False if not args.strict_policy else True,
         max_bad_channels=0,
+        margin=policy_margin(args.margin),
         warmup_seconds=args.warmup,
         frame_seconds=args.frame_seconds,
     )
-    controller = AttentionController(margin=args.margin)
+    # The margin lives on the policy, so the default controller is built with it
+    # and the run record states the effective value (decision D-29). An explicit
+    # ``--controller``-style argument would win, but this CLI has none: one path,
+    # one place for the number.
     session = AttentionSession(
         source=source,
         decoder=model,
         references=references,
         policy=policy,
-        controller=controller,
     )
     return session
 
@@ -984,7 +1003,16 @@ def main(argv=None) -> int:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--seconds", type=float, default=None, help="replay only this much")
     parser.add_argument("--speed", type=float, default=1.0, help="replay speed; 1.0 is real time")
-    parser.add_argument("--margin", type=float, default=0.5)
+    parser.add_argument(
+        "--margin",
+        type=float,
+        default=None,
+        help=(
+            "controller commit margin; omit for the documented policy default "
+            f"({MIN_MARGIN}), pass {CALIBRATED_MARGIN} for the calibrated demo "
+            "operating point (decision D-29)"
+        ),
+    )
     parser.add_argument("--warmup", type=float, default=2.0)
     parser.add_argument("--frame-seconds", type=float, default=0.25)
     parser.add_argument("--idle-timeout", type=float, default=30.0)

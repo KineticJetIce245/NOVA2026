@@ -258,6 +258,11 @@ class ReferenceEnvelopes:
             reasons,
             window.contract,
             window.segment,
+            # The chain's channel census travels with the window: it is evidence
+            # the quality policy does not turn into a reason when
+            # ``check_channels`` is false, and the session's ``signal_quality``
+            # verdict has nowhere else to learn about a dead electrode.
+            getattr(window, "bad_channels", ()),
         )
 
     def coverage(self) -> tuple[tuple[float, float], tuple[float, float]]:

@@ -197,11 +197,22 @@ class AttentionProducer:
         }
 
     def _quality(self, frame) -> dict[str, Any]:
-        """Signal quality; ``null`` until a window has been judged."""
+        """Signal quality; ``null`` until a window has been judged.
+
+        ``bad_channels`` rides along because ``artifact`` alone cannot be audited:
+        under the relaxed quality policy the chain's reason set is empty for a
+        dead electrode, so the census is the only field that names it (plan
+        section 3.17 item 6). It is evidence for display and for the run record,
+        never a filter.
+        """
 
         return {
             "quality": frame.quality,
             "artifact": frame.artifact,
+            # A frame-like object from an older caller need not carry the census;
+            # absence means "no channel was flagged", which is what an empty list
+            # says. Reporting a missing attribute as a channel would be worse.
+            "bad_channels": list(getattr(frame, "bad_channels", ()) or ()),
             "simulated": self.simulated,
         }
 
