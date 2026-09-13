@@ -172,7 +172,7 @@ class RidgeDecoder:
         if window.contract is not None:
             incoming = dict(window.contract)
             model = dict(self.contract or {})
-            missing = [key for key in GATE_KEYS if key not in incoming or key not in model]
+            missing = [key for key in GATE_KEYS if (key in incoming) != (key in model)]
             if missing:
                 raise ValueError(
                     "EEG preprocessing contract does not match the model: the "
