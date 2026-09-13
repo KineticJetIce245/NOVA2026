@@ -6,6 +6,29 @@ export function formatMediaTime(value) {
   return `${String(Math.floor(hundredths / 6000)).padStart(2, '0')}:${String(Math.floor(hundredths / 100) % 60).padStart(2, '0')}.${String(hundredths % 100).padStart(2, '0')}`;
 }
 export const mediaProgress = (time, duration) => Number.isFinite(time) && Number.isFinite(duration) && duration > 0 ? Math.max(0, Math.min(1, time / duration)) : 0;
+// How far the backend's copy of the playback position may differ from this page's
+// own clock before the gate closes.
+//
+// The copy is SAMPLED, not continuous. Measured on the live route: the position
+// stamped on the attention packets advances in ~6.5 s steps while this page's clock
+// runs continuously, so a difference against that clock sawtooths from 0 to about
+// 6.5 s. A 0.75 s window is therefore tighter than the copy's own resolution, and
+// the attended-source card fell back to "No data" and recovered again several times
+// a minute on a run whose playback never actually stopped.
+//
+// The gate's job (decision D-02) is that this page never acts on a position it did
+// not report itself: the packet must carry OUR media, OUR revision and OUR session,
+// and it must not claim to be AHEAD of our clock -- the one direction a copy that
+// merely lags cannot explain. How far behind it may be is a property of the
+// transport's update cadence, and that is what LAG bounds.
+export const POSITION_AHEAD_SECONDS = .75;
+export const POSITION_LAG_SECONDS = 8;
+export function positionAccepted(mediaTime, playbackTime,
+  { ahead = POSITION_AHEAD_SECONDS, lag = POSITION_LAG_SECONDS } = {}) {
+  if (!Number.isFinite(mediaTime) || !Number.isFinite(playbackTime)) return false;
+  const difference = mediaTime - playbackTime;
+  return difference <= ahead && difference >= -lag;
+}
 export function mediaFocusReady(state, playback) {
   const latest = type => state.streams.findLast(s => s.type === type);
   const attention = latest('attention');
@@ -20,7 +43,7 @@ export function mediaFocusReady(state, playback) {
     !['desynchronized', 'invalid'].includes(sync?.values.status) &&
     attention?.sessionId === state.sessionId && attention.values.mediaId === playback.mediaId &&
     attention.values.mediaRevision === playback.revision &&
-    Number.isFinite(attention.values.mediaTime) && Math.abs(attention.values.mediaTime - playback.time) <= .75 &&
+    positionAccepted(attention.values.mediaTime, playback.time) &&
     ['A', 'B'].includes(Object.hasOwn(attention.values, 'decision') ? attention.values.decision : attention.values.attended);
 }
 export function playbackGains(state, playback, mode) {
@@ -29,8 +52,7 @@ export function playbackGains(state, playback, mode) {
   const gain = state.streams.findLast(s => s.type === 'gain');
   const attention = state.streams.findLast(s => s.type === 'attention');
   if (gain?.values.mediaTime !== attention?.values.mediaTime || gain?.sessionId !== state.sessionId || gain.values.mediaId !== playback.mediaId ||
-      gain.values.mediaRevision !== playback.revision || !Number.isFinite(gain.values.mediaTime) ||
-      Math.abs(gain.values.mediaTime - playback.time) > .75) return neutral;
+      gain.values.mediaRevision !== playback.revision || !positionAccepted(gain.values.mediaTime, playback.time)) return neutral;
   const db = [gain.values.a_db, gain.values.b_db];
   // This player attenuates only; unexpected amplification fails neutral.
   return db.every(v => Number.isFinite(v) && v >= -80 && v <= 0) ? db.map(dbToLinear) : neutral;

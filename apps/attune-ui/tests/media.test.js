@@ -28,7 +28,9 @@ test('MEDIA-F02 backend gains only when current and all failures neutral', () =>
     assert.deepEqual(playbackGains({...good,...change},playback,'attune'),[1,1]);
     assert.equal(mediaFocusReady({...good,...change},playback),false);
   }
-  for (const change of [{ready:false},{error:'desynchronized'},{playbackState:'stopped'},{time:8},{revision:3},{mediaId:'other'}])
+  // `time` here is this page's own clock. A copy that claims to be AHEAD of it is
+  // refused, because a copy that merely lags cannot explain being in the future.
+  for (const change of [{ready:false},{error:'desynchronized'},{playbackState:'stopped'},{time:5},{revision:3},{mediaId:'other'}])
     assert.deepEqual(playbackGains(good,{...playback,...change},'attune'),[1,1]);
   for (const decision of ['uncertain','unavailable',null]) {
     const s=state();s.streams[2].values.decision=decision;
@@ -108,4 +110,40 @@ test('MEDIA-F09 mixed result frames and unexpected seeking fail neutral', async 
   assert.ok(h.controller.snapshot().error);assert.deepEqual(h.applied.at(-1),[1,1]);
   await h.controller.stop();h.controller.seeking();h.controller.seeked();
   assert.equal(h.controller.snapshot().playbackState,'stopped');h.controller.dispose();
+});
+
+test('MEDIA-F10 a sampled copy that lags behind is held, not shown as no data', () => {
+  // Measured on the live route: the backend's copy of the playback position
+  // advances in ~6.5 s steps while this page's clock runs continuously, so between
+  // updates the copy is behind by up to that much. Holding the last decision is the
+  // point; falling back to "No data" several times a minute was the visible defect.
+  for (const lag of [0, 1.8, 6.5, 7.9]) {
+    const s = state();
+    s.streams[2].values.mediaTime = playback.time - lag;
+    s.streams[3].values.mediaTime = playback.time - lag;
+    assert.equal(mediaFocusReady(s, playback), true, `${lag}s behind must still be held`);
+    assert.deepEqual(playbackGains(s, playback, 'attune'), [dbToLinear(-6), 1],
+      `${lag}s behind must still attenuate the unattended source`);
+  }
+  // Past the transport's update cadence it is no longer a live copy.
+  for (const lag of [8.1, 30]) {
+    const s = state();
+    s.streams[2].values.mediaTime = playback.time - lag;
+    s.streams[3].values.mediaTime = playback.time - lag;
+    assert.equal(mediaFocusReady(s, playback), false, `${lag}s behind is not a live copy`);
+    assert.deepEqual(playbackGains(s, playback, 'attune'), [1, 1]);
+  }
+  // Ahead of this page is never explained by a copy that lags.
+  for (const lead of [0.76, 1, 5]) {
+    const s = state();
+    s.streams[2].values.mediaTime = playback.time + lead;
+    s.streams[3].values.mediaTime = playback.time + lead;
+    assert.equal(mediaFocusReady(s, playback), false, `a copy ${lead}s ahead is refused`);
+    assert.deepEqual(playbackGains(s, playback, 'attune'), [1, 1]);
+  }
+  // And the boundary itself is inclusive on both sides.
+  const edge = state();
+  edge.streams[2].values.mediaTime = playback.time - 8;
+  edge.streams[3].values.mediaTime = playback.time - 8;
+  assert.equal(mediaFocusReady(edge, playback), true);
 });
