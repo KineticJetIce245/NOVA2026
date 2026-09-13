@@ -30,13 +30,14 @@ Run from the repository root:
 
 import argparse
 import json
-import sqlite3
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import numpy as np
 from scipy.signal import correlate, correlation_lags
+
+from nova2026.streaming.recording import iter_chunks
 
 # The amplifier quantises to one LSB of 0.0078125 uV (the calibration factor in
 # the CNT header), so the two files can differ by up to half an LSB purely from
@@ -93,33 +94,29 @@ def load_cnt(path: Path) -> tuple[np.ndarray, float, dict]:
 
 
 def load_run(path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Load one recorded run from its SQLite file.
+    """Load one recorded run, through the library's own reader.
+
+    The stored dtype, the chunk order and the SQL all belong to
+    :mod:`nova2026.streaming.recording`; this only reshapes them the way the
+    comparison wants them. Reimplementing the query here is how the two readers
+    would drift apart.
 
     Args:
         path: Path to ``<run>.sqlite``.
 
     Returns:
-        data: ``(n_channels, n_samples)`` float32 array, oldest sample first.
+        data: ``(n_channels, n_samples)`` array, oldest sample first, or
+            ``(None, None, None)`` for a run that recorded nothing.
         timestamps: First LSL timestamp of every chunk.
         sizes: Sample count of every chunk.
     """
 
-    connection = sqlite3.connect(path)
-    try:
-        rows = list(
-            connection.execute(
-                "SELECT n_samples, first_timestamp, data FROM chunks ORDER BY seq"
-            )
-        )
-    finally:
-        connection.close()
-    if not rows:
+    chunks = list(iter_chunks(path))
+    if not chunks:
         return None, None, None
-    data = np.concatenate(
-        [np.frombuffer(blob, dtype="<f4").reshape(n, -1) for n, _, blob in rows], axis=0
-    ).T
-    sizes = np.array([row[0] for row in rows])
-    timestamps = np.array([row[1] for row in rows], dtype=float)
+    data = np.concatenate([chunk for chunk, _ in chunks], axis=0).T
+    sizes = np.array([chunk.shape[0] for chunk, _ in chunks])
+    timestamps = np.array([first for _, first in chunks], dtype=float)
     return data, timestamps, sizes
 
 

@@ -30,7 +30,6 @@ Run from the repository root:
 import io
 import itertools
 import json
-import sqlite3
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -40,6 +39,7 @@ from unittest import mock
 import numpy as np
 
 from nova2026.streaming import TimeBase
+from nova2026.streaming.recording import iter_chunks, iter_windows, read_metadata
 from nova2026.streaming.preflight import ChannelContract
 from scripts.getlive import live
 from scripts.getlive.cap import select_profile
@@ -195,20 +195,14 @@ def drive(run, data: np.ndarray, stamps: np.ndarray) -> int:
         return live._finish(run)
 
 
-def recorded(run) -> tuple[list[tuple], dict]:
-    """Read the run's own recording back: ``(chunks, meta)``."""
+def recorded(run) -> tuple[list[tuple[int, float]], dict]:
+    """Read the run's own recording back through the library's reader."""
 
-    connection = sqlite3.connect(run.session.recorder.path)
-    try:
-        chunks = list(
-            connection.execute(
-                "SELECT n_samples, first_timestamp FROM chunks ORDER BY seq"
-            )
-        )
-        meta = dict(connection.execute("SELECT key, value FROM meta"))
-    finally:
-        connection.close()
-    return chunks, meta
+    path = run.session.recorder.path
+    chunks = [
+        (chunk.shape[0], first) for chunk, first in iter_chunks(path)
+    ]
+    return chunks, dict(read_metadata(path))
 
 
 class RigFailureReproducedTests(unittest.TestCase):
@@ -279,8 +273,9 @@ class RigFailureReproducedTests(unittest.TestCase):
             np.asarray([row[1] for row in chunks], dtype=float), expected, atol=1e-9
         )
         self.assertEqual(int(meta["samples"]), run.stats.samples)
-        # The counters are nested inside the recorder's own stats snapshot.
-        meta_stats = json.loads(meta["stats"])
+        # The counters are nested inside the recorder's own stats snapshot, which
+        # read_metadata hands back already decoded.
+        meta_stats = meta["stats"]
         self.assertGreater(meta_stats["timebase_relocked_samples"], 0.0)
         self.assertGreater(meta_stats["timebase_relocks"], 0)
         self.assertGreater(
@@ -294,18 +289,16 @@ class RigFailureReproducedTests(unittest.TestCase):
         run = build_run(self.root, mode="grid", session="grid_win")
         drive(run, self.data, self.stamps)
 
-        connection = sqlite3.connect(run.session.recorder.path)
-        try:
-            windows = list(connection.execute("SELECT valid, reasons FROM windows"))
-        finally:
-            connection.close()
+        windows = iter_windows(run.session.recorder.path)
         self.assertEqual(len(windows), run.stats.windows)
-        self.assertEqual(sum(1 for valid, _ in windows if valid), run.stats.valid)
+        self.assertEqual(sum(1 for _, valid, _, _, _ in windows if valid), run.stats.valid)
         # A warm-up window is one that is invalid although no judge rejected it -
-        # an empty reasons list alone does not say that, because a valid window
+        # an empty reasons tuple alone does not say that, because a valid window
         # has none either.
         warmup = sum(
-            1 for valid, reasons in windows if not valid and reasons in (None, "[]")
+            1
+            for _, valid, reasons, _, _ in windows
+            if not valid and not reasons
         )
         self.assertGreater(warmup, 0, "the warm-up windows have to be recorded")
         self.assertEqual(warmup, run.stats.rejected)

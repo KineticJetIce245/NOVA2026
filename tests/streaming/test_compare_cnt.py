@@ -56,6 +56,10 @@ def write_run(run_dir: Path, data: np.ndarray, *, block: int = 50) -> Path:
         "CREATE TABLE chunks(seq INTEGER PRIMARY KEY AUTOINCREMENT,"
         "n_samples INTEGER NOT NULL, first_timestamp REAL, data BLOB NOT NULL)"
     )
+    # A recorded run always carries its metadata: the library's reader takes the
+    # stored dtype from it, so a fixture without one is not a run it can read.
+    connection.execute("CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+    connection.execute("INSERT INTO meta(key, value) VALUES ('dtype', ?)", ('"<f4"',))
     sizes = [block] * (data.shape[1] // block)
     remainder = data.shape[1] - sum(sizes)
     if remainder:
@@ -156,6 +160,12 @@ class CompareTests(unittest.TestCase):
         connection.execute(
             "CREATE TABLE chunks(seq INTEGER PRIMARY KEY AUTOINCREMENT,"
             "n_samples INTEGER NOT NULL, first_timestamp REAL, data BLOB NOT NULL)"
+        )
+        connection.execute(
+            "CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+        )
+        connection.execute(
+            "INSERT INTO meta(key, value) VALUES ('dtype', ?)", ('"<f4"',)
         )
         connection.commit()
         connection.close()
