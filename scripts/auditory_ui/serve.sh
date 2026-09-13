@@ -10,11 +10,25 @@
 # This is the POSIX twin of scripts/auditory_ui/serve.ps1, which is Windows
 # PowerShell and is the reason this file exists: the end goal is this same demo
 # running from an external drive on a Mac, where there was no entry point.
-# Anything after the flags is passed straight through to the demo, so the manual
-# command in the module's own --help works here too:
 #
-#   ./serve.sh --seconds 30 --margin 0.05 --eeg-display-channel Cz
+# WHAT IT ACCEPTS, AND WHAT IT DOES NOT. The flags below are the whole interface;
+# anything else is refused with "unknown option" rather than forwarded, so the
+# demo's own --help is not available through this script. The flags are --trial,
+# --model, --seconds, --serve-seconds, --margin, --url-timeout-seconds, --rebuild,
+# --no-browser, --keep-alive and --smoke. A demo flag that is not on that list --
+# --eeg-display-channel and --media-owner today -- has to be given to the module
+# directly:
 #
+#   .venv/bin/python -B -m scripts.auditory_ui.demo --trial <trial> --model <model> \
+#     --eeg-display-channel Cz --media-owner page --seconds 30
+#
+# An earlier version of this comment claimed everything after the flags was passed
+# through, and offered `./serve.sh --seconds 30 --margin 0.05
+# --eeg-display-channel Cz` as an example. That example never worked: the argument
+# loop ends in `*) fail "unknown option: $1"`, and `set --` below rebuilds the
+# command line from scratch, discarding the caller's arguments. The claim is removed
+# rather than implemented, because a launcher that silently forwards flags it does
+# not understand is how a wrapper stops being a wrapper.
 # THE INTERPRETER IS DETECTED, NEVER ASSUMED. A virtual environment keeps its
 # interpreter at .venv/bin/python on macOS and Linux; this script tries that
 # layout first, then python3.13, python3.12, python3 and python on PATH. The

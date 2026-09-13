@@ -93,14 +93,34 @@ npm --prefix apps/attune-ui run build
 ### 5. Run it
 
 ```sh
-sh scripts/auditory_ui/serve.sh --no-browser --seconds 60 --serve-seconds 300
+sh scripts/auditory_ui/serve.sh --seconds 60 --serve-seconds 300
 ```
 
 Use `sh <script>` rather than `./<script>`: exFAT does not store the executable bit,
 so the direct form can fail with "permission denied".
 
-The script prints a `http://127.0.0.1:<port>/` URL **before the replay starts**, so
-you can open it immediately. Open it and click **Play**.
+**Do not add `--no-browser`.** That flag looks harmless and is not. The demo allows
+exactly one media controller at a time, and the choice of who gets it is resolved
+from whether the launcher opened a browser: with the browser, the page is the owner
+outright and there is nothing to race; without it, the demo assumes an unattended run
+and offers the page only a ten-second window before its own stand-in takes the slot,
+after which the page cannot play at all and produces no sound. Letting the launcher
+open the tab is what makes the page the owner.
+
+The script prints a `http://127.0.0.1:<port>/` URL **before the replay starts**. If
+your browser did not open on its own, open that URL and click **Play**.
+
+If you want the page to own the slot while keeping the browser closed, bypass the
+launcher and be explicit — `serve.sh` does not forward this flag:
+
+```sh
+.venv/bin/python -B -m scripts.auditory_ui.demo \
+  --trial datasets/AAD-KULeuven/converted/S1/trial_004.npz \
+  --model models/auditory_kuleuven.npz \
+  --eeg-display-channel Cz --media-owner page \
+  --seconds 60 --serve-seconds 300 \
+  --media-out output/auditory_ui/mac_probe.wav
+```
 
 ### 6. Verify, then report
 
