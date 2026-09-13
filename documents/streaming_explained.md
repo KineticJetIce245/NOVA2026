@@ -1929,3 +1929,9 @@ Run them with:
    read `bad_channel_windows` afterwards to decide the next exclusion list.
 5. Check `offload_dropped`/`offload_failed` in the report when running with
    `--workers`.
+6. A **250 Hz** amplifier cannot use the default `LQ` resampler preset: measured
+   through the real transport, 250 -> 128 Hz needs **3.85 s** before its first
+   output, over the 3.0 s the `resampler` rule allows, so the run is scored NOT
+   USABLE with one FAIL. At 500 Hz the same preset starts in 1.88 s and passes.
+   The Unicorn Recorder streams at 250 Hz, so a session on it needs a different
+   `--resample-quality` or `--out-sfreq` rather than the defaults.
