@@ -281,16 +281,18 @@ written.
   constant is the same one.
 * Rollback is a flag flip up to `(d)`, then a revert of one commit.
 
-**Status.** Steps (a) and (b) are implemented. `timebase.py` and its tests land
-with no wiring; `scripts/getlive` gains `--timebase {stamps,grid}` (default
+**Status.** Steps (a), (b) and (c) are implemented. `timebase.py` and its tests
+land with no wiring; `scripts/getlive` gains `--timebase {stamps,grid}` (default
 `stamps`, so a run that does not ask for the grid is unchanged),
 `--timebase-relock-samples` and `--timebase-max-step-samples`; the policy is
 recorded in the run's provenance, the time base's verdict in the run counters
 (`timebase_relocked_samples`, `timebase_anchor_rate`, `timebase_relocks`,
 `timebase_large_steps`), which flow into both the JSON report and the recording's
-`meta`. `Repair`'s tolerance already comes from the shared policy, so one of the
-four copies of that constant is gone. Steps (c) and (d) remain, and so does the
-experiment in §9.
+`meta`. The four copies of the tolerance constant are down to one: `Repair` owns
+`grid_tolerance_seconds()` and the time base, the relay and `ts_check` ask it.
+The acceptance rules score the timeline as a WARN, and `main()` is back under the
+50-line method limit. Step (d) - flipping the default to `grid` - remains, and so
+does the experiment in §9. Both are waiting on the cap.
 
 Two details settled during implementation and reflected above: the re-lock slew
 is derived rather than floored (§5.2), and the residual peak is not a gate (§8).
