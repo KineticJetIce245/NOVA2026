@@ -484,6 +484,19 @@ KU Leuven 列索引：`Fp1=0 Fp2=33 F7=6 F3=4 Fz=37 F4=39 F8=41 T7=14 C3=12 C4=4
 派发前主 agent 必须确认目标文件集互不相交；`pyproject.toml`、`scripts/run_tests.py`、`.gitignore`
 这类共享文件一次只允许一个 agent 触碰，否则会出现提交污染或互相覆盖。
 
+### 6.4 测试不得依赖"环境里装没装某个包"，且必须能被证伪
+
+`fb0e9ed` 的教训（步骤 6 的 antio 修复）值得单独立规：
+
+1. **前提要自己造，不要继承环境。** 需要"某依赖缺失"的分支，必须在测试内用
+   `sys.modules` / `find_spec` 打桩造出该前提并在结束时还原——不能靠"这台机器恰好没装"。
+   反之，需要依赖在场的行为，也要在名称/文档里写明该前提。
+2. **断言必须能被证伪。** 该测试原本断言报错信息里含 `antio`，而 **MNE 自己的兜底信息里就含
+   `antio` 与 `pip install antio`**，所以把被测模块的解释分支整段删掉，测试**依然通过**——
+   它不是"脆弱"，是**空洞**。改成断言 `--cnt-npy`（只有本模块的信息里才有）后才真正生效。
+3. **提交前做一次变异验证**：临时破坏被测行为，确认测试会红，再还原。
+   这是唯一能区分"测试通过"与"测试没用"的办法。
+
 ### 6.2 子 agent 预算与防死循环（主 agent 强制执行）
 
 **事实前提**：本 harness 没有给子 agent 设置步数/上下文 token 上限的配置项，也没有 token 用量查询接口。可执行的抓手只有：`interrupt_agent`、`send_message`、`list_agents`，以及超时杀进程。
@@ -577,6 +590,7 @@ KU Leuven 列索引：`Fp1=0 Fp2=33 F7=6 F3=4 Fz=37 F4=39 F8=41 T7=14 C3=12 C4=4
 | D-16 | 09-14 | `apps/backend/` 测试替身**暂时保留**（不立刻改接 `nova2026.transport`） | 三个 vendored 前端测试需要 `backend.adapters.{results,contracts,legacy,mock}`，而真传输层不提供适配器/mock；改接等于改写 vendored 测试，须单独授权 | 立刻重写那三个测试 | 仓库内短期存在两份包构造器，故替身已明确标注为 test double 并在 `__init__.py` 写明由 `src/nova2026/transport` 取代 | — |
 | D-17 | 09-14 | 修复 `tests/streaming/test_compare_cnt.py` 的 `antio` 前提（把"环境里没有 antio"改成测试内可控前提） | `antio` 是读真实 ANT 数据所必需，装上后该测试的假设失效，全仓从绿变红 | 卸载 `antio`（会让 .cnt 读不了）；或改断言迁就现状 | 全仓回归恢复到基线口径（628 tests 全绿） | 待提交 |
 | D-18 | 09-14 | 登记**提交污染**：`pyproject.toml` 的 `transport` extra 由步骤 4 的 commit `48c412d` 一并带入 | 两个子 agent 同时改同一文件、步骤 4 后提交；内容正确无需改写历史 | `git rebase`/改写历史 | 归属记录在案：内容属于步骤 6，提交归属步骤 4。**教训：并行子 agent 不得同时改同一文件** | — |
+| D-19 | 09-14 | 修复 `tests/streaming/test_compare_cnt.py`：把"环境里没有 antio"改为测试内可控前提，并把断言从 `antio`/`pip install antio` 收紧为 `--cnt-npy` | 原断言**空洞**——MNE 兜底信息本身就含这两个串，删掉被测分支测试仍通过；变异测试才暴露 | 保留原断言；或只改前提不收紧断言 | 全仓恢复 640 tests 全绿，且该测试现在真的能捕获回归；新增 §6.4 立规 | `fb0e9ed` |
 
 ---
 
