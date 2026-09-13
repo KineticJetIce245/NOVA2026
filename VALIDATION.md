@@ -179,7 +179,26 @@ Carried over from the plan (section 3.8) and extended with what the later steps 
 9. **No result on the ANT test set.** V4 of the plan asks for a 20-channel contract result on the
    ANT data. No decoding number for those sessions exists in `results/`; the import produced
    markers, shapes and labels only, and the calibration report states it "says nothing about the
-   ANT test set". This is a gap against V4, recorded here rather than papered over.
+   ANT test set". This is a gap against V4, recorded here rather than papered over. The live route
+   has since been driven with that recording (`results/antneuro_live_declared_20260914.md`), and it
+   still produces **no committed window** - the cause is measured and named in item 12 below.
+12. **The model contract cannot be satisfied by another rig, so no ANT decision is scored.** The
+   live route's every submitted window ends as `scoring_failed`: `RidgeDecoder.validate` raises
+   `ValueError: EEG preprocessing contract does not match the model` because it compares the whole
+   contract dictionary for equality, and two of its keys are **provenance text**: `input_reference`
+   (the ANT `.cnt` header's CPz declaration against the KU Leuven loader's Cz description) and
+   `upstream_processing` (the ANT importer's own account of the recording against the KU Leuven
+   loader's). A recording made on another rig with another reference **cannot** make those strings
+   equal, and only a false declaration could. Measured on `session_19-34-06`, 130 s, 121 windows,
+   `--amplitude-limit-uv 20000 --exclude-channels F8,F3`: `scored 0, failed 116, unavailable 8,
+   uncertain 495, decided 0`. The processing keys that *do* decide the numbers - channel names,
+   bandpass, filter order, window/step, units, rate, resample quality - all matched. Fixing this is
+   a decision about what the contract comparison is for, not a threshold, and it is not taken here.
+13. **A scoring failure is counted but its exception is dropped.** `AttentionSession._note_handler_failure`
+   increments `failed` and applies an estimate with the reason `scoring_failed`; `str(error)` is not
+   kept anywhere. The run record above therefore names the failure and not its cause, and the cause
+   had to be recovered by wrapping `RidgeDecoder.score` outside the session. An operator reading
+   `failed: 116` alone cannot tell a contract mismatch from non-finite input.
 10. **No amplifier, microphone or headphone calibration** was performed for any number in
     `results/`. `scripts/getlive/` exists so that it can be, with the assertions recorded in the
     run's provenance.
@@ -225,6 +244,22 @@ Recorded as known mechanism gaps: the invariants held in every case, but four ga
    summary, and `artifact` is judged from it, **without adding any rejection** (rejecting would
    bring back the mid-run halt the relaxed policy exists to avoid). On the demo trial the census is
    empty (`{}`); the fix is exercised by a synthetic test, not by that trial.
+6. **A declared amplitude limit can leave the amplitude criterion with no selectivity.** The
+   operator's recording moves further from its own anchor level than the chain's 500 uV default on
+   **every** electrode as the chain sees it (20 of 20, largest 41 178 uV on the railed F3/F8 and
+   19 522 uV on Fp1, measured after the pre-chain 500 -> 128 Hz adapter), and 13 of 20 on the raw
+   published window (largest 3 637.7 uV). The live route therefore declares
+   `--amplitude-limit-uv 20000` - above the recording's own measured excursion, 4.2x below the
+   amplifier's 83 333 uV rail - and the order of that measurement matters: measured on the **raw**
+   window it was 4 000 uV, which left ten electrodes faulted, because the adapter's own resampler
+   moves the anchor row. With 20 000 uV the bad-channel census falls from 18 electrodes to exactly
+   the two declared-railed ones. The cost, stated plainly: at that value the amplitude fault can
+   only fire on a movement larger than anything this recording legitimately contains, so
+   `signal_quality` for this session means "nothing moved further than 20 mV from the first row" and
+   **not** "this window is artifact-free". Saturation (an absolute rail, untouched at 75 000 uV),
+   flatline and the channel census still judge every window independently of the declared number.
+   The chain's own default stays 500 uV; the declared value is run policy, printed and recorded
+   (`results/antneuro_live_declared_20260914.md`, `tests/streaming/test_declared_amplitude.py`).
 
 Run policy that must be quoted with any demo number, because it changes verdicts and not signals:
 `check_channels=false, max_bad_channels=0, exclude_channels=[], source_unit_exponent=-6,

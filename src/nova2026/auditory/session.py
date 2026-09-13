@@ -112,6 +112,22 @@ class RunPolicy:
     the chain default would otherwise stop the run at every railed stretch
     (plan section 3.11 measures exactly that rail on the operator's ANT session).
     """
+    amplitude_limit_uv: float | None = None
+    """The excursion from the run's own anchor level that counts as a fault, in uV.
+
+    ``None`` keeps the chain default (500 uV for both ``Repair``'s endpoint check
+    and ``QualityMonitor``'s ``"amplitude"`` fault). One declared value with one
+    owner: the run policy states it once and both stages receive it, so the
+    quality verdict and the repair verdict cannot disagree about which electrodes
+    are still carrying signal. Run policy, not contract -- adding it to
+    ``AuditoryProcessor.contract`` would invalidate every trained decoder.
+
+    A recording that genuinely drifts further than the default against its own
+    first-level anchor declares its own measured limit here rather than editing
+    the default: the operator's ANT session drifts 1.5-3.0 mV from the anchor on
+    18 of its 20 electrodes (measured, ``results/antneuro_live_*.json``), and at
+    the default every window is an artifact and no decision is ever committed.
+    """
     margin: float = MIN_MARGIN
     warmup_seconds: float = 2.0
     frame_seconds: float = 0.25
@@ -147,6 +163,7 @@ class RunPolicy:
             "exclude_channels": list(self.exclude_channels),
             "source_unit_exponent": self.source_unit_exponent,
             "saturation_limit_uv": self.saturation_limit_uv,
+            "amplitude_limit_uv": self.amplitude_limit_uv,
             "margin": self.margin,
             "warmup_seconds": self.warmup_seconds,
             "frame_seconds": self.frame_seconds,
@@ -398,11 +415,14 @@ class AttentionSession:
             exclude_channels=policy.exclude_channels,
             source_unit_exponent=policy.source_unit_exponent,
         )
-        # The endpoint guard is run policy, so it travels the same way the
-        # channel policy and the exponent do: into the chain's settings, where
-        # `AuditoryProcessor` hands it to `Repair`. `None` keeps the chain
-        # default and changes nothing for callers that do not set it.
+        # The endpoint and excursion guards are run policy, so they travel the
+        # same way the channel policy and the exponent do: into the chain's
+        # settings, where `AuditoryProcessor` hands the saturation limit to
+        # `Repair` and the amplitude limit to both `Repair` and `QualityMonitor`.
+        # `None` keeps the chain defaults and changes nothing for callers that do
+        # not set them.
         settings.saturation_limit_uv = policy.saturation_limit_uv
+        settings.amplitude_limit_uv = policy.amplitude_limit_uv
 
         self.source_channels = tuple(source.channel_names)
         wanted = tuple(contract.get("eeg_channels") or self.source_channels)

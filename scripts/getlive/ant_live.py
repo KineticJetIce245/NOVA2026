@@ -75,6 +75,7 @@ from nova2026.auditory.render import (  # noqa: E402
 from nova2026.auditory.session import AttentionSession, RunPolicy  # noqa: E402
 from nova2026.auditory.sources import ReferenceEnvelopes  # noqa: E402
 from nova2026.streaming.preflight import validate_source  # noqa: E402
+from nova2026.streaming.preprocess import Resampler  # noqa: E402
 from nova2026.transport.media import MediaTimeline  # noqa: E402
 from nova2026.transport.server import LOOPBACK_HOSTS, create_app  # noqa: E402
 from scripts.auditory_ui.demo import capture, log, packet_census  # noqa: E402
@@ -174,6 +175,15 @@ def parse_channel_list(value: str) -> tuple[str, ...]:
 REPAIR_DEFAULT_SATURATION_UV = 75000.0
 
 
+# The chain's own excursion guard, in uV: `Repair`'s default endpoint-jump limit
+# **and** `QualityMonitor`'s amplitude fault, which flags an electrode once it
+# moves further than this from the run's own anchor level. One number, two
+# stages, so the quality verdict and the repair verdict cannot disagree; a run
+# that sets `--amplitude-limit-uv` moves both, and the value in force is printed
+# and recorded.
+REPAIR_DEFAULT_AMPLITUDE_UV = 500.0
+
+
 # An electrode counts as railed for the declaration check when at least this
 # fraction of the published window sits at a repeated extreme. A single spike is
 # not a rail; F8 in the operator's session 1 is at 83 333.3 uV for 100 % of the
@@ -228,6 +238,144 @@ def rail_profile(
         },
         "per_channel": per_channel,
     }
+
+
+def excursion_profile(
+    eeg: np.ndarray,
+    names: tuple[str, ...],
+    *,
+    declared_limit_uv: float,
+    default_limit_uv: float = REPAIR_DEFAULT_AMPLITUDE_UV,
+    anchor: str = "first-row",
+) -> dict:
+    """Measure what each electrode does relative to the run's own anchor level.
+
+    ``QualityMonitor`` anchors its excursions at the first row it is fed and flags
+    ``"amplitude"`` once a column moves further than the limit from that row, so
+    the statistic that decides the limit is ``max |x(t) - anchor|`` per electrode -
+    not the peak level, which is anchor dependent, and not the standard deviation,
+    which a slow ramp hides inside.
+
+    **It must be measured on the signal the monitor is actually fed**, not on the
+    raw recording: the live adapter resamples 500 Hz to the 128 Hz the decoder
+    contract records *before* the chain, and an anti-aliasing resampler with a
+    7.4 s startup transient makes the first delivered rows a poor anchor. Measured
+    on the raw window this recording's largest excursion on a usable electrode is
+    3 637 uV; measured on the resampled stream the chain receives it is 19 521 uV,
+    a factor of 5.4. A limit declared from the first number would have left the
+    electrodes faulted, which is what the first declared run measured.
+
+    Args:
+        anchor: ``"first-row"`` reproduces the monitor's own anchor exactly;
+            ``"first-second-median"`` is the anchor-robust companion, which shows
+            how much of the maximum is the anchor row rather than the signal. Both
+            are reported so the choice is visible rather than assumed.
+
+    It reports the per-electrode maximum and the 99.9th percentile (a single
+    spike should not set the limit) plus the two counts the declaration is
+    accountable for: how many electrodes the *chain default* would fault, and how
+    many the *declared* limit still faults. A declared limit that faults fewer
+    electrodes than the default is the point; a declared limit that faults none
+    of them has no selectivity left on this recording, which is a finding about
+    the recording, and this measurement is what makes it visible.
+    """
+
+    data = np.asarray(eeg, dtype=np.float64)
+    if data.ndim != 2 or data.shape[0] == 0:
+        raise ValueError("excursion_profile needs samples by channels.")
+    if len(names) != data.shape[1]:
+        raise ValueError("excursion_profile needs one label per column.")
+    if anchor == "first-row":
+        level = data[0]
+        anchor_note = "first row of the delivered stream (QualityMonitor's own anchor)"
+    elif anchor == "first-second-median":
+        if data.shape[0] < 2:
+            raise ValueError("excursion_profile needs two rows for a median anchor.")
+        level = np.median(data[: min(len(data), 128)], axis=0)
+        anchor_note = "median of the first second of the delivered stream"
+    else:
+        raise ValueError("anchor must be 'first-row' or 'first-second-median'.")
+    excursion = np.abs(data - level[None, :])
+    peak = excursion.max(axis=0)
+    q999 = np.percentile(excursion, 99.9, axis=0)
+    per_channel = {
+        name: {
+            "anchor_microvolts": float(level[index]),
+            "excursion_max_microvolts": float(peak[index]),
+            "excursion_p999_microvolts": float(q999[index]),
+            "faulted_at_limit": bool(peak[index] > declared_limit_uv),
+            "faulted_at_default": bool(peak[index] > default_limit_uv),
+        }
+        for index, name in enumerate(names)
+    }
+    return {
+        "anchor": anchor_note,
+        "anchor_mode": anchor,
+        "declared_limit_uv": float(declared_limit_uv),
+        "default_limit_uv": float(default_limit_uv),
+        "faulted_at_declared": sorted(
+            name for name, row in per_channel.items() if row["faulted_at_limit"]
+        ),
+        "faulted_at_default": sorted(
+            name for name, row in per_channel.items() if row["faulted_at_default"]
+        ),
+        "max_excursion_microvolts": float(peak.max()),
+        "max_excursion_on_unfaulted_microvolts": float(
+            max(
+                (
+                    row["excursion_max_microvolts"]
+                    for row in per_channel.values()
+                    if not row["faulted_at_limit"]
+                ),
+                default=0.0,
+            )
+        ),
+        "per_channel": per_channel,
+    }
+
+
+def chain_point_window(window, channels: tuple[str, ...], rate: float):
+    """The window the chain's monitor is actually fed, at the rate it declares.
+
+    The live path's adapter resamples the 500 Hz outlet to the rate the decoder
+    contract records before the chain sees it, so a limit measured on the raw
+    recording is measured at the wrong point. This runs the chain's own
+    ``Resampler`` over the published window with the adapter's own preset and
+    returns ``(data, timestamps)`` in the delivered rate, or ``None`` when the
+    window already arrives at that rate or the stage refuses it.
+    """
+
+    if math.isclose(float(window.sample_rate), float(rate)):
+        return None
+    wanted = [str(name) for name in channels]
+    present = [str(name) for name in window.channel_names]
+    if any(name not in present for name in wanted):
+        return None
+    rows = window.eeg[:, [present.index(name) for name in wanted]]
+    try:
+        stage = Resampler(
+            float(window.sample_rate), float(rate), rows.shape[1], quality="HQ",
+            max_age_seconds=30.0, reserve_seconds=1.0, allow_qq=True, strict=True,
+        )
+        data, stamps = stage(rows, np.asarray(window.timestamps, dtype=float))
+    except (ValueError, RuntimeError):
+        return None
+    return data, stamps
+
+
+def amplitude_guard_uv(args) -> float:
+    """The excursion guard this run's chain will use, in uV.
+
+    ``None`` means the chain's own default (500 uV), which is what every caller
+    that declares nothing gets. The value in force is the one printed and
+    recorded, and it is the number the declaration is accounted against: it must
+    be above the recording's own measured excursion, or every window stays an
+    artifact; and it must stay far below the amplifier's rail, so that a genuinely
+    railed electrode is still named rather than absorbed by a widened number.
+    """
+
+    requested = getattr(args, "amplitude_limit_uv", None)
+    return REPAIR_DEFAULT_AMPLITUDE_UV if requested is None else float(requested)
 
 
 def saturation_guard_uv(args) -> float:
@@ -383,6 +531,19 @@ def build(app_state: dict, args):
             None
             if getattr(args, "saturation_limit_uv", None) is None
             else float(args.saturation_limit_uv)
+        ),
+        # The excursion guard is declared the same way and for the same reason:
+        # this recording moves further from its own anchor than the chain's 500 uV
+        # default, so at the default every window is an artifact and nothing is
+        # ever committed. The declared number is measured on the published window
+        # (see `excursion_profile`) and it reaches BOTH stages that judge an
+        # electrode with it - `QualityMonitor`'s amplitude fault and `Repair`'s
+        # endpoint check - so the quality verdict and the repair verdict cannot
+        # disagree. Unset keeps the chain default.
+        amplitude_limit_uv=(
+            None
+            if getattr(args, "amplitude_limit_uv", None) is None
+            else float(args.amplitude_limit_uv)
         ),
         exclude_channels=tuple(app_state["excluded"]),
     )
@@ -623,8 +784,11 @@ def markdown(record: dict) -> str:
         f"- excluded electrodes: {excluded or 'none'}; `Repair` saturation guard "
         f"{point['repair_saturation_limit_uv']:.0f} uV "
         f"({point['saturation_limit_source']}), amplitude guard "
-        f"{point['repair_amplitude_limit_uv']:.0f} uV - the guards themselves are "
-        "unchanged for every channel",
+        f"{point['amplitude_limit_uv']:.0f} uV "
+        f"({point['amplitude_limit_source']}; the chain's own default stays "
+        f"{point['declared_chain_default_amplitude_uv']:.0f} uV for every caller "
+        "that declares nothing) - the guards themselves are unchanged for every "
+        "channel",
         f"- measured on the published window: "
         + (
             "; ".join(
@@ -640,6 +804,40 @@ def markdown(record: dict) -> str:
         "still stops the run",
         f"- excluded electrodes keep their columns: {point['excluded_channels_stay_in_the_run']}",
         "",
+        "## The declared amplitude limit, and the measurement it came from",
+        "",
+    ]
+    excursion = point.get("excursion_profile") or {}
+    if excursion:
+        lines += [
+            f"- anchor: {excursion['anchor']}; excursion measured over the "
+            f"{record['published_window']['samples']} samples of the published "
+            "window",
+            f"- at the chain's own default {excursion['default_limit_uv']:.0f} uV, "
+            f"{len(excursion['faulted_at_default'])} of "
+            f"{len(record['session']['channels'])} electrodes fault "
+            f"({', '.join(excursion['faulted_at_default']) or 'none'}) - the "
+            "amplitude fault that makes every window an artifact, so no decision "
+            "is ever committed",
+            f"- declared for this run: {excursion['declared_limit_uv']:.0f} uV "
+            f"({point['amplitude_limit_source']}); "
+            f"{len(excursion['faulted_at_declared'])} of "
+            f"{len(record['session']['channels'])} electrodes fault at it "
+            f"({', '.join(excursion['faulted_at_declared']) or 'none'}), and the "
+            f"largest excursion on an electrode it still admits is "
+            f"{excursion['max_excursion_on_unfaulted_microvolts']:.1f} uV",
+            f"- what the declared value reaches: {point['amplitude_limit_reaches']}",
+            "- what a declared limit does NOT do: it does not make the check "
+            "selective. The amplitude fault asks only whether an electrode stayed "
+            "within the declared distance of its own anchor level; a recording "
+            "whose *normal* movement exceeds the old limit cannot be separated "
+            "from an artifact by this criterion at any value, so `signal_quality` "
+            "for this session means 'nothing moved further than N uV from its "
+            "anchor', not 'this window is artifact-free'. Saturation, flatline "
+            "and the channel census are untouched and still judge the window.",
+            "",
+        ]
+    lines += [
         "## Decisions against the session's own marker labels",
         "",
         f"- status `{(record.get('session_record') or {}).get('status')!r}`, decisions "
@@ -869,7 +1067,80 @@ def run(args, lines: list[str]) -> tuple[dict, int]:
         f"declared channel policy: exclude_channels={list(excluded)}; "
         f"Repair's saturation guard stays at {guard:.0f} uV "
         f"({'chain default' if args.saturation_limit_uv is None else 'explicit'}), "
-        f"amplitude guard 500 uV",
+        f"amplitude guard {amplitude_guard_uv(args):.0f} uV "
+        f"({'chain default' if args.amplitude_limit_uv is None else 'explicit'})",
+        lines,
+    )
+    # The excursion declaration, measured before the session exists: the limit the
+    # chain will judge every electrode with is chosen from this window's own
+    # numbers and from nothing else, and both the measurement and the declared
+    # value go into the record so a reader can check the arithmetic.
+    #
+    # Measured at the point the monitor is fed, not on the raw recording: the live
+    # adapter resamples 500 Hz to the contract's rate first, and the resampler's
+    # own transient moves the anchor row. On the raw window this recording's
+    # largest usable-electrode excursion is 3 637 uV; on the delivered stream it is
+    # 19 521 uV. Declaring the first number left eight electrodes faulted on the
+    # first declared run - the measurement was right and the point was wrong.
+    delivered = chain_point_window(
+        window, tuple(model.contract["eeg_channels"]),
+        float(model.contract.get("input_sfreq") or args.sfreq),
+    )
+    if delivered is None:
+        measured_eeg, measured_names, measured_point = (
+            window.eeg, tuple(trial.channel_names),
+            "the published window (already at the rate the chain declares)",
+        )
+    else:
+        measured_eeg, measured_names, measured_point = (
+            delivered[0], tuple(model.contract["eeg_channels"]),
+            f"the stream the chain is fed at "
+            f"{float(model.contract.get('input_sfreq') or args.sfreq):g} Hz, after the "
+            f"pre-chain resampler",
+        )
+    excursion = excursion_profile(
+        measured_eeg, measured_names, declared_limit_uv=amplitude_guard_uv(args)
+    )
+    robust = excursion_profile(
+        measured_eeg, measured_names, declared_limit_uv=amplitude_guard_uv(args),
+        anchor="first-second-median",
+    )
+    excursion["measured_at"] = measured_point
+    excursion["anchor_robust_companion"] = {
+        "anchor": robust["anchor"],
+        "max_excursion_microvolts": robust["max_excursion_microvolts"],
+        "max_excursion_on_unfaulted_microvolts": (
+            robust["max_excursion_on_unfaulted_microvolts"]
+        ),
+        "faulted_at_default": robust["faulted_at_default"],
+    }
+    log(
+        f"measured excursion from the window's own anchor level, at "
+        f"{measured_point}: {len(excursion['faulted_at_default'])} of "
+        f"{len(measured_names)} electrodes move further than the chain default "
+        f"{REPAIR_DEFAULT_AMPLITUDE_UV:.0f} uV "
+        f"({', '.join(excursion['faulted_at_default']) or 'none'})",
+        lines,
+    )
+    log(
+        f"declared amplitude limit {amplitude_guard_uv(args):.0f} uV "
+        f"({'CHAIN DEFAULT UNCHANGED' if args.amplitude_limit_uv is None else 'declared for this run'}): "
+        f"{len(excursion['faulted_at_declared'])} of "
+        f"{len(measured_names)} electrodes fault at it "
+        f"({', '.join(excursion['faulted_at_declared']) or 'none'}); largest "
+        f"excursion measured {excursion['max_excursion_microvolts']:.1f} uV, largest "
+        f"on an electrode it still admits "
+        f"{excursion['max_excursion_on_unfaulted_microvolts']:.1f} uV; the chain's own "
+        f"default stays {REPAIR_DEFAULT_AMPLITUDE_UV:.0f} uV for every caller that "
+        f"declares nothing",
+        lines,
+    )
+    log(
+        f"anchor robustness: with the anchor taken as the first second's median "
+        f"instead of the first row, the largest excursion is "
+        f"{robust['max_excursion_microvolts']:.1f} uV and "
+        f"{len(robust['faulted_at_default'])} of {len(measured_names)} electrodes move "
+        f"further than the chain default",
         lines,
     )
     log(
@@ -992,7 +1263,7 @@ def run(args, lines: list[str]) -> tuple[dict, int]:
             exit_code, record = stream_session(
                 args, lines, source, references, model, timeline, media_report, began,
                 probe_report, window, trial, first_index, audio_offset, profile,
-                excluded,
+                excluded, excursion,
             )
         finally:
             if stream.connected:
@@ -1013,6 +1284,7 @@ def run(args, lines: list[str]) -> tuple[dict, int]:
 def stream_session(
     args, lines, source, references, model, timeline, media_report, began,
     probe_report, window, trial, first_index, audio_offset, profile, excluded,
+    excursion,
 ) -> tuple[int, dict]:
     """Run the transport and the session around an already-connected source."""
 
@@ -1228,7 +1500,19 @@ def stream_session(
             ],
             "rail_profile": profile,
             "repair_saturation_limit_uv": saturation_guard_uv(args),
-            "repair_amplitude_limit_uv": 500.0,
+            "amplitude_limit_uv": amplitude_guard_uv(args),
+            "declared_chain_default_amplitude_uv": REPAIR_DEFAULT_AMPLITUDE_UV,
+            "amplitude_limit_source": (
+                "chain default"
+                if args.amplitude_limit_uv is None
+                else "explicit --amplitude-limit-uv"
+            ),
+            "excursion_profile": excursion,
+            "amplitude_limit_reaches": (
+                "QualityMonitor's 'amplitude' fault (which decides whether a window "
+                "is an artifact) and Repair's endpoint-jump check; one declared "
+                "value with one owner, so the two verdicts cannot disagree"
+            ),
             "saturation_limit_source": (
                 "chain default"
                 if args.saturation_limit_uv is None
@@ -1375,6 +1659,20 @@ def build_parser() -> argparse.ArgumentParser:
               "railed electrode is handled by --exclude-channels instead of by "
               "widening this number. Setting it moves the guard for ALL channels "
               "and the effective value is printed and recorded."),
+    )
+    parser.add_argument(
+        "--amplitude-limit-uv",
+        type=float,
+        default=None,
+        help=("the excursion from the run's own anchor level, in uV, that counts "
+              "as a fault. One declared value with one owner: it reaches both "
+              "QualityMonitor (the 'amplitude' fault that makes a window an "
+              "artifact) and Repair (the largest endpoint jump it will bridge), so "
+              "the two cannot disagree. Unset by default, which keeps the chain's "
+              "own 500 uV; set it to the recording's own measured excursion when "
+              "that recording drifts further, because at the default every window "
+              "is an artifact and no decision is ever committed. The effective "
+              "value is printed and recorded."),
     )
     parser.add_argument("--max-lag-seconds",
         type=float,

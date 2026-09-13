@@ -87,6 +87,17 @@ def stream_config(
     pass 0, or the check would compare 0.0833 V against a microvolt saturation
     limit and pass a saturated signal through. Like the channel options, it is run
     policy and must not be added to ``contract``.
+
+    ``amplitude_limit_uv`` and ``saturation_limit_uv`` are the two limits
+    ``Repair`` judges an endpoint with; ``None`` keeps its own (500 / 75 000 uV).
+    ``amplitude_limit_uv`` additionally reaches ``QualityMonitor``, which calls an
+    electrode faulted when it moves further than that from the run's own anchor
+    level: one declared number, one owner, so a window the monitor publishes as
+    artifact-free cannot be one the repairer refuses to bridge. A recording that
+    drifts further than 500 uV from its anchor (the operator's ANT session does,
+    by more than 3 mV) declares this value for the whole run; nothing here widens
+    a limit silently, because a value set here is printed and recorded as the
+    effective run policy.
     """
 
     if source_unit_exponent not in SUPPORTED_SOURCE_UNIT_EXPONENTS:
@@ -146,7 +157,7 @@ class AuditoryProcessor:
         self.quality = QualityMonitor(
             n_eeg=n, sfreq=settings.input_sfreq, channel_names=names,
             check_channels=check_channels, max_bad_channels=max_bad_channels,
-            exclude_channels=exclude_channels,
+            exclude_channels=exclude_channels, **self._quality_limits(settings),
         )
         self.bandpass = SosFilter(design_bandpass(*settings.bandpass, 3, settings.input_sfreq), n)
         # A source that already arrives at the output rate (the live ANT route's
@@ -193,8 +204,10 @@ class AuditoryProcessor:
         does not set them, so no existing behaviour moves. A recording whose
         amplifier railed an electrode past 75 000 uV (plan section 3.11 documents
         exactly that on the operator's ANT session) needs a declared saturation
-        limit above its own rail; the value is run policy, printed and recorded,
-        never a silent widening of the guard.
+        limit above its own rail, and a recording that drifts further than 500 uV
+        from its own anchor level needs a declared amplitude limit above its own
+        drift; both values are run policy, printed and recorded, never a silent
+        widening of the guard.
         """
 
         limits = {}
@@ -205,6 +218,22 @@ class AuditoryProcessor:
         if amplitude is not None:
             limits["amplitude_limit_uv"] = float(amplitude)
         return limits
+
+    @staticmethod
+    def _quality_limits(settings):
+        """The declared limits `QualityMonitor` shares with `Repair`.
+
+        One declared value has one owner: the run policy states the amplitude
+        limit once and both stages that judge an electrode with it receive it, so
+        a window the monitor calls artifact-free cannot be one the repairer calls
+        unsafe to bridge. `saturation_limit_uv` is deliberately **not** handed to
+        the monitor: it is an absolute rail, and the monitor's own saturation
+        fault is what names a railed electrode for the census. A caller that sets
+        nothing gets the monitor's own 500 uV, exactly as before.
+        """
+
+        amplitude = getattr(settings, "amplitude_limit_uv", None)
+        return {} if amplitude is None else {"amplitude_limit_uv": float(amplitude)}
 
     def _resolve_judges(self, judges):
         """Validate the injected judges; default to the monitor and the repairer."""

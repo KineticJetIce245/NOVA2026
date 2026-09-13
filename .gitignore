@@ -119,7 +119,7 @@ results/*
 # output/auditory_ui/.
 !results/demo_run_*.json
 !results/demo_run_*.md
-
+
 # Exception: step 10.5's perturbation matrix run is the acceptance record for V9 -
 # one clean path, fifteen injected faults and seven adversarial EEG inputs, each
 # judged against its row with the three answers the matrix demands (crash,
@@ -152,6 +152,17 @@ __MACOSX/
 !results/antneuro_live_*.md
 !results/antneuro_live_*.jsonl
 !results/antneuro_mutations_live.json
+# Exception: the declared-amplitude-limit run and its mutation record. The run
+# record is the evidence that the recording's own excursion was measured before a
+# limit was declared, that the declared value reached both stages that judge an
+# electrode with it, and that the chain's own default did not move. It holds the
+# per-electrode excursion statistics, the effective run policy and the decision
+# census - measurements and channel names, no signal and nothing that identifies
+# a participant. The packet stream stays out of git under results/ alongside every
+# other packet stream, and the mutation record is this change's section 6.4
+# obligation, one JSON file.
+!results/antneuro_live_declared_*.json
+!results/antneuro_amplitude_mutations.json
 
 # macOS metadata. On exFAT (this repository lives on one) macOS cannot store
 # extended attributes, so it writes an AppleDouble sidecar next to every file it
