@@ -26,10 +26,12 @@ scoring only (plan rule 3, labels never enter the decode path).
 from __future__ import annotations
 
 import math
+import time
 from dataclasses import dataclass, field
 from typing import Iterator
 
 import numpy as np
+from mne_lsl.lsl import local_clock
 
 from nova2026.streaming.acquire import Acquire
 from nova2026.streaming.preflight import ChannelContract, validate_source
@@ -66,6 +68,7 @@ class TransportDiagnostics:
     gaps: int = 0
     max_gap_seconds: float = 0.0
     pending_samples_at_end: int = 0
+    discarded_backlog_samples: int = 0
     ended: str = "not started"
     raw_rate_hz: float | None = None
     grid_deviation_peak_seconds: float = 0.0
@@ -94,6 +97,7 @@ class TransportDiagnostics:
             "gaps": int(self.gaps),
             "max_gap_seconds": round(float(self.max_gap_seconds), 6),
             "pending_samples_at_end": int(self.pending_samples_at_end),
+            "discarded_backlog_samples": int(self.discarded_backlog_samples),
             "ended": self.ended,
             "raw_rate_hz": self.raw_rate_hz,
             "grid_deviation_peak_seconds": round(
@@ -210,6 +214,22 @@ class AntStreamSource:
 
         self.policy = GridPolicy.for_rate(self.sample_rate)
         self._timebase = TimeBase(self.policy) if timebase == "grid" else None
+        # Drop what the inlet buffered before this process attached, BEFORE
+        # ``Acquire`` wires its callback: anything already buffered is from before
+        # the connection and must not reach the chain.
+        #
+        # On the rig the amplifier is streaming before the demo is started -- that
+        # is the documented procedure -- so the first read is a backlog several
+        # seconds deep, and ``Acquire``'s age guard refuses it as if the source had
+        # stalled: the transport ends with "Source samples are N seconds old"
+        # having acquired no block at all. Measured on a synthetic source that had
+        # been publishing for ~8 s: 3.713 s old, 1525 samples left pending, zero
+        # minutes of signal. Dropping the backlog is what makes "connect the EEG
+        # first, then start the demo" the ordinary case instead of a fault.
+        #
+        # The count is reported (``diagnostics.discarded_backlog_samples``) rather
+        # than swallowed, so a run says how much it threw away before it started.
+        self.discarded_backlog = self._discard_initial_backlog()
         self.acquire = Acquire(
             stream,
             int(block_samples),
@@ -224,7 +244,9 @@ class AntStreamSource:
         # (``lead_seconds`` in ``ant_publish``) keeps that backlog short, but the
         # lag is a measurement, not a thing to hide: it stays in
         # ``diagnostics.max_lag_seconds``.
-        self.diagnostics = TransportDiagnostics()
+        self.diagnostics = TransportDiagnostics(
+            discarded_backlog_samples=self.discarded_backlog
+        )
 
         # Optional pre-chain rate conversion. It exists because a model's
         # contract names the rate its training trials were at, and the live path
@@ -264,6 +286,35 @@ class AntStreamSource:
         self._previous_block_end: float | None = None
         self._rate_span: tuple[float, float] | None = None
         self._closed = False
+
+    def _discard_initial_backlog(self, grace_seconds: float = 0.25,
+                                 budget_seconds: float = 10.0) -> int:
+        """Discard inlet samples that predate this attachment; return how many.
+
+        Reads the inlet's own buffer until its newest sample is younger than
+        ``grace_seconds``, or until nothing more is waiting, or until the budget
+        runs out. A source that has published nothing has no backlog and this
+        returns 0 immediately -- it does not wait for data to arrive, because an
+        amplifier that is not publishing is a different failure with its own
+        message (``no_data_timeout``), and hiding it behind a drain would be worse
+        than useless.
+        """
+
+        if not self.stream.connected:
+            return 0
+        discarded = 0
+        deadline = time.monotonic() + budget_seconds
+        while time.monotonic() < deadline:
+            self.stream.acquire()
+            if not self.stream.n_new_samples:
+                break
+            data, stamps = self.stream.get_data(winsize=None, exclude=())
+            if stamps is None or len(stamps) == 0:
+                break
+            discarded += int(len(stamps))
+            if local_clock() - float(stamps[-1]) <= grace_seconds:
+                break
+        return discarded
 
     # ------------------------------------------------------------------ surface
 

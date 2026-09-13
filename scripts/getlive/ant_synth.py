@@ -81,21 +81,60 @@ def main(argv=None) -> int:
     print("synthetic: uncorrelated with the demo's speech envelopes, so the decisions "
           "this drives are plumbing evidence, not attention evidence.", flush=True)
 
-    origin = local_clock() + 0.05
+    # Publish only while something is reading, and re-anchor the clock each time a
+    # reader arrives.
+    #
+    # This is not politeness, it is what makes the source usable. LSL hands a
+    # late-joining inlet the outlet's buffered history, so a publisher that pushed
+    # while nobody was listening presents the session with blocks whose stamps are
+    # seconds old: `Acquire.max_lag` (3 s by default) refuses them, the transport
+    # ends with "Source samples are 3.7 seconds old", and the session stops having
+    # acquired nothing. Measured, not guessed: that is exactly how the first
+    # version of this file failed, with 1525 samples left pending at the end.
+    #
+    # Idling between readers also means the gap carries no stale stamps: the first
+    # sample after a new reader connects is stamped "now", which is what an
+    # amplifier that was switched on a moment ago looks like.
     index = 0
+    had_consumer = False
+    next_push = time.monotonic()
     began = time.time()
     while time.time() - began < args.seconds:
+        if not outlet.has_consumers:
+            if had_consumer:
+                print(f"  {time.time() - began:7.1f}s reader left; pausing rather than "
+                      f"queueing stale samples", flush=True)
+                had_consumer = False
+            time.sleep(0.05)
+            next_push = time.monotonic()
+            continue
+        if not had_consumer:
+            print(f"  {time.time() - began:7.1f}s reader connected; publishing", flush=True)
+            had_consumer = True
+            next_push = time.monotonic()
         if args.signal == "levels":
             block = np.tile(levels_block(len(declared)), (args.chunk, 1))
         else:
             block = oscillation_block(index, len(declared), args.chunk)
-        stamps = np.arange(index * args.chunk, (index + 1) * args.chunk) / RATE + origin
+        # Stamp the chunk the way liblsl expects: its LAST sample is "now", the
+        # earlier ones are as far back as they are old. Stamping ahead of the
+        # local clock (the first version added a 50 ms lead) trips the consumer's
+        # other guard -- "Source timestamps are ahead of the local LSL clock" --
+        # which is a fair reading of a publisher that claims to know the future.
+        now = local_clock()
+        stamps = now - (args.chunk - 1 - np.arange(args.chunk)) / RATE
         outlet.push_chunk(block, stamps)
         index += 1
         if index % 400 == 0:
             print(f"  {time.time() - began:7.1f}s published ({index * args.chunk} samples)",
                   flush=True)
-        time.sleep(args.chunk / RATE)
+        # Absolute schedule, not `sleep(chunk/RATE)`: sleeping a fixed amount adds
+        # the loop's own overhead every iteration and the stamps then drift behind
+        # the wall clock, which is the other way to look stale to the reader.
+        next_push += args.chunk / RATE
+        delay = next_push - time.monotonic()
+        if delay > 0:
+            time.sleep(delay)
     print("done publishing", flush=True)
     return 0
 
