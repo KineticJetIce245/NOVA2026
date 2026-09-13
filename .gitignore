@@ -79,6 +79,10 @@ results/*
 # where the files cannot settle a question, and says so. The recording it
 # describes stays out of git under tmp/.
 !results/antneuro_testset_report.md
+# Exception: the live-blocking and offline-replay parity report. It is the only
+# account of that check, it is small, and an ignored file is one `git clean -x`
+# away from being lost.
+!results/streaming_test_report.md
 
 # macOS metadata. On exFAT (this repository lives on one) macOS cannot store
 # extended attributes, so it writes an AppleDouble sidecar next to every file it
