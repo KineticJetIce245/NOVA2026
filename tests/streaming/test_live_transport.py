@@ -149,9 +149,9 @@ class TransportIntegrationTests(unittest.TestCase):
         self.assertTrue(self.report.exists(), printed)
         report = json.loads(self.report.read_text())
 
-        # The default timeline treatment is what shipped, so this test is about
-        # the transport and not about the grid.
-        self.assertEqual(report["arguments"]["timebase"], "stamps")
+        # Whatever the timeline default is, this test is about the transport:
+        # the fixture's grid is sound, so grid mode leaves it alone.
+        self.assertEqual(report["arguments"]["timebase"], "grid")
         self.assertEqual(report["source"]["name"], OUTLET_NAME)
         self.assertEqual(report["source"]["source_id"], SOURCE_ID)
         self.assertEqual(report["source"]["channels"], ["E1", "E2"])

@@ -202,9 +202,12 @@ Behaviour:
 * `interpolated` windows caused by phantoms disappear; `interpolated` keeps its
   meaning for *real* damage (NaN/Inf runs the source actually sent).
 * `unsafe_endpoints` stops firing on re-locks, because no row is synthesised.
-* A new flag on `scripts.getlive`, e.g. `--timebase {grid,stamps}`, where
-  `stamps` is today's pass-through (and stays the default until the rig
-  validates `grid`).
+* A flag on `scripts/getlive`, `--timebase {grid,stamps}`. It shipped defaulting
+  to `stamps` so that the first step changed nothing, and now defaults to `grid` -
+  see the status in §10 for why it moved without an amplifier run. `stamps` stays
+  as the pass-through for a source whose grid is sound, and
+  `--timebase-drift-limit N` turns the drift warning into a verdict (N samples per
+  30 s of stream).
 
 ## 6. What does not change
 
@@ -276,6 +279,14 @@ the steps", and the design differs:
 Cheap (10 s of cap time), decisive, and it should be run before the code is
 written.
 
+**Update: the rig stopped being available, so this experiment cannot be run.** The
+contrast it asks for was reproduced against the repository's own fixture publisher
+instead - 24 channels, 500 Hz, 0.3 ms of per-sample jitter: `stamps` died in 300
+samples with six recoveries, `grid` ran 11 850 samples with none
+(`streaming_explained.md` §11.15). That settles what the grid does with a stepping
+timeline. It cannot settle whether the amplifier's own steps survive a relay,
+because the relay is no longer in the path.
+
 ## 10. Migration and rollback
 
 * One commit per step: (a) `timebase.py` + tests, no wiring; (b) wire it into
@@ -295,9 +306,15 @@ recorded in the run's provenance, the time base's verdict in the run counters
 `timebase_large_steps`), which flow into both the JSON report and the recording's
 `meta`. The four copies of the tolerance constant are down to one: `Repair` owns
 `grid_tolerance_seconds()` and the time base, the relay and `ts_check` ask it.
-The acceptance rules score the timeline as a WARN, and `main()` is back under the
-50-line method limit. Step (d) - flipping the default to `grid` - remains, and so
-does the experiment in §9. Both are waiting on the cap.
+The acceptance rules score the timeline as a WARN, `--timebase-drift-limit` turns
+that into a FAIL when the operator asks for one, and `main()` is back under the
+50-line method limit. Step (d) - flipping the default to `grid` - **is done**, made
+after the rig stopped being available and on the evidence in §9's update rather
+than on an amplifier run: the only amplifier this project measured fails without
+it, grid mode is a near-no-op on a clean source, and it also regularises a
+chunk-stamped one. `--timebase stamps` remains as the escape hatch. The experiment
+in §9 cannot be run and the relay's grid modes are now the redundant third
+implementation of the same idea.
 
 Two details settled during implementation and reflected above: the re-lock slew
 is derived rather than floored (§5.2), and the residual peak is not a gate (§8).
@@ -318,8 +335,9 @@ stamps while the run report claimed a grid.
 
 ## 12. Open questions for review
 
-1. **Run the §9 experiment first?** It needs ~10 s of cap time and decides
-   whether the relay is the whole cause.
+1. ~~Run the §9 experiment first?~~ **Moot:** the rig is no longer available, and
+   the relay has left the path anyway. The contrast was reproduced against the
+   fixture publisher instead (§9's update).
 2. ~~Should exceeding the residual bound fail a run, or warn?~~ **Answered, by
    making it the operator's choice.** The drift warns by default and
    `--timebase-drift-limit N` (samples per 30 s of stream) makes it fail, because

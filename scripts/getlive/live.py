@@ -117,12 +117,15 @@ def abbreviate(names: tuple[str, ...], limit: int = 12) -> str:
 
 # How this run treats the source's timestamps.
 #
-# "stamps" passes them through untouched: what the script always did, and what a
-# source whose stamps are sound needs. "grid" puts every received sample on a
-# regular grid at the declared rate from a counted index, which is what the rig
-# needs - its stamps carry 0.48% sub-half-sample steps that Repair refuses, and
-# the naive fix (treating each step as lost samples) fabricated rows that Repair
-# then "repaired". See documents/TIMEBASE_DESIGN.md.
+# "grid" puts every received sample on a regular grid at the declared rate from a
+# counted index; "stamps" passes the source's through untouched. Grid is the
+# default because the only amplifier this project measured fails without it - its
+# stamps carry 0.48% sub-half-sample steps that Repair refuses, and the naive fix
+# (treating each step as lost samples) fabricated rows that Repair then
+# "repaired". It moved to the default after the rig stopped being available, on
+# that measurement plus the tests showing it is a near-no-op on a clean source and
+# also regularises a chunk-stamped one; "stamps" stays as the escape hatch. See
+# documents/TIMEBASE_DESIGN.md.
 TIME_BASE_MODES = ("stamps", "grid")
 
 
@@ -338,11 +341,11 @@ def _add_timebase_args(parser: argparse.ArgumentParser) -> None:
     group.add_argument(
         "--timebase",
         choices=TIME_BASE_MODES,
-        default="stamps",
-        help="stamps (default): use the source's own timestamps, unchanged; "
-        "grid: place every received sample on a regular grid at --sfreq from a "
-        "counted index, absorbing a drifting or stepping source clock without "
-        "ever fabricating or dropping a sample",
+        default="grid",
+        help="grid (default): place every received sample on a regular grid at "
+        "--sfreq from a counted index, absorbing a drifting or stepping source "
+        "clock without ever fabricating or dropping a sample; stamps: use the "
+        "source's own timestamps unchanged, for a source whose grid is sound",
     )
     group.add_argument(
         "--timebase-relock-samples",

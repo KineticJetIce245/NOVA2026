@@ -74,6 +74,10 @@ still printed and written.
 # Record the raw run for offline replay
 .venv/Scripts/python.exe -B -m scripts.getlive --sfreq 500 --source-units uV `
     --record records --subject S01 --session dry --out records/acceptance.json
+
+# A source whose grid is sound: keep its timestamps untouched
+.venv/Scripts/python.exe -B -m scripts.getlive --sfreq 500 --source-units uV `
+    --timebase stamps --duration 30
 ```
 
 | Option | Meaning |
@@ -90,7 +94,7 @@ still printed and written.
 | `--stream-name`, `--source-id`, `--stream-type` | Pin the outlet when several publish. |
 | `--notch` | 60 Hz default; use `--notch 50` on 50 Hz mains. |
 | `--resample-quality` | `LQ` default (lowest latency); `auto` measures the presets. |
-| `--timebase stamps\|grid` | `stamps` (default): keep the outlet's own timestamps. `grid`: place every received sample on a regular grid at `--sfreq` from a counted index. See [The timeline](#the-timeline---timebase). |
+| `--timebase grid\|stamps` | `grid` (default): place every received sample on a regular grid at `--sfreq` from a counted index. `stamps`: keep the outlet's own timestamps. See [The timeline](#the-timeline---timebase). |
 | `--timebase-relock-samples` | `grid` only: disagreement tolerated before the grid re-anchors; default 0.5 samples. |
 | `--timebase-max-step-samples` | `grid` only: a single timestamp step this large is reported as suspicious; default 1.5. |
 | `--timebase-drift-limit` | `grid` only: reject the run when the grid absorbs more than this many samples of drift per 30 s of stream. Unset by default, so drift is warned about and never rejects. |
@@ -148,11 +152,13 @@ when the analysis is time-locked: N counts samples of drift per 30 s of stream, 
 the limit does not depend on how long the run happened to be. The 2-9 samples per
 30 s measured on the rig would fail a limit of 1.
 
-* `--timebase` still defaults to `stamps`. The grid path reproduces the rig's
-  failure and its fix against synthetic timelines
-  (`documents/streaming_explained.md` §11.15), but it has not been confirmed on the
-  amplifier itself, so the default does not move until `ts_check` reports
-  `fatal% = 0` there. See `documents/TIMEBASE_DESIGN.md`.
+* `--timebase` defaults to `grid`, and that move was made on evidence rather than
+  on an amplifier run: the rig stopped being available, and the only amplifier this
+  project measured fails without the grid (the 0.48% above), while grid mode is a
+  near-no-op on a clean source and also regularises a chunk-stamped one. The
+  failure and the fix are reproduced against synthetic timelines in
+  `documents/streaming_explained.md` §11.15. `--timebase stamps` is the escape
+  hatch for a source whose grid is sound and whose timestamps you want untouched.
 
 ### Which cap contract is used
 

@@ -1977,6 +1977,8 @@ Note what `0.0` absorbed drift next to `126` suspicious steps means: jitter has 
 step count alone. The two counters measure different things, which is what they
 were built to do.
 
-Until `fatal% = 0` has been measured on the amplifier itself, the grid path is
-confirmed only against synthetic timelines, and `--timebase` keeps defaulting to
-`stamps`.
+The grid path was never confirmed on the amplifier itself - the rig stopped being
+available - and it is the default anyway, on the evidence above and two tests: the
+only amplifier this project measured fails without it, grid mode is a near-no-op on
+a clean source, and it also regularises a chunk-stamped one. `--timebase stamps`
+remains for a source whose grid is sound.

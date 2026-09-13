@@ -311,9 +311,11 @@ class LiveWiringTests(unittest.TestCase):
             ["--sfreq", str(RATE), "--source-units", "uV", *extra]
         )
 
-    def test_the_default_keeps_the_source_stamps(self) -> None:
-        args = self.parse()
-        self.assertEqual(args.timebase, "stamps")
+    def test_the_default_is_the_grid_and_stamps_is_the_escape_hatch(self) -> None:
+        # Grid is the default because the only amplifier this project measured
+        # fails without it; a source whose grid is sound asks for stamps back.
+        self.assertEqual(self.parse().timebase, "grid")
+        self.assertEqual(self.parse("--timebase", "stamps").timebase, "stamps")
         stamps = np.asarray([1.0, 2.0, 3.0])
         self.assertIs(
             live.apply_timebase(None, stamps),
