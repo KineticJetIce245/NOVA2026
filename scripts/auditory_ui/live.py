@@ -242,6 +242,30 @@ def contract_lines(record: dict) -> list[str]:
 # ---------------------------------------------------------------------- policy
 
 
+def display_channel(args) -> str | None:
+    """The electrode the ``eeg_display`` tap carries for this run, or ``None``.
+
+    ``--eeg-display-channel`` wins when given. Without it the tap stays off, so a
+    run without the flag is the run it was before the traces existed. A caller that
+    asks for the tap without naming an electrode this rig carries gets ``Cz`` when
+    the contract lists it and the first electrode otherwise -- the same fallback
+    ``scripts/auditory_ui/demo.py`` uses, and the producer records whichever name
+    was chosen in the packet's ``channel_source`` so the panel never has to guess.
+    """
+
+    if not args.eeg_display_channel:
+        return None
+    raw = args.electrodes or ()
+    if isinstance(raw, str):
+        raw = tuple(part.strip() for part in raw.split(",") if part.strip())
+    names = tuple(str(name) for name in raw)
+    if args.eeg_display_channel in names:
+        return args.eeg_display_channel
+    if "Cz" in names:
+        return "Cz"
+    return names[0] if names else None
+
+
 def quality_policy(args) -> dict:
     """The channel-quality policy in force, as the run record carries it.
 
@@ -286,6 +310,7 @@ def quality_policy(args) -> dict:
         "documented_min_margin": float(MIN_MARGIN),
         "warmup_seconds": float(args.warmup),
         "frame_seconds": float(args.frame_seconds),
+        "display_channel": display_channel(args),
         "note": RELAXED_POLICY_NOTE if not check else (
             "check_channels=True is the chain's own default, restored by "
             "--strict-policy: a faulting electrode that persists past the recovery "
@@ -497,6 +522,7 @@ def build(app_state: dict, args):
         saturation_limit_uv=app_state["policy"]["saturation_limit_uv"],
         amplitude_limit_uv=app_state["policy"]["amplitude_limit_uv"],
         exclude_channels=tuple(app_state["policy"]["exclude_channels"]),
+        display_channel=app_state["policy"]["display_channel"],
     )
     session = AttentionSession(
         source=source, decoder=model, references=references, policy=policy
@@ -885,6 +911,11 @@ def build_parser() -> argparse.ArgumentParser:
     model.add_argument("--model", default=DEFAULT_MODEL)
     model.add_argument("--electrodes", default=None,
                        help="comma-separated labels; default: the model's own list")
+    model.add_argument("--eeg-display-channel", default=None,
+                       help="publish the eeg_display packet for this electrode (e.g. Cz), "
+                            "which is what puts the two EEG traces on the page. Omitted "
+                            "publishes none: the tap and the packet exist only when a "
+                            "channel is named")
     model.add_argument("--pre-resample", default="auto",
                        help="auto (default): deliver the model's input_sfreq; off: "
                             "deliver the source rate; or an explicit Hz")

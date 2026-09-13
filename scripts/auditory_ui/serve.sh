@@ -11,24 +11,32 @@
 # PowerShell and is the reason this file exists: the end goal is this same demo
 # running from an external drive on a Mac, where there was no entry point.
 #
-# WHAT IT ACCEPTS, AND WHAT IT DOES NOT. The flags below are the whole interface;
-# anything else is refused with "unknown option" rather than forwarded, so the
-# demo's own --help is not available through this script. The flags are --trial,
-# --model, --seconds, --serve-seconds, --margin, --url-timeout-seconds, --rebuild,
-# --no-browser, --keep-alive and --smoke. A demo flag that is not on that list --
-# --eeg-display-channel and --media-owner today -- has to be given to the module
-# directly:
+# WHAT IT ACCEPTS. The flags below are the whole interface; anything else is refused
+# with "unknown option" rather than forwarded, so the demo's own --help is not
+# available through this script. The flags are --trial, --model, --seconds,
+# --serve-seconds, --margin, --eeg-display-channel, --media-owner,
+# --url-timeout-seconds, --rebuild, --no-browser, --keep-alive and --smoke.
 #
-#   .venv/bin/python -B -m scripts.auditory_ui.demo --trial <trial> --model <model> \
-#     --eeg-display-channel Cz --media-owner page --seconds 30
+#   sh scripts/auditory_ui/serve.sh --seconds 60 --eeg-display-channel Cz --media-owner page
+#
+# --eeg-display-channel is what turns the EEG traces on. The producer publishes no
+# eeg_display packet unless an electrode is named, so without this flag the page's
+# EEG panel reads "Awaiting EEG display data" for the whole run -- honestly, because
+# nothing was published. It is off by default because turning a new per-frame packet
+# on for every run would change runs nobody asked to change.
+#
+# --media-owner states who may claim the transport's one media slot: auto, standby,
+# page or demo, exactly as the demo's own flag. It is forwarded rather than defaulted
+# here because which one is right depends on whether a human is watching the page
+# (documents/where_the_demo_stands.md section 5.10).
 #
 # An earlier version of this comment claimed everything after the flags was passed
 # through, and offered `./serve.sh --seconds 30 --margin 0.05
-# --eeg-display-channel Cz` as an example. That example never worked: the argument
-# loop ends in `*) fail "unknown option: $1"`, and `set --` below rebuilds the
-# command line from scratch, discarding the caller's arguments. The claim is removed
-# rather than implemented, because a launcher that silently forwards flags it does
-# not understand is how a wrapper stops being a wrapper.
+# --eeg-display-channel Cz` as an example. That example did not work then: the
+# argument loop ends in `*) fail "unknown option: $1"`, and `set --` below rebuilds
+# the command line from scratch. The two flags it named are now real flags, spelled
+# out in that loop rather than forwarded blind, which is the difference between a
+# wrapper and a hole in one.
 # THE INTERPRETER IS DETECTED, NEVER ASSUMED. A virtual environment keeps its
 # interpreter at .venv/bin/python on macOS and Linux; this script tries that
 # layout first, then python3.13, python3.12, python3 and python on PATH. The
@@ -92,6 +100,9 @@ usage() {
     printf '  --seconds N               replay only this many seconds; 0 = the whole trial\n'
     printf '  --serve-seconds N         keep serving this long after the replay; 0 = exit with it\n'
     printf '  --margin F                controller commit margin; 0 = the calibrated default\n'
+    printf '  --eeg-display-channel C   publish the eeg_display packet for electrode C (e.g. Cz),\n'
+    printf '                            which is what draws the two EEG traces\n'
+    printf '  --media-owner MODE        auto|standby|page|demo: who may claim the media slot\n'
     printf '  --rebuild                 npm run build apps/attune-ui/dist first\n'
     printf '  --no-browser              do not ask the OS to open a tab\n'
     printf '  --keep-alive              restart the demo when it exits (opt-in)\n'
@@ -109,6 +120,8 @@ MODEL='models/auditory_kuleuven.npz'
 REPLAY_SECONDS=0
 SERVE_SECONDS=43200
 MARGIN=0
+EEG_DISPLAY_CHANNEL=''
+MEDIA_OWNER=''
 REBUILD=0
 NO_BROWSER=0
 KEEP_ALIVE=0
@@ -143,6 +156,10 @@ while [ $# -gt 0 ]; do
         --margin=*)             number --margin "${1#*=}"; MARGIN=${1#*=}; shift ;;
         --url-timeout-seconds)  [ $# -ge 2 ] || fail "--url-timeout-seconds needs a number"; number --url-timeout-seconds "$2"; URL_TIMEOUT_SECONDS=$2; shift 2 ;;
         --url-timeout-seconds=*) number --url-timeout-seconds "${1#*=}"; URL_TIMEOUT_SECONDS=${1#*=}; shift ;;
+        --eeg-display-channel)  [ $# -ge 2 ] || fail "--eeg-display-channel needs an electrode name"; EEG_DISPLAY_CHANNEL=$2; shift 2 ;;
+        --eeg-display-channel=*) EEG_DISPLAY_CHANNEL=${1#*=}; shift ;;
+        --media-owner)          [ $# -ge 2 ] || fail "--media-owner needs a mode"; MEDIA_OWNER=$2; shift 2 ;;
+        --media-owner=*)        MEDIA_OWNER=${1#*=}; shift ;;
         --rebuild)              REBUILD=1; shift ;;
         --no-browser)           NO_BROWSER=1; shift ;;
         --keep-alive)           KEEP_ALIVE=1; shift ;;
@@ -151,6 +168,13 @@ while [ $# -gt 0 ]; do
         *)                      fail "unknown option: $1 (try --help)" ;;
     esac
 done
+
+# --media-owner reaches the demo verbatim, so it is checked here rather than left
+# to fail three layers down. The four modes are the demo's own choices.
+case "$MEDIA_OWNER" in
+    ''|auto|standby|page|demo) ;;
+    *) fail "--media-owner must be auto, standby, page or demo, got '$MEDIA_OWNER'" ;;
+esac
 
 # 2. The Python this repository was built with, detected rather than assumed.
 #    An explicit ATTUNE_PYTHON wins, so an operator with a different environment
@@ -248,6 +272,10 @@ start_demo() {
     if positive "$REPLAY_SECONDS"; then set -- "$@" --seconds "$REPLAY_SECONDS"; fi
     if positive "$MARGIN"; then set -- "$@" --margin "$MARGIN"; fi
     if positive "$SERVE_SECONDS" && [ "$SMOKE" -eq 0 ]; then set -- "$@" --serve-seconds "$SERVE_SECONDS"; fi
+    # Named explicitly rather than forwarded blind: these two are the whole reason
+    # the flags exist above, and an empty one must stay absent from the command.
+    if [ -n "$EEG_DISPLAY_CHANNEL" ]; then set -- "$@" --eeg-display-channel "$EEG_DISPLAY_CHANNEL"; fi
+    if [ -n "$MEDIA_OWNER" ]; then set -- "$@" --media-owner "$MEDIA_OWNER"; fi
     if [ "$NO_BROWSER" -eq 0 ]; then set -- "$@" --open-browser; fi
 
     printf '\ncommand  : %s %s\n' "$PYTHON" "$*"

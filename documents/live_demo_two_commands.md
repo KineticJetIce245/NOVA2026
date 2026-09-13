@@ -126,6 +126,29 @@ URL, and starts the session when the page connects.
 **Exit 2** from either command means "refused", and the text says which wall was
 hit. That is the only exit code the launchers translate into a hint.
 
+### One command, if you do not want to remember the flags
+
+```sh
+sh scripts/run_antneuro_demo.sh --sfreq 500 --source-units uV
+```
+
+It runs the pre-flight and then the session, with the EEG traces switched on. The
+wrapper is transparent: it consumes `--sfreq`, `--source-units`,
+`--eeg-display-channel` and `--no-preflight`, and passes everything else to command
+2 unchanged. It refuses before starting anything if the audio pair is missing,
+because the candidate WAVs live under `tmp/`, which git ignores and which therefore
+does not travel with the repository.
+
+`--eeg-display-channel Cz` is what makes the page draw the two EEG traces. Without
+it nothing publishes an `eeg_display` packet and the panel reads "Awaiting EEG
+display data" for the whole session -- honestly, because nothing was published. The
+same flag was added to `scripts/auditory_ui/serve.sh` for the replay route, which
+has the same kind of entry point:
+
+```sh
+sh scripts/run_kul_demo.sh        # 60 s of a recorded KU Leuven trial, traces on
+```
+
 ---
 
 ## 2. The calibration step, for both platforms
