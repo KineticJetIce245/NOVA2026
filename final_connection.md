@@ -334,6 +334,17 @@ KU Leuven 列索引：`Fp1=0 Fp2=33 F7=6 F3=4 Fz=37 F4=39 F8=41 T7=14 C3=12 C4=4
    - 步骤 5 的"30–60 s 窗更优"是**零偏移下**的测量；长窗在非零偏移下是否更耐受**尚未测量**。
      若时间允许，8/10 之后补一次"长窗 × 非零偏移"的小扫描，否则在 `VALIDATION.md` 标注为未验证预测。
    - `MIN_MARGIN` 是相关**差值**的门槛，本实验没有测量它；本曲线对它**不构成**任何结论。
+5. **`MIN_MARGIN = 0.5` 从未被标定，而它现在决定演示能不能看**（步骤 8 实测，必须传给 9/10）：
+   真实 trial（S1/trial_008，5 s 窗）跑出 **119 窗 / 117 评分 / 决策分布 unavailable 19、uncertain 465、A 12**
+   ——即 **94% 的帧没有结论**（12/12 已决策帧与真值一致，但只有 12 帧）。这是铁律 2 的**显式降级**，不是 bug，
+   但若照此演示，UI 几乎全程显示"不确定"。步骤 5.5 只标定了**偏移代价**，从未标定 margin 本身。
+   **步骤 9/10 必须显式处理，且不得偷偷调参**：先在**留出数据**上标定 margin（报出 margin 与
+   coverage/accuracy 的权衡），把标定过程与数据划分写进运行记录，再据此选窗长与 margin；
+   若最终仍选择保持 margin=0.5（宁可不给结论），那也必须写成**记录在案的取舍**而不是默认值。
+6. **放宽质量策略会让 `signal_quality` 失真**（步骤 8 发现，宜在 9/10 修）：`check_channels=False` 下
+   `QualityMonitor.reasons()` 按策略返回空，`signal_quality.quality` **恒为 1.0**、死电极显示 `artifact=false`，
+   因为 `EEGWindow.bad_channels` 是"policy aside"的证据却没被 `AuditoryWindow` 携带。
+   修法：给 `AuditoryWindow` 加字段并据此判决 `artifact`——**不许用增加 reject 的方式绕过**（那会重新引入停机）。
 
 ### 3.16 扰动用例矩阵（用户 2026-09-14 要求：**只有一项是"正常"，其余都必须带故障**）
 
@@ -490,7 +501,7 @@ KU Leuven 列索引：`Fp1=0 Fp2=33 F7=6 F3=4 Fz=37 F4=39 F8=41 T7=14 C3=12 C4=4
 | 5.5 | **偏移扫描实验** | `results/aad_shift_sweep_<date>.json`：包络滑 ±300 ms 的相关衰减曲线 | 扫描脚本 + 曲线 | 30 / 40 | **DONE（第 2 次尝试 `a859f40`）** — 第 1 次 `6ee0ba5` 的曲线**已撤回**（其 `.md` 带 RETRACTED 横幅）。根因不是"1 个样本错位"而是**纯符号反转 + trim 假象**：`shift_window` 读 `+shift`、`trial_scores` 又减一次（`low = max(first, shift, 0)`），零点不可见、非零点全镜像。配对现已**逐窗口对齐原始链路**：`max|Δenvelope|` 5.3e-10…8.6e-10（镜像对照 2.4e-02…3.0e-02），`max|Δscore|` 3.3e-09…8.5e-08，**两路径每个偏移的平衡准确率完全相同**；零点仍**逐位复现**步骤 5。另修：亚采样偏移原先被 `round(δ*64)` 静默取整（12.5 ms 步长产生重复点）；越过录音边界的窗口现在**弃权**而非被截断打分。**额外发现并修掉** `_crossing` 向内游走导致 `width_of` 返回**负宽度**（即撤回报告里的 −109/−447 ms）。22 个测试全绿、无 skip、**两个 `expectedFailure` 已移除并转为真通过的测试**，5 个变异（符号/取整/截断/网格点/向内游走）全部致红。全仓 **663 tests 全绿** |
 | 6 | **传输层移植**（须读 `secure-web-dev`） | `src/nova2026/transport/{protocol,publisher,sessions,server}.py` + 契约测试 | 单测全绿：包校验/快照/1013/生命周期 | 50 / 60 | **DONE** — commit `7f2ab43`；63 个契约测试全绿；`tests/transport` 已加入 `scripts/run_tests.py`（全仓 628 tests）；依赖 5 个 pin 经 `secure-import` 逐个核验。**例外**：`server.py` 364 行 / `create_app` ~170 行，经批准作为已记录例外。**预算超支约 2 倍**（103 步 / 90 分钟），未触发重试闸 |
 | 7 | **前端移植** | `apps/attune-ui/`（来源 commit 记录）+ `npm ci/build/test` 通过 | 构建产物 + 测试输出 | 35 / 60 | **DONE** — commit `61ca57c`（来源 `4a523956`，逐文件 SHA256 记录在 `PROVENANCE.md`）；`npm ci` / `build` 通过；测试 **53/53**（配合 `apps/backend/` 测试替身与 `ATTUNE_PYTHON`，见 D-12/D-16） |
-| 8 | **`AttentionSession` + 生产者** | `src/nova2026/auditory/session.py` + `AttentionProducer`；合成 trial 先打通 | 端到端日志 + 前端截图 | 50 / 60 | TODO |
+| 8 | **`AttentionSession` + 生产者** | `src/nova2026/auditory/session.py` + `AttentionProducer`；合成 trial 先打通 | 端到端日志 + 前端截图 | 50 / 60 | **DONE** — commit `d92a5d6`（15 文件 / +4463）。`session.py`(687) + `sources.py`(378) + `producer.py`(289) + `scripts/auditory_ui/`（预登记 CLI + 前端证据 mjs），**session 无任何 FastAPI/transport import**。合成 20 s → 263 包 14/14 断言通过；**真实 trial（S1/trial_008，1× 实时 124 s）→ 1616 包 14/14 通过**，`output/auditory_ui/packets_trial008.jsonl` 留证。快照 3 包先于 1613 增量；1616/1616 过本仓 validator；增益 992 个全部 ≤0 dB；`session` 生命周期包全为 `source=server`。**前端证据（无浏览器，如实标注）**：真实包流经 vendored 前端自身的 `protocol.js`/`state.js`/`decoders.js`（rejected=0）+ `Dashboard.js` 用 `react-dom/server` 渲染出 **"Focused on Speaker A"、FOCUSED、B 路 −6 dB** → `results/auditory_frontend_trial008.html`；**不证明**布局/交互/Web Audio 通路（属步骤 9/10）。5 条降级路径各有真实包（warmup / audio_unavailable / evidence_gap / evidence_stale / processing_failed），缺包络 → HTTP **409** 并指名文件。12/12 变异被捕获。全仓 **700 tests 全绿** + 前端 53/53。**例外**：`session.py` 687 行、CLI 579、单测 589 超 300 行建议（同步骤 3/5/5.5/6 先例）。**发现两条硬约束**（见 §3.17 第 5、6 条：margin 未标定致 94% 帧无结论；放宽策略下 `signal_quality` 恒为 1.0） |
 | 9 | **媒体时间轴与音频** | 立体声 WAV（L=A,R=B）经 `/api/media/file`；`media/control` 握手 + 250 ms `report` | `|Δt| ≤ 0.75 s` 证据 + 增益激活证据 | 50 / 60 | TODO |
 | 9.5 | **ANT 真实数据集导入**（§3.12） | `scripts/auditory/antneuro.py`：读 `.cnt`（`read_raw_ant`）+ 会话音频起点（0 s / 267 s）+ 标记清单 + 用户标注口径（切换 ±buffer → `-1`） | 标记表导出供人工核对；每个会话的 trial 形状/时长/标签分布；误触清单显式记录 | 45 / 60 | TODO |
 | 10 | **真实 trial 全链路 + 一键入口** | `python -B -m scripts.auditory_ui.demo`：起服务 + 1× 回放 + 开浏览器 | V1–V5 全部证据 | 50 / 70 | TODO |
@@ -657,6 +668,8 @@ KU Leuven 列索引：`Fp1=0 Fp2=33 F7=6 F3=4 Fz=37 F4=39 F8=41 T7=14 C3=12 C4=4
 | D-23 | 09-14 | 步骤 5.5 第 1 次尝试**判定为不可采信**，标记"未完成"并派第 2 个子 agent；替补 brief 必须携带第 1 次的诊断（约 1 个样本的系统错位；缓存路径与原始链路在非零偏移处差 +0.09~+0.20）与其建议（**先用 `replay_windows(audio_offset=δ)` 逐窗口钉死配对，再放大扫描**） | 用户第 4 条要求：失败/卡死时先查清原因并告知替补，避免其掉进同一陷阱；且 §6.4 宁可报 BLOCKED 也不给编造数字 | 直接重派不带诊断的替补；或接受这条不可信的曲线 | `6ee0ba5` 产物保留（脚本+测试+存档曲线 + 2 个 `expectedFailure` 自证缺陷），但 §5 状态为"未完成"；**步骤 9/10 不得引用本步数字**；§3.10「解码器对音频偏移的容差」仍是未测量量 | `6ee0ba5` |
 | D-24 | 09-14 | 步骤 5.5 **第 2 次尝试判定为可信，标 DONE**；第 1 次的**曲线撤回但文件保留**（`.md` 加 RETRACTED 横幅，`.json` 不动，不删除） | 第 2 次把配对逐窗口钉到原始链路（1e-10 包络 / 1e-8 分数 / 决策完全一致），并证明第 1 次的根因是**符号反转 + trim 假象**而非错位一格；撤回文件保留可让后人看到"错过的方向长什么样" | 删除撤回产物（需 secure-action）；或把两次曲线混在一起 | 决策：**对齐预算压倒通道预算**（100 ms 错位 ≈ 0.10–0.15 平衡准确率，是 64→20 通道差距 0.022 的 5–7 倍）；`0.75 s` 门槛被明确界定为**陈旧度**而非对齐规格 | `a859f40` |
 | D-25 | 09-14 | 登记 `scripts/auditory/shift_sweep.py` **880 行**超过 structure-dev 的 300 行建议，作为已批准例外 | 该文件由三块互锁内容组成（配对/位移机制、曲线统计、链一致性审计），拆开会把"缓存 = 链"这一被测试断言的契约分散到多个文件 | 强行拆分；或压缩注释 | 与步骤 3/5/6 的长文件例外同类，已在计划内留痕 | `a859f40` |
+| D-26 | 09-14 | 步骤 8 **DONE**；登记两条新硬约束（§3.17 第 5、6 条） | 真实 trial 端到端跑通，且暴露"margin 未标定 → 94% 帧无结论"与"放宽策略下 signal_quality 恒为 1.0"两个会直接影响演示真实性的问题 | 把 1616 包当成完全成功而不看决策分布 | 步骤 9/10 必须**显式标定 margin 并记录数据划分**，或把"保持 0.5"写成记录在案的取舍；`signal_quality` 的失真要在 9/10 修（给 `AuditoryWindow` 加 `bad_channels` 字段） | `d92a5d6` |
+| D-27 | 09-14 | 长文件例外再登记：`session.py` 687 / CLI 579 / 单测 589 行 | 与 D-25 同因（互锁内容拆分会割裂被测试断言的契约） | 强行拆分 | 结构例外的清单继续增长，`VALIDATION.md` 收口时应统一说明 | `d92a5d6` |
 
 ---
 
