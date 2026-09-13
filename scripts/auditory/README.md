@@ -140,6 +140,36 @@ sample), and JSON `metadata`. Audio starts at the first EEG timestamp; real offs
 must be corrected when preparing a trial. Included metadata is documented by
 `save_trial` and `load_trial` in `data.py`.
 
+## Precomputed reference envelopes
+
+A session decodes against a stored envelope and never computes one at run time, so
+the envelopes for the audio a session will present must exist first:
+
+```powershell
+.venv/Scripts/python.exe -B -m scripts.auditory.envelopes --audio datasets/AAD-KULeuven/stimuli/part1_track1_dry.wav --out datasets/audio
+.venv/Scripts/python.exe -B -m scripts.auditory.envelopes --audio-dir datasets/AAD-KULeuven/stimuli --pattern "*_dry.wav" --out datasets/audio
+.venv/Scripts/python.exe -B -m scripts.auditory.envelopes --out datasets/audio --verify
+```
+
+One `<audio_stem>.npz` per input holds `envelope` (float32, N x 1 at the config's
+`sample_rate`), `timestamps` (seconds from audio sample 0) and JSON `metadata`:
+source path and SHA256, source and feature rates, band, envelope method,
+generation time and generator version. Compressed NPZ and JSON only. The numbers
+come from the same `EnvelopeExtractor` the live path uses, so a stored envelope
+and a freshly computed one agree exactly; a test asserts that, and that feeding
+the whole file equals feeding it in chunks. Mono audio is fed as two identical
+columns and column 0 is kept, because the extractor takes two candidate columns
+and the columns never mix. Inputs wider than two channels are refused, not
+silently downmixed. An existing envelope is not replaced without `--force`, and
+`--verify` re-hashes every envelope in `--out` against its source audio.
+
+Envelopes are derived from a dataset, so they stay under the git-ignored
+`datasets/audio/`; the recipe is what the repository keeps. `load_envelope(path,
+config)` in `src/nova2026/auditory/envelopes.py` is the check a session must run
+before starting: missing file, changed source audio, or a band/sample-rate/method
+that no longer matches `AuditoryConfig` raises `EnvelopeVerificationError` instead
+of being decoded.
+
 ## Timing and sound control
 
 Nominal signal time, resampler availability, and inference emission are separate.
