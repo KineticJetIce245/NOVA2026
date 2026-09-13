@@ -449,7 +449,7 @@ class AttentionSession:
         policy: RunPolicy,
         controller: AttentionController | None = None,
         offload_workers: int = 1,
-        offload_capacity: int = 2,
+        offload_capacity: int = 8,
         clock=time.monotonic,
     ) -> None:
         contract = dict(decoder.contract or {})
