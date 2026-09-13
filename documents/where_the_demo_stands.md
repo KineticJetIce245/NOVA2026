@@ -27,6 +27,22 @@ for an hour in its current state.
 **Nothing has been tested on a live person.** No amplifier has been connected. All
 results come from replaying recordings.
 
+**The page has now been opened in a real browser, and it works — but not
+reliably.** A recorded Chromium run advanced the audio to 57 s of an 80 s clip and
+showed "Source A" with the other voice turned down to −6 dB. The same code also has
+a run where the audio never started at all, because the page and the demo's own
+stand-in client compete for one media-owner slot and the page loses if the stand-in
+gets there first. That was the cause of the first "I can't hear anything". Section
+5.4 states it plainly: **the demo's success currently depends on who wins a race.**
+
+**The EEG itself is now drawn on the page.** The panel that used to read "Awaiting
+EEG display data" had never received a packet, because nothing published one. It
+now draws two traces at once: the raw signal the electrodes produced, and the
+1–9 Hz band-passed signal the decoder actually uses. That is what turns "the
+computer decided" into something you can point at. On this machine the backend half
+was still being finished when this was written, so the traces had not yet been seen
+on a live page.
+
 **And on the user's own recorded session, the system currently produces no
 decisions at all.** The data flows through correctly — right electrodes, right
 sample rate, right units, no dropped packets — but the decoder refuses to score any
@@ -278,12 +294,43 @@ No amplifier, no participant, no live run. Everything reported here is a recordi
 played back, including the "live" sections in 3.6, which use the live code path but
 a recorded file as the source.
 
-### 5.4 The browser has never been opened
+### 5.4 The browser has been opened, and it exposed a race we have not fixed
 
-All interface evidence comes from running the interface's own code under Node and
-inspecting the output. The layout, the controls, real audio playback, and the actual
-latency of the sound card are unverified. A five-minute manual check in a real
-browser would close this.
+This section used to say the browser had never been opened. That is no longer true,
+so here is what opening it actually bought us, including the part we would rather
+not have found.
+
+**What is now verified in a real browser.** A Chromium run opened the served page,
+clicked Play, and the record shows audio position advancing to 57 seconds of an
+80-second clip; the page displayed "Source A"; the source cards read 0 dB on one
+voice and −6 dB on the other; and the decision timeline counted A 118 / B 35 /
+Uncertain 17 / No data 11, with a score difference of +0.3019 against the ±0.05
+band the rule needs. The screenshots under `results/attune_story_*` are that run.
+So "somebody clicked the page and it did the thing" is no longer an open question.
+
+**The part that is still broken.** Two things want to be the media owner at the
+same time: the demo's own stand-in client, which exists because the automated
+acceptance run has no browser, and the browser page itself. The server allows only
+one owner, and keeps that owner until it is explicitly released.
+
+The page's Play button sends its "I am ready" message **before** it starts the
+audio, and if that message is refused it does not start the audio at all. It shows
+*"Playback synchronization unavailable. Stop, then Play to reconnect."* That is the
+symptom to look for.
+
+This is what the user hit the first time: no sound, and no obvious reason. In the
+successful run the browser happened to claim the slot first; in a failing run the
+stand-in client got there first and every browser message was refused. **The demo's
+success therefore currently depends on who wins that race**, which is not a
+property a demo should have. We measured both outcomes (the failing record is
+`results/demo_browser_run.json`: three refused messages, audio position pinned at
+zero for all 71 samples; the working one is `results/attune_story_browser_run.json`:
+318 messages, none refused).
+
+The fix has two shapes and both need the demo's own entry point to change: let the
+page be the only media owner when someone is watching, or make the stand-in client
+stand down as soon as a page claims the slot. Neither is implemented. Until one is,
+the honest statement is: **the visible demo works, but not reliably.**
 
 ### 5.5 Timing has never been measured end to end
 
