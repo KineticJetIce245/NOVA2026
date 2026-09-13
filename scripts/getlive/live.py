@@ -358,6 +358,14 @@ def _add_timebase_args(parser: argparse.ArgumentParser) -> None:
         help="grid mode only: a single timestamp step at or above this many "
         "samples is reported as a suspicious jump (default 1.5)",
     )
+    group.add_argument(
+        "--timebase-drift-limit",
+        type=float,
+        default=None,
+        help="grid mode only: reject the run when the grid absorbs more than this "
+        "many samples of drift per 30 s of stream; without it the drift is always "
+        "reported as a warning and never rejects (default: unset)",
+    )
 
 
 def _add_args(parser: argparse.ArgumentParser) -> None:
@@ -423,6 +431,8 @@ def _validate_arguments(parser: argparse.ArgumentParser, args: argparse.Namespac
             "--timebase-max-step-samples must be above 1 sample; a smaller "
             "value would call every ordinary step suspicious."
         )
+    if args.timebase_drift_limit is not None and args.timebase_drift_limit <= 0:
+        parser.error("--timebase-drift-limit must be positive when given.")
 
 
 def _diagnose(message: str, args: argparse.Namespace, source: dict, profile) -> str:
@@ -585,6 +595,7 @@ def _chain_provenance(run: _Run) -> dict:
                 "tolerance_samples": run.timebase_policy.tolerance_samples,
                 "relock_samples": run.timebase_policy.relock_samples,
                 "max_step_samples": run.timebase_policy.max_step_samples,
+                "drift_limit_samples_per_30s": args.timebase_drift_limit,
             },
             "assertions": {
                 "reference": args.reference or run.profile.reference or "not asserted",
@@ -908,6 +919,7 @@ def _facts(run: _Run, electrode_summary: dict, model_missing: tuple[str, ...]) -
         timebase_anchor_rate=run.stats.timebase_anchor_rate,
         timebase_relocks=run.stats.timebase_relocks,
         timebase_large_steps=run.stats.timebase_large_steps,
+        timebase_drift_limit=args.timebase_drift_limit,
     )
 
 

@@ -93,6 +93,7 @@ still printed and written.
 | `--timebase stamps\|grid` | `stamps` (default): keep the outlet's own timestamps. `grid`: place every received sample on a regular grid at `--sfreq` from a counted index. See [The timeline](#the-timeline---timebase). |
 | `--timebase-relock-samples` | `grid` only: disagreement tolerated before the grid re-anchors; default 0.5 samples. |
 | `--timebase-max-step-samples` | `grid` only: a single timestamp step this large is reported as suspicious; default 1.5. |
+| `--timebase-drift-limit` | `grid` only: reject the run when the grid absorbs more than this many samples of drift per 30 s of stream. Unset by default, so drift is warned about and never rejects. |
 | `--reference`, `--ground` | Provenance strings; default to what the resolved profile asserts. |
 | `--record` with `--subject/--session/--run` | Write the raw run (SQLite + FIF) under that root. |
 | `--out` | Write the acceptance report as JSON. |
@@ -141,6 +142,12 @@ Two things to know before reading those numbers:
 * a **chunk-stamped** source reports one suspicious step per block. That is its
   stamping shape, not damage: fed a fixture with 8 samples per block, the grid came
   out at exactly one sample per step and `Repair` accepted it.
+By default the drift is only a warning, because whether it makes a run unusable
+depends on what the windows are for. `--timebase-drift-limit N` makes it a verdict
+when the analysis is time-locked: N counts samples of drift per 30 s of stream, so
+the limit does not depend on how long the run happened to be. The 2-9 samples per
+30 s measured on the rig would fail a limit of 1.
+
 * `--timebase` still defaults to `stamps`. The grid path reproduces the rig's
   failure and its fix against synthetic timelines
   (`documents/streaming_explained.md` §11.15), but it has not been confirmed on the

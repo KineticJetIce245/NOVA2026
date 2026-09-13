@@ -258,6 +258,11 @@ show how far the source's clock and the grid disagreed over a session. The two
 numbers that can are `relocked_samples` - how much drift was absorbed - and
 `anchor_rate`, the source clock's own ppm error.
 
+Whether that drift should **reject** a run is the operator's call, and it is now
+one: the drift is a warning by default, and `--timebase-drift-limit N` (samples of
+drift per 30 s of stream, so the limit travels between run lengths) turns it into a
+FAIL. Only the operator knows whether the windows feed a time-locked analysis.
+
 ## 9. The experiment this design still needs
 
 §3 cannot distinguish "the source's own stamps step" from "the relay invented
@@ -315,9 +320,11 @@ stamps while the run report claimed a grid.
 
 1. **Run the §9 experiment first?** It needs ~10 s of cap time and decides
    whether the relay is the whole cause.
-2. **Should exceeding the residual bound fail a run, or warn?** A run whose
-   timeline drifts by 9 samples in 30 s is arguably unusable for
-   time-locked analysis even though its samples are perfect.
+2. ~~Should exceeding the residual bound fail a run, or warn?~~ **Answered, by
+   making it the operator's choice.** The drift warns by default and
+   `--timebase-drift-limit N` (samples per 30 s of stream) makes it fail, because
+   only the operator knows whether the analysis is time-locked. For scale: the
+   rig's measured 2-9 samples per 30 s would fail a limit of 1.
 3. **`relock_samples = 0.5`** (half a sample, matching `Repair`'s fatal limit) is
    a proposal, not a measurement, and it is exposed as
    `--timebase-relock-samples` so the rig can settle it. `relock_slew_samples`

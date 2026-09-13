@@ -102,6 +102,8 @@ class RunFacts:
         timebase_anchor_rate: Rate the source's own anchors imply, in Hz.
         timebase_relocks: Re-locks the run performed.
         timebase_large_steps: Suspicious single timestamp steps the source made.
+        timebase_drift_limit: Samples of absorbed drift per 30 s of stream above
+            which the run is rejected; ``None`` never rejects.
     """
 
     expected_sfreq: float
@@ -142,6 +144,7 @@ class RunFacts:
     timebase_anchor_rate: float
     timebase_relocks: int
     timebase_large_steps: int
+    timebase_drift_limit: float | None
 
 
 @dataclass(frozen=True)
@@ -346,16 +349,30 @@ def _check_input_lag(checks: list[Check], facts: RunFacts) -> None:
         checks.append(Check("input_lag", FAIL, f"oldest consumed block {max_lag:.3f}s"))
 
 
-def _check_timebase(checks: list[Check], facts: RunFacts) -> None:
-    """Report what the run's own timeline had to absorb.
+def _drift_per_30s(facts: RunFacts) -> float | None:
+    """Absorbed drift normalised to 30 s of stream, or ``None`` without samples.
 
-    Evidence, not a verdict. Perfect samples and a wrong clock are compatible,
-    and the measurements say so: the amplifier's own ``.cnt`` matched our
-    recording sample for sample (88 500 pairs, nothing differing by more than one
-    LSB) while the timeline drifted 2-9 samples per 30 s. Whether that drift makes
-    a run unusable depends on what the windows are used for, so this reports the
-    numbers and leaves the threshold to the operator - the design document keeps
-    that question open on purpose.
+    The raw counter is an absolute number over the run, so a 30 s run and a 5 min
+    run cannot be compared by it. The stream's own length - samples over the
+    declared rate - is the denominator that travels.
+    """
+
+    samples = _number(facts.stats.get("samples"))
+    if samples <= 0 or facts.expected_sfreq <= 0:
+        return None
+    return facts.timebase_relocked_samples * 30.0 / (samples / facts.expected_sfreq)
+
+
+def _check_timebase(checks: list[Check], facts: RunFacts) -> None:
+    """Report what the run's own timeline had to absorb, and score it if asked.
+
+    Perfect samples and a wrong clock are compatible, and the measurements say so:
+    the amplifier's own ``.cnt`` matched our recording sample for sample (88 500
+    pairs, nothing differing by more than one LSB) while the timeline drifted 2-9
+    samples per 30 s. Whether that drift makes a run unusable depends on what the
+    windows are for, which only the operator knows - so by default this reports the
+    numbers and never rejects, and ``--timebase-drift-limit`` turns it into a
+    verdict when the analysis is time-locked and the operator wants one.
     """
 
     if facts.timebase_mode != "grid":
@@ -375,15 +392,30 @@ def _check_timebase(checks: list[Check], facts: RunFacts) -> None:
             Check("timebase", PASS, f"the source clock needed no correction ({ppm})")
         )
         return
-    checks.append(
-        Check(
-            "timebase",
-            WARN,
-            f"absorbed {facts.timebase_relocked_samples:.1f} sample(s) over "
-            f"{facts.timebase_relocks} re-lock(s), "
-            f"{facts.timebase_large_steps} suspicious step(s); "
-            f"the source clock reads {ppm}",
+
+    detail = (
+        f"absorbed {facts.timebase_relocked_samples:.1f} sample(s) over "
+        f"{facts.timebase_relocks} re-lock(s), "
+        f"{facts.timebase_large_steps} suspicious step(s); "
+        f"the source clock reads {ppm}"
+    )
+    limit = facts.timebase_drift_limit
+    per_30s = _drift_per_30s(facts)
+    if limit is None or per_30s is None:
+        checks.append(Check("timebase", WARN, detail))
+        return
+    if per_30s > limit:
+        checks.append(
+            Check(
+                "timebase",
+                FAIL,
+                f"{detail}; {per_30s:.2f} sample(s) of drift per 30 s is over the "
+                f"{limit:g} this run allows",
+            )
         )
+        return
+    checks.append(
+        Check("timebase", WARN, f"{detail} ({per_30s:.2f} per 30 s, limit {limit:g})")
     )
 
 

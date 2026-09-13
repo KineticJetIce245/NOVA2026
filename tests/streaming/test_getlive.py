@@ -132,6 +132,7 @@ def facts(**overrides) -> RunFacts:
         "timebase_anchor_rate": float("nan"),
         "timebase_relocks": 0,
         "timebase_large_steps": 0,
+        "timebase_drift_limit": None,
     }
     values.update(overrides)
     return RunFacts(**values)
@@ -584,6 +585,72 @@ class AcceptanceTests(unittest.TestCase):
         acceptance = evaluate(facts(timebase_mode="stamps"))
         self.assertEqual(statuses(acceptance)["timebase"], PASS)
         self.assertIn("source's own timestamps", details(acceptance)["timebase"])
+
+    def test_a_drift_limit_turns_the_warning_into_a_verdict(self) -> None:
+        # The default fixture is 30 s of stream, so drift per 30 s is the counter
+        # itself and the arithmetic stays readable.
+        drifted = {
+            "timebase_mode": "grid",
+            "timebase_relocked_samples": 9.0,
+            "timebase_relocks": 3,
+            "timebase_anchor_rate": 499.7,
+        }
+        over = evaluate(facts(**drifted, timebase_drift_limit=5.0))
+        self.assertEqual(statuses(over)["timebase"], FAIL)
+        self.assertIn("9.00 sample(s) of drift per 30 s", details(over)["timebase"])
+        self.assertFalse(over.ok, "a limit the operator set is a verdict")
+
+        under = evaluate(facts(**drifted, timebase_drift_limit=10.0))
+        self.assertEqual(statuses(under)["timebase"], WARN)
+        self.assertIn("9.00 per 30 s, limit 10", details(under)["timebase"])
+        self.assertTrue(under.ok, "inside the limit it stays a warning")
+
+        without = evaluate(facts(**drifted))
+        self.assertEqual(statuses(without)["timebase"], WARN)
+        self.assertTrue(without.ok, "no limit, no verdict - the default")
+
+    def test_the_drift_limit_is_per_thirty_seconds_of_stream(self) -> None:
+        # The same absorbed drift over twice the stream is half the rate: a limit
+        # must not depend on how long the run happened to be.
+        stats = {
+            "blocks": 600, "samples": 30_000, "windows": 52, "valid": 52,
+            "rejected": 0, "gaps": 0, "max_gap": 0.0, "max_lag": 0.05,
+            "recoveries": 0, "repairs": 0, "dropped": 0,
+        }
+        long_run = evaluate(
+            facts(
+                timebase_mode="grid",
+                timebase_relocked_samples=9.0,
+                timebase_relocks=3,
+                timebase_anchor_rate=499.7,
+                timebase_drift_limit=5.0,
+                stats=stats,
+            )
+        )
+        self.assertEqual(statuses(long_run)["timebase"], WARN)
+        self.assertIn("4.50 per 30 s, limit 5", details(long_run)["timebase"])
+
+    def test_a_run_with_no_samples_cannot_be_graded_per_thirty_seconds(self) -> None:
+        stats = {
+            "blocks": 0, "samples": 0, "windows": 0, "valid": 0, "rejected": 0,
+            "gaps": 0, "max_gap": 0.0, "max_lag": 0.0, "recoveries": 0,
+            "repairs": 0, "dropped": 0,
+        }
+        acceptance = evaluate(
+            facts(
+                timebase_mode="grid",
+                timebase_relocked_samples=3.0,
+                timebase_relocks=1,
+                timebase_anchor_rate=500.0,
+                timebase_drift_limit=0.5,
+                stats=stats,
+            )
+        )
+        self.assertEqual(
+            statuses(acceptance)["timebase"],
+            WARN,
+            "a rate needs a stream length; without one the limit cannot decide",
+        )
 
     def test_a_failed_run_is_rejected(self) -> None:
         acceptance = evaluate(facts(failure="RuntimeError('boom')"))

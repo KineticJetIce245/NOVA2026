@@ -379,6 +379,23 @@ class LiveWiringTests(unittest.TestCase):
                 with self.assertRaises(SystemExit):
                     live._validate_arguments(parser, args)
 
+    def test_the_drift_limit_is_optional_and_validated(self) -> None:
+        args = self.parse()
+        self.assertIsNone(
+            args.timebase_drift_limit,
+            "without it the drift is reported and never rejects",
+        )
+        args = self.parse("--timebase-drift-limit", "5")
+        self.assertEqual(args.timebase_drift_limit, 5.0)
+
+        parser = live.build_parser()
+        args = parser.parse_args(
+            ["--sfreq", str(RATE), "--source-units", "uV",
+             "--timebase-drift-limit", "0"]
+        )
+        with self.assertRaises(SystemExit):
+            live._validate_arguments(parser, args)
+
     def test_the_timebase_verdict_is_rendered_for_the_operator(self) -> None:
         args = self.parse("--timebase", "grid")
         run = SimpleNamespace(
