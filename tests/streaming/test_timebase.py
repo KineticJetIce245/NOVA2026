@@ -13,15 +13,18 @@ Run from the repository root:
 """
 
 import unittest
+from types import SimpleNamespace
 
 import numpy as np
 
+from nova2026.streaming import UnrepairableError
 from nova2026.streaming.preprocess import Repair
 from nova2026.streaming.timebase import (
     GridPolicy,
     TimeBase,
     repair_tolerance_samples,
 )
+from scripts.getlive import live
 
 RATE = 500.0
 
@@ -251,6 +254,103 @@ class TimeBaseInterfaceTests(unittest.TestCase):
         self.assertEqual(state.relocks, ())
         self.assertEqual(state.large_steps, ())
         self.assertAlmostEqual(state.anchor_rate, RATE, places=6)
+
+
+class LiveWiringTests(unittest.TestCase):
+    """The live script must be able to use the grid, and must default to not.
+
+    ``stamps`` is the historical behaviour, so a run that does not ask for the
+    grid has to be bit-for-bit what it was.
+    """
+
+    def parse(self, *extra: str):
+        return live.build_parser().parse_args(
+            ["--sfreq", str(RATE), "--source-units", "uV", *extra]
+        )
+
+    def test_the_default_keeps_the_source_stamps(self) -> None:
+        args = self.parse()
+        self.assertEqual(args.timebase, "stamps")
+        stamps = np.asarray([1.0, 2.0, 3.0])
+        self.assertIs(
+            live.apply_timebase(None, stamps),
+            stamps,
+            "with no time base the stamps must pass through untouched",
+        )
+
+    def test_the_grid_mode_regularises_what_the_chain_receives(self) -> None:
+        args = self.parse("--timebase", "grid")
+        policy = live.timebase_policy(args)
+
+        # The rig had both failure modes at once. The staircase - drift plus
+        # whole-sample re-stamps - does not make Repair refuse; it makes Repair
+        # invent the missing rows and repair them.
+        stamps = measured_timeline(count=6000)
+        times = live.apply_timebase(TimeBase(policy), stamps)
+        self.assertEqual(times.size, stamps.size, "no sample may be invented")
+        data = np.zeros((times.size, 1), dtype="float32")
+        raw = repair_stage(policy)
+        raw(data, stamps)
+        self.assertGreater(
+            raw.repaired_samples,
+            0,
+            "the raw timeline makes Repair fabricate and repair rows that never existed",
+        )
+        grid = repair_stage(policy)
+        grid(data, times)
+        self.assertEqual(
+            grid.repaired_samples, 0, "the grid must leave Repair nothing to fabricate"
+        )
+
+        # And the other mode: sub-nominal jitter, which Repair refuses outright.
+        jittered = measured_timeline(count=6000, jumps=(), drift_ppm=0.0)
+        jittered[::211] -= 0.4 / RATE
+        with self.assertRaises(UnrepairableError):
+            repair_stage(policy)(np.zeros((jittered.size, 1), "float32"), jittered)
+        fixed = live.apply_timebase(TimeBase(policy), jittered)
+        repair_stage(policy)(np.zeros((fixed.size, 1), "float32"), fixed)
+
+    def test_the_policy_is_the_one_rule_for_the_grid_tolerance(self) -> None:
+        for rate in (250.0, 500.0, 1000.0, 2000.0):
+            with self.subTest(rate=rate):
+                args = live.build_parser().parse_args(
+                    ["--sfreq", str(rate), "--source-units", "uV"]
+                )
+                self.assertAlmostEqual(
+                    live.timebase_policy(args).tolerance_seconds,
+                    min(2e-4, 0.4 / rate),
+                    places=12,
+                )
+
+    def test_impossible_timebase_thresholds_are_refused(self) -> None:
+        for flag, value in (
+            ("--timebase-relock-samples", "0"),
+            ("--timebase-relock-samples", "-1"),
+            ("--timebase-max-step-samples", "1.0"),
+        ):
+            with self.subTest(flag=flag, value=value):
+                parser = live.build_parser()
+                args = parser.parse_args(
+                    ["--sfreq", str(RATE), "--source-units", "uV", flag, value]
+                )
+                with self.assertRaises(SystemExit):
+                    live._validate_arguments(parser, args)
+
+    def test_the_timebase_verdict_is_rendered_for_the_operator(self) -> None:
+        args = self.parse("--timebase", "grid")
+        run = SimpleNamespace(
+            timebase=TimeBase(live.timebase_policy(args)),
+            timebase_policy=live.timebase_policy(args),
+        )
+        run.timebase.place(measured_timeline(count=4000))
+        line = live._format_timebase(run)
+        self.assertIn("grid at 500 Hz", line)
+        self.assertIn("re-lock", line)
+        self.assertIn("anchors imply", line)
+        self.assertIsNone(
+            live._format_timebase(SimpleNamespace(timebase=None)),
+            "a stamps-mode run must not claim a time base verdict",
+        )
 
 
 if __name__ == "__main__":

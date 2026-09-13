@@ -51,9 +51,11 @@ from mne_lsl.lsl import local_clock
 from nova2026.config import SAMPLE_RATE as MODEL_SAMPLE_RATE
 from nova2026.config import WINDOW_SIZE as MODEL_WINDOW_SIZE_MS
 from nova2026.streaming import (
+    GridPolicy,
     Recovery,
     StreamStats,
     TaskOffloader,
+    TimeBase,
     UnrepairableError,
     prepare,
     processing_contract,
@@ -113,6 +115,45 @@ def abbreviate(names: tuple[str, ...], limit: int = 12) -> str:
     return shown + (f", ... (+{len(names) - limit} more)" if len(names) > limit else "")
 
 
+# How this run treats the source's timestamps.
+#
+# "stamps" passes them through untouched: what the script always did, and what a
+# source whose stamps are sound needs. "grid" puts every received sample on a
+# regular grid at the declared rate from a counted index, which is what the rig
+# needs - its stamps carry 0.48% sub-half-sample steps that Repair refuses, and
+# the naive fix (treating each step as lost samples) fabricated rows that Repair
+# then "repaired". See documents/TIMEBASE_DESIGN.md.
+TIME_BASE_MODES = ("stamps", "grid")
+
+
+def timebase_policy(args: argparse.Namespace) -> GridPolicy:
+    """The grid policy this run's chain is built with.
+
+    It is the only place the grid tolerance is decided: ``Repair`` is handed the
+    policy's own value, so the time base cannot accept a grid the consumer will
+    refuse.
+    """
+
+    return GridPolicy.for_rate(
+        args.sfreq,
+        relock_samples=args.timebase_relock_samples,
+        max_step_samples=args.timebase_max_step_samples,
+    )
+
+
+def apply_timebase(time_base: TimeBase | None, timestamps):
+    """Put one pulled block on the run's grid, or pass it through untouched.
+
+    ``None`` means the run keeps the source's own stamps, which is the default
+    and the historical behaviour.
+    """
+
+    if time_base is None:
+        return timestamps
+    times, _ = time_base.place(np.asarray(timestamps, dtype=float))
+    return times
+
+
 @dataclass
 class _Run:
     """One live acceptance run: the decisions in, the measurement out.
@@ -135,6 +176,8 @@ class _Run:
     quality: QualityMonitor | None = None
     resampler: Resampler | None = None
     offloader: TaskOffloader | None = None
+    timebase_policy: GridPolicy | None = None
+    timebase: TimeBase | None = None
     stages: tuple = ()
     resettable: tuple = ()
     session: object | None = None
@@ -288,6 +331,35 @@ def _add_scoring_args(parser: argparse.ArgumentParser) -> None:
     scoring.add_argument("--role", default="bringup", help="run role stored when recording")
 
 
+def _add_timebase_args(parser: argparse.ArgumentParser) -> None:
+    """Register how the source's timestamps become the run's timeline."""
+
+    group = parser.add_argument_group("time base")
+    group.add_argument(
+        "--timebase",
+        choices=TIME_BASE_MODES,
+        default="stamps",
+        help="stamps (default): use the source's own timestamps, unchanged; "
+        "grid: place every received sample on a regular grid at --sfreq from a "
+        "counted index, absorbing a drifting or stepping source clock without "
+        "ever fabricating or dropping a sample",
+    )
+    group.add_argument(
+        "--timebase-relock-samples",
+        type=float,
+        default=0.5,
+        help="grid mode only: disagreement tolerated between the source's "
+        "anchors and the counted grid before it re-anchors (default 0.5 samples)",
+    )
+    group.add_argument(
+        "--timebase-max-step-samples",
+        type=float,
+        default=1.5,
+        help="grid mode only: a single timestamp step at or above this many "
+        "samples is reported as a suspicious jump (default 1.5)",
+    )
+
+
 def _add_args(parser: argparse.ArgumentParser) -> None:
     """Register the hardware-specific options on top of the shared ones."""
 
@@ -295,6 +367,7 @@ def _add_args(parser: argparse.ArgumentParser) -> None:
     _add_contract_args(parser)
     _add_quality_args(parser)
     _add_scoring_args(parser)
+    _add_timebase_args(parser)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -343,6 +416,13 @@ def _validate_arguments(parser: argparse.ArgumentParser, args: argparse.Namespac
         parser.error("--max-bad-channels must not be negative.")
     if args.expect_channels is not None and args.expect_channels < 1:
         parser.error("--expect-channels must be a positive channel count.")
+    if args.timebase_relock_samples <= 0:
+        parser.error("--timebase-relock-samples must be positive.")
+    if args.timebase_max_step_samples <= 1:
+        parser.error(
+            "--timebase-max-step-samples must be above 1 sample; a smaller "
+            "value would call every ordinary step suspicious."
+        )
 
 
 def _diagnose(message: str, args: argparse.Namespace, source: dict, profile) -> str:
@@ -389,6 +469,19 @@ def _diagnose(message: str, args: argparse.Namespace, source: dict, profile) -> 
     return " ".join(hints)
 
 
+def _prepare_timebase(run: _Run) -> None:
+    """Create the run's grid policy, and its time base when the run asks for one.
+
+    The policy is the only place the grid tolerance is decided, and ``Repair`` is
+    handed that same value, so the timeline can never be held to a different rule
+    than the chain downstream of it.
+    """
+
+    args = run.args
+    run.timebase_policy = timebase_policy(args)
+    run.timebase = TimeBase(run.timebase_policy) if args.timebase == "grid" else None
+
+
 def _build_chain(run: _Run) -> None:
     """Build the preprocessing chain, in the order it runs.
 
@@ -400,10 +493,10 @@ def _build_chain(run: _Run) -> None:
     args = run.args
     channels = run.channels
     unit_exponent = SOURCE_UNITS[args.source_units]
+    _prepare_timebase(run)
     run.repair = Repair(
         args.sfreq,
-        # Keep the grid tolerance below half a sample at any source rate.
-        tolerance_seconds=min(2e-4, 0.4 / args.sfreq),
+        tolerance_seconds=run.timebase_policy.tolerance_seconds,
         source_unit_exponent=unit_exponent,
         n_eeg=len(run.eeg),
         channel_names=run.eeg,
@@ -486,6 +579,13 @@ def _chain_provenance(run: _Run) -> dict:
                 "max_bad_channels": args.max_bad_channels,
                 "excluded_channels": list(run.excluded),
             },
+            "timebase": {
+                "mode": args.timebase,
+                "nominal_sfreq": run.timebase_policy.nominal_sfreq,
+                "tolerance_samples": run.timebase_policy.tolerance_samples,
+                "relock_samples": run.timebase_policy.relock_samples,
+                "max_step_samples": run.timebase_policy.max_step_samples,
+            },
             "assertions": {
                 "reference": args.reference or run.profile.reference or "not asserted",
                 "ground": args.ground or run.profile.ground or "not asserted",
@@ -527,16 +627,23 @@ def _prepare(run: _Run) -> None:
         run.channels, flat_uv=args.flat_uv, noisy_uv=args.noisy_uv
     )
     if args.workers > 0:
-        # Load test: a dummy consumer that spends --compute seconds per window on
-        # a pool of worker threads, so analysis never blocks the acquisition
-        # loop. With --workers 0 there is no offloader and nothing changes.
-        def analyze(_window, _seconds=float(args.compute)):
-            if _seconds > 0:
-                sleep(_seconds)
+        run.offloader = _make_offloader(args)
 
-        run.offloader = TaskOffloader(
-            analyze, workers=args.workers, capacity=args.queue
-        )
+
+def _make_offloader(args: argparse.Namespace) -> TaskOffloader | None:
+    """Build the consumer offloader this run asked for, if any.
+
+    A load test needs a consumer that is real enough to compete with acquisition:
+    spending ``--compute`` seconds per window on a pool of worker threads leaves
+    the pull loop free. ``--workers 0`` is the default and keeps analysis in the
+    loop, so this returns ``None`` and nothing changes.
+    """
+
+    def analyze(_window, _seconds=float(args.compute)):
+        if _seconds > 0:
+            sleep(_seconds)
+
+    return TaskOffloader(analyze, workers=args.workers, capacity=args.queue)
 
 
 def _handle_window(run: _Run, window, window_times, start) -> None:
@@ -585,6 +692,26 @@ def _handle_window(run: _Run, window, window_times, start) -> None:
         run.offloader.submit(eeg_window)
 
 
+def _record_timebase(run: _Run) -> None:
+    """Copy the time base's own verdict into the run counters.
+
+    These four numbers are what a refactor or an operator has to read: how far
+    the source's clock and the grid disagreed over the run, how many times that
+    was corrected, and how many suspicious steps the source produced. The
+    instantaneous residual is not among them because the policy bounds it by
+    construction, so it cannot show a session-long drift.
+    """
+
+    if run.timebase is None:
+        return
+    state = run.timebase.state
+    stats = run.stats
+    stats.timebase_relocked_samples = state.relocked_samples
+    stats.timebase_anchor_rate = state.anchor_rate
+    stats.timebase_relocks = len(state.relocks)
+    stats.timebase_large_steps = len(state.large_steps)
+
+
 def _loop(run: _Run) -> None:
     """Stream one acquired block per iteration until the time or a stop."""
 
@@ -600,6 +727,11 @@ def _loop(run: _Run) -> None:
             data, timestamps = session.acquire.read()
             stats.blocks += 1
             stats.samples += len(data)
+            # The time base runs before the recorder sees the block, so the
+            # recording carries the timeline the run actually used instead of the
+            # source's untrusted stamps. Everything downstream - Repair, quality,
+            # filters, resampling, the window gate - sees that same timeline.
+            timestamps = apply_timebase(run.timebase, timestamps)
             data, timestamps = session.ingest(data, timestamps)
 
             try:
@@ -629,29 +761,42 @@ def _loop(run: _Run) -> None:
         run.failure = error
         print(f"\nrun stopped: {error}")
     finally:
-        run.elapsed = monotonic() - run.started
-        # Samples buffered toward the next block never became windows: record
-        # them honestly before the acquire handle drops them.
-        tail = session.acquire.pending_samples
-        session.acquire.close()
-        if session.recorder is not None and tail:
-            session.recorder.mark_not_processed(tail)
-        stats.max_lag = session.acquire.max_lag
-        stats.gaps = session.acquire.gaps
-        # Authoritative count: a recovery that raised still happened, and the
-        # report must not claim the chain never restarted.
-        stats.recoveries = run.recovery.recoveries
-        if run.offloader is not None:
-            # Drain what is queued, then report what the load actually did:
-            # these two counters are the evidence a load test is read for.
-            run.offloader.close(drain=True, timeout=5.0)
-            stats.offload_dropped = run.offloader.dropped
-            stats.offload_failed = run.offloader.failed
-        session.close(
-            status="completed" if run.failure is None else "failed",
-            error=None if run.failure is None else repr(run.failure),
-            stats=stats.to_dict(),
-        )
+        _finalize(run)
+
+
+def _finalize(run: _Run) -> None:
+    """Close a run down: counters, offloader, recorder.
+
+    It runs in ``_loop``'s ``finally``, so it must reach ``session.close`` whatever
+    happened before: a run that failed is exactly the run whose record matters.
+    """
+
+    stats = run.stats
+    session = run.session
+    run.elapsed = monotonic() - run.started
+    # Samples buffered toward the next block never became windows: record them
+    # honestly before the acquire handle drops them.
+    tail = session.acquire.pending_samples
+    session.acquire.close()
+    if session.recorder is not None and tail:
+        session.recorder.mark_not_processed(tail)
+    stats.max_lag = session.acquire.max_lag
+    stats.gaps = session.acquire.gaps
+    # Authoritative count: a recovery that raised still happened, and the report
+    # must not claim the chain never restarted.
+    stats.recoveries = run.recovery.recoveries
+    _record_timebase(run)
+    if run.offloader is not None:
+        # Drain what is queued, then report what the load actually did: these two
+        # counters are the evidence a load test is read for.
+        run.offloader.close(drain=True, timeout=5.0)
+        stats.offload_dropped = run.offloader.dropped
+        stats.offload_failed = run.offloader.failed
+    session.close(
+        status="completed" if run.failure is None else "failed",
+        error=None if run.failure is None else repr(run.failure),
+        stats=stats.to_dict(),
+    )
 
 
 def _channel_report(run: _Run) -> dict:
@@ -681,10 +826,33 @@ def _channel_report(run: _Run) -> dict:
     }
 
 
+def _format_timebase(run: _Run) -> str | None:
+    """Render the time base's verdict, or ``None`` when it was not used."""
+
+    if run.timebase is None:
+        return None
+    state = run.timebase.state
+    anchor = (
+        "not measurable"
+        if not np.isfinite(state.anchor_rate)
+        else f"{state.anchor_rate:.4f} Hz "
+        f"({(state.anchor_rate - run.timebase_policy.nominal_sfreq) / run.timebase_policy.nominal_sfreq * 1e6:+.0f} ppm)"
+    )
+    return (
+        f"\ntime base : grid at {run.timebase_policy.nominal_sfreq:g} Hz; "
+        f"absorbed {state.relocked_samples:.1f} sample(s) of drift over "
+        f"{len(state.relocks)} re-lock(s), {len(state.large_steps)} suspicious "
+        f"step(s); anchors imply {anchor}"
+    )
+
+
 def _print_verdict(run: _Run, acceptance, electrode_summary: dict) -> None:
     """Print the run counters, the per-electrode table and the acceptance block."""
 
     print(format_run(run.stats, run.elapsed, run.resampler))
+    timebase_line = _format_timebase(run)
+    if timebase_line is not None:
+        print(timebase_line)
     print(f"\nper-electrode ({run.electrodes.windows} valid window(s)):")
     print(run.electrodes.format_worst())
     print(f"\nacceptance:\n{acceptance.format()}")
