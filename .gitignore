@@ -28,3 +28,8 @@ records/*
 !records/.gitkeep
 results/*
 !results/.gitkeep
+
+# macOS metadata (AppleDouble files created on exFAT / network volumes)
+._*
+.DS_Store
+__MACOSX/
