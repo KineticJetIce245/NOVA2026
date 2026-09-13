@@ -183,6 +183,7 @@ preferences.
 | macOS ships an older system Python; `pyproject.toml` requires 3.12+. | Install one first: `brew install python@3.12`, or python.org, or `uv python install 3.12`. Both launchers check the version and say which one they found. |
 | Shell syntax does not mix. | `$env:X='…'` is PowerShell only; `X=… cmd` and `export` are `sh`/`zsh` only; `.\` separators do not work in `sh`, and `PYTHONPATH` uses `;` on Windows and `:` on macOS/Linux. Each launcher uses its own shell's forms. |
 | **macOS on exFAT writes `._*` AppleDouble sidecars** beside every file it touches, plus `.DS_Store`. | Anything that globs or counts files must ignore `._*` and `.DS_Store`. Neither launcher globs, so neither can mistake one for an input — but a census of the drive will, and the drive already has some. |
+| This checkout has `core.autocrlf=true` and **no `.gitattributes`**. | The committed blob for `live_demo.sh` is LF (verified: `git cat-file blob HEAD:scripts/getlive/live_demo.sh`), and the file on disk is LF, so the drive copy is safe. A *Windows* re-checkout would turn it into CRLF, and a CRLF shebang fails on macOS with `bad interpreter: …^M`. If the launcher is ever re-checked-out on Windows before going to the Mac, run `dos2unix scripts/getlive/live_demo.sh` (or add `*.sh text eol=lf` to `.gitattributes`, which is a repository-wide file and a decision for the main agent). |
 
 **Safe to carry across, verified by inspection:** `models/*.npz` and
 `datasets/audio/*.npz` hold only NumPy arrays and JSON strings, native byte
