@@ -435,6 +435,17 @@ def media_alignment(packet: dict) -> float | None:
     if str(packet.get("type")) != "media":
         return None
     payload = packet.get("payload") or {}
+    # Only a packet that says the browser is PLAYING can say when media position
+    # zero was on the session clock. A `stopped` or `paused` report carries a
+    # position of zero because nothing has started yet, and taking `stamp - 0`
+    # from it pins the anchor to whenever that report happened to arrive; every
+    # position after the browser really starts is then wrong by the start delay,
+    # and the frontend refuses every decision until the two clocks agree within
+    # 0.75 s (``mediaAudio.mediaFocusReady``). Measured: a 6.0 s offset on a run
+    # whose page began playing a few seconds after the session started, which is
+    # what put "No data" on the attended-source card mid-run.
+    if str(payload.get("playback_state", payload.get("playbackState"))) != "playing":
+        return None
     position = payload.get("media_time_s", payload.get("mediaTimeS"))
     stamp = packet.get("timestamp")
     if position is None or stamp is None:

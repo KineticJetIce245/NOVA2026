@@ -240,6 +240,25 @@ class AudioAnchorTests(unittest.TestCase):
                   "payload": {"media_time_s": 12.5, "playback_state": "playing"}}
         self.assertAlmostEqual(media_alignment(packet), 27.5, places=9)
 
+    def test_only_a_playing_report_can_say_when_position_zero_was_playing(self):
+        # A stopped or paused report carries position zero because nothing has
+        # started yet. Taking `stamp - 0` from it pins media position zero to
+        # whenever that report happened to arrive, and every position after the
+        # browser really starts is then wrong by the start delay -- measured at
+        # 6.0 s on a run whose page began playing after the session started, which
+        # is what made the attended-source card fall back to "No data" mid-run.
+        for state in ("stopped", "paused", None):
+            payload = {"media_time_s": 0.0}
+            if state is not None:
+                payload["playback_state"] = state
+            packet = {"type": "media", "timestamp": 6.0, "payload": payload}
+            self.assertIsNone(media_alignment(packet),
+                              f"a {state!r} report must not set the anchor")
+        # The same numbers from a playing report are exactly what the anchor wants.
+        playing = {"type": "media", "timestamp": 6.1,
+                   "payload": {"media_time_s": 0.1, "playback_state": "playing"}}
+        self.assertAlmostEqual(media_alignment(playing), 6.0, places=9)
+
     def test_a_non_media_packet_yields_nothing(self):
         self.assertIsNone(media_alignment({"type": "attention", "timestamp": 1.0}))
         self.assertIsNone(media_alignment({"type": "media", "payload": {}}))
