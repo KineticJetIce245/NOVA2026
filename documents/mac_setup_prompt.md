@@ -118,13 +118,16 @@ Answer all five, quoting the exact text you see on the page:
 
 ## Known issues — report them, do not try to fix them
 
-- **The media-control slot is exclusive.** Exactly one media controller is allowed at
-  a time, and the page's Play button sends its readiness message *before* it starts
-  the audio. So if the demo's own stand-in client holds the slot, the page's message
-  is refused and **the page produces no sound at all** — it shows
-  "Playback synchronization unavailable. Stop, then Play to reconnect." The stand-in
-  offers the page a window to claim the slot first; quote the log line that says who
-  won (`media slot: ...` / `media owner: ...`). If you get no sound, re-run and click
+- **The media-control slot is exclusive, and this is the likeliest reason for no
+  sound.** Exactly one media controller is allowed at a time, and the page's Play
+  button sends its readiness message *before* it starts the audio. So if the demo's
+  own stand-in client holds the slot, the page's message is refused and **the page
+  produces no sound at all** — it shows "Playback synchronization unavailable. Stop,
+  then Play to reconnect." The stand-in is supposed to hold off and ask the server
+  who owns the slot before sending anything, so the page should get its turn; that
+  reasoning is tested but **no human has yet confirmed it in a real browser**, which
+  is part of why you are running this. Quote the log line that says who won
+  (`media slot: ...` / `media owner: ...`). If there is no sound, re-run and click
   Play promptly, and report whether that changed the outcome.
 - **The volume control opens about 9 seconds in** — a 2-second warm-up plus the first
   5-second window plus the decision. No attenuation during the first seconds is

@@ -308,29 +308,41 @@ Uncertain 17 / No data 11, with a score difference of +0.3019 against the ±0.05
 band the rule needs. The screenshots under `results/attune_story_*` are that run.
 So "somebody clicked the page and it did the thing" is no longer an open question.
 
-**The part that is still broken.** Two things want to be the media owner at the
-same time: the demo's own stand-in client, which exists because the automated
+**The race that this exposed, and its fix.** Two things wanted to be the media owner
+at the same time: the demo's own stand-in client, which exists because the automated
 acceptance run has no browser, and the browser page itself. The server allows only
-one owner, and keeps that owner until it is explicitly released.
+one owner and keeps it until it is explicitly released. The page's Play button sends
+its "I am ready" message **before** it starts the audio, so whichever side lost the
+slot did not merely miss the volume control — it produced no sound at all, and the
+page showed *"Playback synchronization unavailable. Stop, then Play to reconnect."*,
+whose suggested retry could not work either, because the message it suggests is
+refused for the same reason.
 
-The page's Play button sends its "I am ready" message **before** it starts the
-audio, and if that message is refused it does not start the audio at all. It shows
-*"Playback synchronization unavailable. Stop, then Play to reconnect."* That is the
-symptom to look for.
-
-This is what the user hit the first time: no sound, and no obvious reason. In the
+That is what the first attempt hit: no sound, and no obvious reason. In the
 successful run the browser happened to claim the slot first; in a failing run the
-stand-in client got there first and every browser message was refused. **The demo's
-success therefore currently depends on who wins that race**, which is not a
-property a demo should have. We measured both outcomes (the failing record is
-`results/demo_browser_run.json`: three refused messages, audio position pinned at
-zero for all 71 samples; the working one is `results/attune_story_browser_run.json`:
-318 messages, none refused).
+stand-in got there first and every browser message was refused. Which one you got
+was decided by nothing but latency — the stand-in prepared the moment the session
+started, the page prepared when a human clicked. Both outcomes are measured and both
+records are committed (the failing one is `results/demo_browser_run.json`: three
+refused messages, audio position pinned at zero for all 71 samples; the working one
+is `results/attune_story_browser_run.json`: 318 messages, none refused).
 
-The fix has two shapes and both need the demo's own entry point to change: let the
-page be the only media owner when someone is watching, or make the stand-in client
-stand down as soon as a page claims the slot. Neither is implemented. Until one is,
-the honest statement is: **the visible demo works, but not reliably.**
+**It is fixed.** The stand-in now holds off and asks the server who owns the slot
+before sending anything, so the decision is made *before* a command can be refused
+and the loser never issues one: no refusal, no dead player. The two situations are
+declared rather than guessed — an unattended run gives the page a bounded window and
+then takes the slot, and a run that opened the browser itself waits without a
+deadline, because there the page is a fact rather than a possibility. On a real
+session the log reads `media owner: standby (unattended: the page is offered the
+slot, then the stand-in takes it)` and then `media slot: demo owns it (no controller
+claimed the slot within 10s)`. Five tests cover it over the real protocol, and both
+mutations that break the arbitration are caught.
+
+**What is still not verified:** nobody has yet watched a real browser click Play
+against the fixed code. The reasoning and the tests say the page now wins, but a
+human with headphones has not confirmed it, so treat "no sound" as a live
+possibility to report rather than a solved question — the instructions for a first
+run on another machine say so.
 
 ### 5.5 Timing has never been measured end to end
 
