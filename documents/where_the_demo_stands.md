@@ -120,6 +120,15 @@ deciding:
 | --- | --- | --- | --- | --- |
 | Balanced accuracy (64 electrodes) | 0.637 | 0.698 | 0.796 | **0.875** |
 
+**Read the population before comparing this table to 3.1.** The curve was measured on
+four subjects (S1–S4, "a documented quarter of the corpus", because four window
+lengths have to be affordable), while every number in 3.1 uses all sixteen. The two
+tables are not interchangeable: the same 5 s configuration scores 0.637 here and
+0.6195 over all subjects. So the gain is measured from a four-subject baseline to a
+four-subject endpoint, and 0.875 must never be quoted beside the 0.620 as though they
+came from the same measurement. The trend is monotonic in both contracts and is
+almost certainly real; its size is less precisely known than the table suggests.
+
 This is the single largest available improvement, and it costs only latency: a
 60-second window means the first decision arrives about a minute after playback
 starts. We do not have a 60-second model — the decoder is tied to its window length
