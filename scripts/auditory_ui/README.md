@@ -67,14 +67,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\auditory_ui\serve.ps
 reads that URL back out of the demo's own output (the port is ephemeral). Useful
 switches: `-Rebuild` (run `npm run build` in `apps/attune-ui` first — `dist/` is
 git-ignored and goes stale as `src/` changes), `-Trial`, `-Seconds`, `-Margin`,
-`-NoBrowser`, `-NoKeepAlive`.
+`-ServeSeconds` (12 h by default), `-NoBrowser`, `-KeepAlive`.
 
-It restarts the demo when it exits, which was a workaround for a defect that is
-now fixed: `drive()` used to end with an unconditional `stop.set()`, so
-`--serve-seconds` and `--browser` printed "still serving" and then exited at the
-end of the replay. The drive phase now ends on an event of its own, so the demo
-serves out its stay-open window on the same port, and the restart is no longer
-what keeps a page up.
+It starts the demo **once** and waits for it. The demo serves its own stay-open
+window (`-ServeSeconds` → `--serve-seconds`) on the port it printed, so nothing
+has to restart it. `-KeepAlive` restores the older behaviour of restarting the
+demo when it exits, which was a workaround for a defect that is now fixed:
+`drive()` used to end with an unconditional `stop.set()`, so `--serve-seconds` and
+`--browser` printed "still serving" and then exited at the end of the replay. The
+drive phase now ends on an event of its own, so the demo serves out its window on
+the same port — which makes a restart a way to replace a working page with a new
+URL, and is why it is opt-in. `scripts/auditory/tests/test_demo_serve.py` locks
+both directions (the replay must not stop the server; a stop request still must).
 
 ## Run policy
 
