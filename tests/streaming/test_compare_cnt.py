@@ -2,15 +2,21 @@
 
 Everything here is hardware-free: the reference "CNT" is a synthetic array and
 the recorded runs are synthetic SQLite files written in the recorder's own
-schema. The real ``.cnt`` reader is exercised only through the ``.npy`` path,
-so the tests do not need ``antio``.
+schema. ``antio`` is optional in this environment and its presence changes
+which error a bad ``.cnt`` produces, so :func:`load_cnt` is tested once with it
+made unimportable and once against whatever is installed: neither branch is
+allowed to assume what the machine happens to have.
 """
 
+import importlib.util
 import json
 import sqlite3
+import sys
 import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 
@@ -27,6 +33,9 @@ from scripts.getlive.compare_cnt import (
 CHANNELS = ("F3", "F4", "C3", "C4")
 SFREQ = 500.0
 N_CHANNELS = len(CHANNELS)
+
+# The scratch the other tests build their fixtures in; it is git-ignored.
+SCRATCH = Path(".tmp_tests")
 
 
 def synthetic_cnt(n_samples: int = 4000, seed: int = 7) -> np.ndarray:
@@ -76,6 +85,58 @@ def write_run(run_dir: Path, data: np.ndarray, *, block: int = 50) -> Path:
     connection.commit()
     connection.close()
     return path
+
+
+def remove_stub(path: Path) -> None:
+    """Delete a stub ``.cnt``, tolerating one that is still held open."""
+
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        # Windows keeps a file that libeep failed to open undeletable until
+        # this interpreter exits. Leaving it costs nothing: the scratch is
+        # git-ignored and the next run overwrites the same bytes.
+        pass
+
+
+def unreadable_cnt(name: str) -> Path:
+    """Write a file that carries the ``.cnt`` suffix but is not one.
+
+    It is written beside the other scratch fixtures rather than into a
+    ``TemporaryDirectory``: libeep keeps the handle of a file it failed to open
+    until the process exits, so such a file cannot be removed while the tests
+    run and automatic cleanup would turn that into an error. Teardown removes
+    it where the platform allows and leaves it in the git-ignored scratch
+    otherwise.
+    """
+
+    SCRATCH.mkdir(exist_ok=True)
+    target = SCRATCH / name
+    target.write_bytes(b"not really a cnt")
+    return target
+
+
+@contextmanager
+def hide_antio():
+    """Make ``antio`` unimportable for the duration of a ``with`` block.
+
+    Patching ``sys.modules`` is what decides it: MNE asks for ``antio`` with
+    ``importlib.import_module``, which returns ``None`` -- provoking the very
+    ``ImportError`` a machine without the package raises -- before the finders
+    are consulted. ``find_spec`` is patched as well because it is the other
+    answer anyone asks an installed package for. Both are restored on exit.
+    """
+
+    original_find_spec = importlib.util.find_spec
+
+    def without_antio(name, *args, **kwargs):
+        if name == "antio":
+            return None
+        return original_find_spec(name, *args, **kwargs)
+
+    with mock.patch.dict(sys.modules, {"antio": None}):
+        with mock.patch.object(importlib.util, "find_spec", without_antio):
+            yield
 
 
 class OffsetTests(unittest.TestCase):
@@ -228,11 +289,33 @@ class LoadCntTests(unittest.TestCase):
         np.testing.assert_array_equal(loaded, data)
 
     def test_cnt_without_antio_explains_the_fix(self) -> None:
-        target = self.root / "ref.cnt"
-        target.write_bytes(b"not really a cnt")
+        # Precondition: antio is made unimportable, whatever the machine has.
+        target = unreadable_cnt("unreadable_without_antio.cnt")
+        self.addCleanup(remove_stub, target)
+        with hide_antio(), self.assertRaises(RuntimeError) as caught:
+            load_cnt(target)
+        message = str(caught.exception)
+        # The assertions have to be about this module's own message: MNE also
+        # says "pip install antio" when the package is missing, so asserting
+        # the install line alone would pass even with the message removed.
+        # The `--cnt-npy` way out is only ever named here.
+        self.assertIn("antio", message)
+        self.assertIn("--cnt-npy", message)
+
+    def test_cnt_with_antio_reports_the_file_not_the_dependency(self) -> None:
+        # Precondition: the installed antio, so the file itself is read and is
+        # rejected on its contents rather than on a missing package.
+        target = unreadable_cnt("unreadable_with_antio.cnt")
+        self.addCleanup(remove_stub, target)
         with self.assertRaises(RuntimeError) as caught:
             load_cnt(target)
-        self.assertIn("antio", str(caught.exception))
+        message = str(caught.exception)
+        # What the code promises for this branch is the failure itself, not the
+        # file name MNE happens to quote, so the reason is asserted and the
+        # dependency is asserted to be absent from a message that would
+        # otherwise blame the environment for a bad file.
+        self.assertIn("libeep", message.lower())
+        self.assertNotIn("antio", message)
 
 
 class MainTests(unittest.TestCase):
