@@ -27,3 +27,13 @@ Unit cases are in `tests/test_attune.py`, `tests/test_attune_calibration.py`;
 live callback cases are in `scripts/auditory/tests/test_live_lsl.py`.
 Real-data fixtures remain local in datasets/experiment and datasets/attune.
 See `documents/ATTUNE_IMPLEMENTATION.md` for commands and limitations.
+
+
+## One-repository integration
+
+`tests/test_attune_repository.py` checks isolated imports without PYTHONPATH,
+production UI assets/API/WebSocket on one server, and absence of sibling-repository
+launcher dependencies. All imported backend cases are in backend/tests/ (60 tests);
+all frontend cases are in frontend/tests/ (55 tests), run with npm test --prefix frontend.
+These include NOVA record validation, producer lifecycle, simulated=false provenance,
+null timing fields and ear mapping, previously tested in the supplied UI checkout.

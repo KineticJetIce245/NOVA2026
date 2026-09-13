@@ -1,0 +1,5 @@
+# Isolated Phase 1 transport runtime; does not import the scientific stack.
+fastapi==0.128.8
+uvicorn==0.39.0
+anyio==4.12.1
+websockets==15.0.1

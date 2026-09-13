@@ -1,12 +1,11 @@
 """Launch ATTUNE with a fresh finite PlayerLSL recording source per UI session.
 
-Run the frontend in a second terminal with npm run dev --prefix ../attune-ui/frontend.
+Build the bundled UI with npm run build --prefix frontend, then open localhost:8001.
 This serves recorded data with real inference, paced WAV output, and no hardware claim.
 """
 import argparse
 import os
 from pathlib import Path
-import sys
 import numpy as np
 from nova2026.auditory.data import load_trial, save_trial
 
@@ -17,7 +16,6 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--trial', type=Path, required=True)
     p.add_argument('--model', type=Path, required=True)
-    p.add_argument('--ui', type=Path, default=Path('../attune-ui').resolve())
     p.add_argument('--presentation', choices=('dichotic', 'diotic'), default='dichotic')
     p.add_argument('--seconds', type=float, default=240.)
     p.add_argument('--port', type=int, default=8001)
@@ -35,8 +33,7 @@ def main():
     trial_path = (args.out/'live_trial.npz').resolve()
     save_trial(trial, trial_path)
     root = Path(__file__).resolve().parents[2]
-    os.environ['PYTHONPATH'] = os.pathsep.join([str(root/'src'), str(root), str(args.ui.resolve())])
-    sys.path.insert(0, str(args.ui.resolve()))
+    os.environ['PYTHONPATH'] = os.pathsep.join([str(root/'src'), str(root)])
     os.environ.update(ATTUNE_NOVA_TRIAL=str(trial_path), ATTUNE_NOVA_MODEL=str(args.model.resolve()),
         ATTUNE_NOVA_STREAM='attune-recording-player', ATTUNE_NOVA_PLAYER_RAW=str(raw_path),
         ATTUNE_NOVA_OUTPUT='wav', ATTUNE_NOVA_CHANNEL_POLICY='record-only',

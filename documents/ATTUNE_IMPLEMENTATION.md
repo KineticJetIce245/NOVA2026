@@ -1,8 +1,9 @@
 # ATTUNE implementation and reproduction
 
-Implemented on ordinary `audio_flo` branches. The companion UI is
-`C:/coding/git/attune-ui`; the snapshot consumer is `C:/coding/git/novaAAD`.
-The current UI styling is preserved. No recordings or model weights are committed.
+The complete application is in **NOVA2026 on its ordinary `audio_flo` branch**.
+`backend/` contains FastAPI and the NOVA adapter; `frontend/` contains React/Vite.
+The current UI styling is preserved. Neither attune-ui nor novaAAD is a runtime
+dependency or publishing destination. No recordings or model weights are committed.
 
 ## Implemented wiring
 
@@ -12,7 +13,7 @@ The current UI styling is preserved. No recordings or model weights are committe
 | S2 | Incremental envelope provider, bounded feature and timestamp histories, original candidate blocks |
 | S3 | UI `backend/adapters/nova_live.py`, ResultProducer and environment-configured server |
 | S4 | Median/MAD normalization, two-sided null quantile, model metadata, fire rate/precision; existing dwell and expiry |
-| S5 | Live TimeBase grid/off, XDF grid placement, reproducible novaAAD snapshot and manifest |
+| S5 | Live TimeBase grid/off, XDF grid placement, calibration/XDF tools in this same checkout |
 | S6 | Source-clock epoch ledger, first-DAC-block JSON markers, optional nonblocking marker receiver and cue mask |
 | S7 | 2 Hz prepared EEG display, software sync diagnostics, actual mixer gains, channel quality and presentation |
 | S8 | Offline/training tolerant-channel flags; faults remain visible |
@@ -20,7 +21,7 @@ The current UI styling is preserved. No recordings or model weights are committe
 | S10 | Mono-pair/stereo ingest, candidate independence guard, unknown live labels |
 | S11 | eego24 order, operator-declared CPz reference/Fpz ground, positional labels forbidden in real playback/XDF |
 | S12 | ANT reader extra, explicit recording anchors/exclusions, joint stimulus slicing and disjoint segment groups |
-| W1/W3a/W4/W5 | 5 s trained model, saved onset offsets and CLI override, lazy torch imports and snapshot dependencies |
+| W1/W3a/W4/W5 | 5 s trained model, saved onset offsets and CLI override, lazy torch imports and in-repository backend dependencies |
 
 Participant playback additionally requires calibration in the selected arm, a
 null-calibrated gate, and the same validated measured timing profile as training.
@@ -58,16 +59,17 @@ Unit tests separately verify the controller's commitment and exact 6 dB ducking.
 From NOVA2026 with the project virtual environment and UI backend requirements:
 
 ```powershell
-$env:PYTHONPATH = 'C:/coding/git/NOVA2026/src;C:/coding/git/NOVA2026;C:/coding/git/attune-ui'
-.venv/Scripts/python.exe -m pip install -e '.[eeg-ant,audio,calibration]' -r ../attune-ui/backend/requirements.txt
+$env:PYTHONPATH = 'C:/coding/git/NOVA2026/src;C:/coding/git/NOVA2026'
+.venv/Scripts/python.exe -m pip install -e '.[eeg-ant,audio,calibration]' -r backend/requirements.txt
 .venv/Scripts/python.exe -m scripts.attune.convert_ant --out datasets/attune
 .venv/Scripts/python.exe -m scripts.auditory.train --train datasets/attune/Lacroix_Flo2_2026-09-12_19-34-06.npz --validation datasets/attune/Lacroix_Flo2_2026-09-12_19-41-11.npz --model models/attune_eego24.npz --history 5 --no-channel-check --allow-flat-channels F8
 .venv/Scripts/python.exe -m scripts.attune.serve --trial datasets/attune/Lacroix_Flo2_2026-09-12_19-41-11.npz --model models/attune_eego24.npz
 ```
 
-In another terminal: `npm ci --prefix ../attune-ui/frontend`, then
-`npm run dev --prefix ../attune-ui/frontend`. Open http://127.0.0.1:5173 and start
-a session. The backend is on the existing UI proxy port 8001. Each session starts
+Before launching, run `npm ci --prefix frontend` and `npm run build --prefix frontend`.
+Open http://127.0.0.1:8001 and start a session. FastAPI serves the built dashboard,
+API and WebSocket together. For frontend development only, `npm run dev --prefix
+frontend` starts Vite on port 5173 and proxies to the same backend on port 8001. Each session starts
 a separate, finite PlayerLSL process with 32 ms chunks and an unused real-data tail.
 Stop cleans up the player, acquisition and audio worker. Reports and stereo WAVs
 are under `results/attune-server/runs`. WAV output is paced but inaudible.
@@ -84,10 +86,10 @@ Do not set `ATTUNE_NOVA_PLAYER_RAW` for a physical source.
 
 ```powershell
 .venv/Scripts/python.exe -m pytest tests scripts/auditory/tests -q
-.venv/Scripts/python.exe -m unittest discover -s ../attune-ui/backend/tests -q
+.venv/Scripts/python.exe -m unittest discover -s backend/tests -q
 $env:ATTUNE_PYTHON = 'C:/coding/git/NOVA2026/.venv/Scripts/python.exe'
-npm test --prefix ../attune-ui/frontend
-npm run build --prefix ../attune-ui/frontend
+npm test --prefix frontend
+npm run build --prefix frontend
 .venv/Scripts/python.exe -m scripts.attune.test_end_to_end --trial datasets/attune/Lacroix_Flo2_2026-09-12_19-41-11.npz --model models/attune_eego24.npz --seconds 240 --out results/attune-240
 .venv/Scripts/python.exe -m scripts.attune.test_end_to_end --trial datasets/attune/Lacroix_Flo2_2026-09-12_19-41-11.npz --model models/attune_eego24.npz --seconds 35 --presentation diotic --stop-after 8 --managed-player --out results/attune-managed
 ```
@@ -108,5 +110,8 @@ The available real-data model does not demonstrate reliable attention decoding
 or hearing benefit. A new well-controlled calibration with longer blocks and at
 least two distinct audio pairs is still needed before a participant demo.
 
-The local novaAAD lacked the handoff's named tools/vendor tree. Its snapshot is
-therefore added at the repository root, leaving its existing legacy app intact.
+The UI source was incorporated from the supplied attune-ui checkout at commit
+`c331022`, retaining its design and tests. Calibration and XDF tools are implemented
+directly in `scripts/attune/`; no separate engine snapshot is required. Only
+NOVA2026/audio_flo is published. The earlier sibling-repository commits were never
+pushed and are not required to install, test or run this branch.

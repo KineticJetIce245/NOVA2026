@@ -49,7 +49,7 @@ async def exercise(args):
         port = s.getsockname()[1]
     name = 'attune-real-'+uuid4().hex[:8]
     root = Path(__file__).resolve().parents[2]
-    env = {**os.environ, 'PYTHONPATH': os.pathsep.join([str(root/'src'), str(root), str(args.ui)]),
+    env = {**os.environ, 'PYTHONPATH': os.pathsep.join([str(root/'src'), str(root)]),
            'ATTUNE_NOVA_TRIAL': str(trial_path.resolve()), 'ATTUNE_NOVA_MODEL': str(args.model.resolve()),
            'ATTUNE_NOVA_STREAM': name, 'ATTUNE_NOVA_OUTPUT': 'wav',
            'ATTUNE_NOVA_PRESENTATION': args.presentation, 'ATTUNE_NOVA_CHANNEL_POLICY': 'record-only',
@@ -70,6 +70,8 @@ async def exercise(args):
                 try:
                     health = await client.get('/api/health')
                     if health.status_code == 200:
+                        dashboard = await client.get('/')
+                        assert dashboard.status_code == 200 and 'ATTUNE' in dashboard.text
                         break
                 except httpx.TransportError:
                     pass
@@ -142,7 +144,7 @@ async def exercise(args):
         packet_path = args.out/'packets.json'
         packet_path.write_text(json.dumps(packets))
         # Pass actual network packets through the shipped JS decoder, not a Python imitation.
-        decoder = (args.ui/'frontend/src/decoders.js').resolve().as_uri()
+        decoder = (root/'frontend/src/decoders.js').resolve().as_uri()
         js = f"""import fs from 'node:fs'; import assert from 'node:assert/strict';
 import {{decodePacket}} from {json.dumps(decoder)};
 const packets=JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
@@ -154,6 +156,7 @@ for(const p of packets.filter(p=>p.source==='nova_aad')) {{
         subprocess.run(['node', '--input-type=module', '-e', js, str(packet_path.resolve())], check=True)
         result = {'passed': True, 'source': Path(args.trial).name, 'source_is_recorded_eeg': True,
                   'acoustic_timing_verified': False, 'accuracy_evaluated': False,
+                  'application_repository': str(root), 'bundled_dashboard_served': True,
                   'presentation': args.presentation, 'packets': len(packets),
                   'attention_packets': len(attention), 'stop_seconds': stop_seconds,
                   'elapsed_seconds': time.monotonic()-started,
@@ -180,7 +183,6 @@ def main():
     p.add_argument('--ready')
     p.add_argument('--trial', type=Path)
     p.add_argument('--model', type=Path)
-    p.add_argument('--ui', type=Path, default=Path('../attune-ui').resolve())
     p.add_argument('--seconds', type=float, default=40)
     p.add_argument('--presentation', choices=('dichotic', 'diotic'), default='dichotic')
     p.add_argument('--stop-after', type=int, default=0, help='Stop after this many attention packets')

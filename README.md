@@ -1,5 +1,14 @@
 # NOVA2026
 
+ATTUNE's engine, FastAPI backend, React frontend, calibration tools and tests
+are all in this repository on `audio_flo`. No sibling checkout is required.
+See [the setup and real-data run guide](documents/ATTUNE_IMPLEMENTATION.md).
+
+Build the interface with `npm ci --prefix frontend` and
+`npm run build --prefix frontend`, then launch `python -m scripts.attune.serve`
+with a converted trial and trained model as documented in the guide.
+The backend serves the built dashboard at `http://127.0.0.1:8001`.
+
 Auditory-attention training and replay are documented in
 [`scripts/auditory/README.md`](scripts/auditory/README.md).
 

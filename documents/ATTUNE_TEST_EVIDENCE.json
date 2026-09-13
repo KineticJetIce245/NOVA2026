@@ -96,5 +96,15 @@
     "No diotic EEG calibration or diotic accuracy measurement",
     "Real model development accuracy 38.46%; not reliable attention decoding",
     "Real-data live replay checks transport only, not acoustic alignment or accuracy"
-  ]
+  ],
+  "repository_consolidation": {
+    "repository": "NOVA2026",
+    "branch": "audio_flo",
+    "backend_tests": 60,
+    "frontend_tests": 55,
+    "single_repository_tests": 3,
+    "built_ui": "passed",
+    "four_minute_repeat": "running at checkpoint; earlier real-data run passed",
+    "sibling_repositories_required": false
+  }
 }
