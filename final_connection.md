@@ -413,15 +413,20 @@ KU Leuven 列索引：`Fp1=0 Fp2=33 F7=6 F3=4 Fz=37 F4=39 F8=41 T7=14 C3=12 C4=4
 | `1004/Start` | 会话/录音起点锚 |
 | `1007/Saying-YES`、`impedance` | 非注意标记 |
 
-**误触排除清单（用户 2026-09-13 确认"就这几个"）**——导入器必须按此显式排除，不得靠启发式：
+**误触排除清单（2026-09-14 修订：**只排除 2 个**；第三个改为"保留并标歧义"）**
+
+用户原话是"就这几个"，但独立核验（`results/antneuro_testset_report.md` §4）与本仓导入器实测发现：
+若连 `1006@148.402` 一起排除，则只剩 **11 个右 cue vs 12 个左 cue**，并出现 **25.670 s** 的"左"段；
+而保留它时，`135.554→148.402` = 12.848 s 与 `148.402→161.224` = 12.822 s **都落在本会话正常区间**（10.922–16.692 s）。
+证据指向**该 `1006` 才是真正的右提示**，而 2.000 s 长的 `1007/Saying-YES` 才是异常事件。故：
 
 | 会话 | EEG t | 标记 | 处理 |
 | --- | --- | --- | --- |
-| 会话 2 | 148.354 s | `1007/Saying-YES` | 排除 |
-| 会话 2 | 148.402 s | `1006/Custom Annotation` | 排除（误触，与上一行相隔 0.05 s） |
-| 会话 2 | 326.692 s | `1004/Start`（第二个） | 排除（停止录音时的误触） |
+| 会话 2 | 148.354 s | `1007/Saying-YES`（时长 2.000 s） | **排除** |
+| 会话 2 | 326.692 s | 第二个 `1004/Start` | **排除**（停止录音误触） |
+| 会话 2 | 148.402 s | `1006/Custom Annotation` | **保留并标 `ambiguous-cue`**（修正 D-07 的"三处全排除"） |
 
-排除后每个会话的有效切换标记均为 **12 个**（`1001` 12 个、`1006` 12 个），切换间隔 8–17 s（均值 ≈12.6 s）。
+排除后每个会话的有效切换标记均为 **12 个**（`1001` 12 个、`1006` 12 个），严格交替，间隔 8.004–16.692 s。
 
 **音频文件关系（主 agent 实测，逐位比对）**——**只有 `left_mono.wav`/`right_mono.wav` 是实际播出的信号**：
 
@@ -504,7 +509,7 @@ KU Leuven 列索引：`Fp1=0 Fp2=33 F7=6 F3=4 Fz=37 F4=39 F8=41 T7=14 C3=12 C4=4
 | 8 | **`AttentionSession` + 生产者** | `src/nova2026/auditory/session.py` + `AttentionProducer`；合成 trial 先打通 | 端到端日志 + 前端截图 | 50 / 60 | **DONE** — commit `d92a5d6`（15 文件 / +4463）。`session.py`(687) + `sources.py`(378) + `producer.py`(289) + `scripts/auditory_ui/`（预登记 CLI + 前端证据 mjs），**session 无任何 FastAPI/transport import**。合成 20 s → 263 包 14/14 断言通过；**真实 trial（S1/trial_008，1× 实时 124 s）→ 1616 包 14/14 通过**，`output/auditory_ui/packets_trial008.jsonl` 留证。快照 3 包先于 1613 增量；1616/1616 过本仓 validator；增益 992 个全部 ≤0 dB；`session` 生命周期包全为 `source=server`。**前端证据（无浏览器，如实标注）**：真实包流经 vendored 前端自身的 `protocol.js`/`state.js`/`decoders.js`（rejected=0）+ `Dashboard.js` 用 `react-dom/server` 渲染出 **"Focused on Speaker A"、FOCUSED、B 路 −6 dB** → `results/auditory_frontend_trial008.html`；**不证明**布局/交互/Web Audio 通路（属步骤 9/10）。5 条降级路径各有真实包（warmup / audio_unavailable / evidence_gap / evidence_stale / processing_failed），缺包络 → HTTP **409** 并指名文件。12/12 变异被捕获。全仓 **700 tests 全绿** + 前端 53/53。**例外**：`session.py` 687 行、CLI 579、单测 589 超 300 行建议（同步骤 3/5/5.5/6 先例）。**发现两条硬约束**（见 §3.17 第 5、6 条：margin 未标定致 94% 帧无结论；放宽策略下 `signal_quality` 恒为 1.0） |
 | 9 | **媒体时间轴与音频** | 立体声 WAV（L=A,R=B）经 `/api/media/file` 提供；`media/control` 握手 + 250 ms `report` | 时间差 ≤ 0.75 s 的证据 + 增益激活证据 | 50 / 60 | **DONE** — commit `9202290`（14 文件 / +3845）。新增 `src/nova2026/auditory/render.py`（`render_stereo`：L=A / R=B、int16、按 EEG 长度截断；**呈现方式是参数**，`dichotic` 已接线、`crossmix` 已实现未接线）；`transport/media.py` 增 `media_reference()`（**回抄**客户端最后上报值；未 prepare / 被作废 / 超 1.5 s → `None`）与 `MediaBroadcaster`（250 ms 一个 `media` 包，仅 `running`，`source=server`）；`producer.py` **每帧只读一次引用**并同时戳 attention 与 gain（原先两次读取会让 `playbackGains` 判定位置不等而回中性）。**前端门控 14/14 条全真**（t=40 s 首次开启），`playbackGains('attune')` = **[1.0, 0.5011872336272722]** = 0 dB / −6.0 dB，正是包内 `a_db`/`b_db` 的 `dbToLinear`。361 个增益包时间差 **max 0.3003 / mean 0.1492 s**，全部 ≤0.75。12/12 变异被捕获。全仓 **740 tests 全绿** + 前端 53/53。**未做**：真实浏览器（门控在 Node 里执行 vendored `mediaAudio.js`）；§3.17 第 6 条如实留给步骤 10。**例外**：`render.py` 350 / `transport/media.py` 458 / `auditory_ui/media.py` 341 / `auditory_ui/session.py` 1047 行 |
 | 9.6 | **决策 margin 标定**（§3.17 第 5 条要求） | `results/aad_margin_calibration_<date>.json` + 接线规格 | 留出数据上的 accuracy/coverage 曲线 + 推荐工作点 | 40 / 60 | **DONE** — commit `bd2da11`（`scripts/auditory/margin_calibration.py` 946 行、15 测试、`config.py` 纯增量）。**留出证据**：4 折故事留出 × 80 trial，每折**重新拟合**且 `assert_held_out` 通过；已部署的 320-trial 模型**从不被评分**；快速评分器与 `model.score` 差 4.6e-16。**结论**：现行 `margin=0.5` 在 5 s 窗只有 **0.15% 覆盖率**、30/60 s 窗为 **0**——步骤 8 的"94% 无结论"是 margin 所致，不是链路问题。**推荐（现有 5 s 模型即可用）**：`margin 0.05` → 覆盖率 **0.524**、准确率 **0.684**、平衡 **0.688**（4/4 故事高于随机）；代价：全帧召回 0.348/0.380、首次决策中位 10 s、误切换 2.43 次/分。栅格最优为 `0.05 @ 60 s`（覆盖 0.384、平衡 0.948、0.11 次/分）**但 60 s 模型不存在**（窗长属解码器契约，不能作 RunPolicy 字段）。**默认值未改**（`MIN_MARGIN=0.5` 有 3 个测试守着），新增 `CALIBRATED_MARGIN=0.05` / `CALIBRATED_HISTORY_SECONDS=5.0`，**无任何东西默认为它们**。8/8 变异被捕获。**未接线**：`RunPolicy.margin` 等 4 步规格已写入报告，按并行纪律延后 |
-| 9.5 | **ANT 真实数据集导入**（§3.12） | `scripts/auditory/antneuro.py`：读 `.cnt`（`read_raw_ant`）+ 会话音频起点（0 s / 267 s）+ 标记清单 + 用户标注口径（切换 ±buffer → `-1`） | 标记表导出供人工核对；每个会话的 trial 形状/时长/标签分布；误触清单显式记录 | 45 / 60 | TODO |
+| 9.5 | **ANT 真实数据集导入**（§3.12） | `scripts/auditory/antneuro.py`：读 `.cnt`（`read_raw_ant`）+ 会话音频起点（0 s / 267 s）+ 标记清单 + 用户标注口径（切换 ±buffer → `-1`） | 标记表导出供人工核对；每个会话的 trial 形状/时长/标签分布；误触清单显式记录 | 45 / 60 | **DONE** — commit `fda17fc`（7 文件 / +3166）。两会话均导入：**155093×20 @500 Hz / 310.19 s** 与 **164317×20 @500 Hz / 328.63 s**，各 24 个 cue，`-1` 41.3/43.3 s、A 138.8/144.9 s、B 130.1/140.4 s，**存活 86.7 % / 86.8 %**（buffer 0.5 s；1.0 s 口径 245.4/261.8 s 也报）。**只排除 2 个标记**，`1006@148.402` **保留并标 ambiguous**（见 §3.12 修订），排除后 12/12 严格交替；完整标记表（含 non-cue）入 `results/antneuro_import_*.md` 与可核对的 CSV。独立核验：由标记表重算的 labels 与 npz 内**逐样本一致**；`trial.audio` 与 `left_mono.npz` **逐值一致**；锚点残差 9.6 / 5.8 ms（< 一个 15.6 ms 包络步长）。25/25 变异被捕获。全仓 **785 tests 全绿**。**偏差**：`trial.audio` 存的是**参考包络（64 Hz）而非波形**（约 8 MB/会话而非 ~250 MB），代价是不能直接渲染可听 WAV——已记录 `playable_source_slice_samples` 供步骤 10/12 切片。**例外**：`antneuro.py` 864 / 测试 554 行 |
 | 10 | **真实 trial 全链路 + 一键入口** | `python -B -m scripts.auditory_ui.demo`：起服务 + 1× 回放 + 开浏览器 | V1–V5 全部证据 | 50 / 70 | **DONE** — commit `3765202`（11 文件 / +370）。**一条命令**（125.5 s，exit 0）：校验两个包络 → 渲染立体声 → 环回起服务（`dist/` 同源挂 `/`）→ 真实 `POST /api/session/start` → 打印 URL → 1× 回放 → 干净收尾。**V1** ✅ · **V2** ✅ 2123 包、`rejected=0`、7 种流全部经 vendored 前端自身模块解码并渲染（**Node 侧证据，明确不声称浏览器/截图**；该证据脚本 19/21，2 项失败是"渲染哪一帧"的瞬时采样问题，已如实留档）· **V3** ✅ 门控 14/14、**9.0 s 开启**、`playbackGains` = 0/−6.0 dB；**前后对比同 trial：margin 0.5 → 12 个非中性增益帧；margin 0.05 → 284 of 496，首次决策从 40 s 提前到 8.6 s** · **V4** ✅ 但**如实标为不可用作成绩**：本 trial 全程单一标签，其多数类 null = 1.0000，窗口级 0.9296 **打不赢任何东西**；可信数字仍来自 9.6 的留出标定 · **V5** ✅ 496 个时间差 max 0.2997 / mean 0.1529 s、握手 470/471 个 200 + `observed` + revision 2；块时序**不可得**并写明原因（无真实音频设备）· **V6** ✅ 全仓 **760 tests 全绿** + 前端 53/53。同时落地 **D-29 接线**（`RunPolicy.margin`、`AttentionController` 显式传入、`--margin`，默认未变有 5 组测试 + 变异守着）与 **§3.17 第 6 条修复**（`bad_channels` 贯通到 `artifact`/census，**未新增任何 reject**）。**例外**：`demo.py` 904 / `session.py` 776 行 |
 | 10.5 | **无设备 demorun**（H2） | `python -B -m scripts.auditory_ui.demorun`：无人值守跑完整场并出报告 | 运行日志 + `results/` 报告 | 30 / 45 | TODO |
 | 11 | **真人实时模式** | eego/LSL 接同一 `AttentionSession`；校准流程（含回环测量） | 硬件实测记录（在场时） | 45 / 75 | TODO |
@@ -675,6 +680,8 @@ KU Leuven 列索引：`Fp1=0 Fp2=33 F7=6 F3=4 Fz=37 F4=39 F8=41 T7=14 C3=12 C4=4
 | D-29 | 09-14 | **采纳 margin 标定结论作为演示工作点**（§3.17 第 5 条闭环）：演练用 `margin 0.05`（覆盖率 0.524 / 平衡 0.688，4/4 故事高于随机），并**把选择写进运行记录**；`MIN_MARGIN=0.5` 默认值不动 | 0.5 在真实 trial 上只给 0.15% 覆盖率、30/60 s 窗为 0，"演示全程显示不确定"无法验收；标定在**留出故事**上做、每折重新拟合、部署模型从不被评分 | 保持 0.5 并接受 94% 无结论；或偷偷把默认值改掉 | 演示可看；代价与召回率公开（全帧召回 0.348/0.380、误切换 2.43 次/分）；**接线（RunPolicy.margin 等 4 步）由步骤 10 落地并在运行记录里写出生效值**；30/60 s 更优点需**新训模型**（窗长属解码器契约） | `bd2da11` |
 | D-30 | 09-14 | 登记 5.5/9/9.6 的长文件例外与"栅格下限被顶到"的未测量项：`shift_sweep.py` 880、`margin_calibration.py` 946、`render.py` 350、`transport/media.py` 458、`auditory_ui/session.py` 1047 | 同 D-25/D-27 的理由 | 强行拆分 | `VALIDATION.md` 需统一列出全部结构例外；`margin` 阶梯下限 0.05 已"顶到"，**低于 0.05 何时不值得要仍未测量**（已列为未测量项） | 多处 |
 | D-31 | 09-14 | 步骤 10 **DONE**；两个 CLI 的 `--margin` **默认值故意不同**：`demo.py` 默认 **0.05（标定点）**，证据 CLI `session.py` 默认 **0.5（`MIN_MARGIN`，保守）** | demo 的目的是展示能力，必须用标定工作点，否则门控几乎不开；证据 CLI 的用途是可复现的保守证据，不应替用户做激进选择 | 两边统一成 0.5（演示看不到效果）；或统一成 0.05（证据 CLI 变得激进） | 两者都在运行记录里写出**生效值**，所以在任何报告里都能追溯到到底用了哪个 margin；`MIN_MARGIN=0.5` 本身仍未改 | `3765202` |
+| D-32 | 09-14 | 步骤 9.5 **DONE**；**修正 D-07**：误触只排除 **2 个**（`1007@148.354`、第二个 `1004@326.692`），`1006@148.402` **保留并标 ambiguous-cue** | 排除它会只剩 11 个右 cue、出现 25.670 s 的"左"段；保留则相邻两段 12.848/12.822 s 均在本会话正常区间——证据指向该 `1006` 才是真右提示 | 按用户原话"三处全排除"（会造成标签时间线错 12.8 s，且破坏 12/12 交替） | 标签时间线在 135.6–161.2 s 段与用户初判相反；已在 §3.12 与标记表 `reason` 字段写明，供人工最终裁决 | `fda17fc` |
+| D-33 | 09-14 | ANT trial 的 `audio` 列存**参考包络（64 Hz）**而非音频波形 | 链从不读 `trial.audio`；参考包络必须与解码所用**逐位一致**（可复现），且体积 8 MB/会话而非 ~250 MB | 存波形列（+250 MB/会话，且与包络参考重复） | ANT trial 不能直接渲染可听 WAV；已记录 `playable_source_slice_samples`（精确切片），步骤 10/12 若要真播按此切片一次命令即可 | `fda17fc` |
 
 ---
 
