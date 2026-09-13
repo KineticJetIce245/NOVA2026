@@ -11,12 +11,15 @@ What the rig actually delivered:
 * **A per-sample grid that jitters.** ``scripts.getlive.ts_check`` measured
   0.48-0.49% of the steps below half a sample, while the census rate stayed at
   500.00 Hz with one sample per chunk. The source stamps every sample, so it is
-  *not* chunk-stamped and the ``--regrid`` block-spreading path is the wrong
-  tool: spreading preserves the span a block covers, and a 0.4-sample deficit
-  spread over two samples is two 0.7-sample steps - still refused.
+  *not* chunk-stamped, and the relay's block-spreading ``--regrid`` was the wrong
+  tool for it: spreading preserves the span a block covers, and a 0.4-sample
+  deficit spread over two samples is two 0.7-sample steps - still refused. The
+  counted grid that replaced it is the fix, and it is what the live script now
+  does by default.
 * **Real data loss.** About one sample in a thousand never arrived (94 missing
-  in 65,542, as counted at the relay). A regularised grid must keep that visible
-  instead of closing it silently.
+  in 65,542, as counted at the relay). A counted grid closes up over a hole, by
+  design - it gives one slot per sample received - so the loss has to stay visible
+  in what the run *reports*, which is what the tests below check.
 * **A declared unit that is wrong.** The outlet declares ``Volt``; the samples
   are microvolts (a 12,640 uV offset with 42 uV of noise - read as volts that is
   12,600 V, and every electrode trips the saturation rail).
@@ -37,9 +40,9 @@ from pathlib import Path
 
 import numpy as np
 
-from nova2026.streaming import UnrepairableError
+from nova2026.streaming import GridPolicy, TimeBase, UnrepairableError
 from nova2026.streaming.preprocess import Repair
-from scripts.getlive import live, relay
+from scripts.getlive import live
 
 # Measured on the rig, 2026-09-12.
 #
@@ -120,49 +123,25 @@ class RigGridIsUnusableRawTests(unittest.TestCase):
         self.assertEqual(caught.exception.kind, "irregular_timestamps")
 
 
-class RelayPerSampleJitterTests(unittest.TestCase):
-    """The relay must turn this rig's jittered grid into one ``Repair`` accepts."""
+class GridRebuildTests(unittest.TestCase):
+    """The grid the rig needs, now built by the library's time base.
 
-    def rebuild(self, stamps: np.ndarray, channels: int = 1):
-        """Drive whatever per-sample rebuild the relay offers.
+    It used to be the relay's ``--regrid-jitter`` and its ``GridBuilder``. Both
+    are gone: the behaviour lives in :class:`nova2026.streaming.TimeBase`, which
+    the live script uses by default. The requirement has not changed, so the
+    assertions have not either - only the object that satisfies them.
+    """
 
-        The requirement is the behaviour, not the name. If the relay offers no
-        such path, this fails with that sentence instead of an ``AttributeError``
-        that says nothing about the rig.
-        """
+    def rebuild(self, stamps: np.ndarray):
+        """Put the rig's stamps on the library's counted grid."""
 
-        builder = getattr(relay, "GridBuilder", None)
-        if builder is None:
-            self.fail(
-                "the relay offers no per-sample grid rebuild: --regrid spreads a "
-                "block's span and cannot remove a sub-nominal step, so a "
-                "per-sample jittered source (what the rig publishes) has no "
-                "usable path through this script"
-            )
-        instance = builder(RIG_RATE, channels)
-        data = np.zeros((stamps.size, channels), dtype="float32")
-        out_data, out_times = instance.feed(data, stamps)
-        return instance, out_data, out_times
+        time_base = TimeBase(GridPolicy.for_rate(RIG_RATE))
+        times, state = time_base.place(stamps)
+        return state, times
 
-    def test_the_relay_cli_can_ask_for_a_uniform_grid(self) -> None:
-        parser = relay.build_parser()
-        argv = ["--source-name", "EE511", "--labels", "Fz", "--regrid-jitter"]
-        try:
-            args = parser.parse_args(argv)
-        except SystemExit:
-            self.fail(
-                "the relay CLI must accept a per-sample jitter mode: --regrid "
-                "spreads a block over its span, so a sub-nominal step stays "
-                "sub-nominal and Repair still refuses it"
-            )
-        self.assertTrue(args.regrid_jitter)
-        with self.assertRaises(SystemExit):
-            parser.parse_args(["--source-name", "EE511", "--labels", "Fz",
-                               "--regrid", "--regrid-jitter"])
-
-    def test_a_per_sample_jittered_source_becomes_a_grid_repair_accepts(self) -> None:
+    def test_the_rig_timeline_becomes_a_grid_repair_accepts(self) -> None:
         stamps = rig_stamps()
-        _, _, times = self.rebuild(stamps)
+        _, times = self.rebuild(stamps)
         self.assertEqual(times.size, stamps.size, "no sample may be dropped")
         steps = np.diff(times) * RIG_RATE
         self.assertGreaterEqual(
@@ -172,33 +151,31 @@ class RelayPerSampleJitterTests(unittest.TestCase):
         )
         # And the whole rebuilt stream has to survive the stage the live run
         # builds: this is the assertion the rig actually failed.
-        data = np.zeros((times.size, 1), dtype="float32")
-        repair_stage()(data, times)
+        repair_stage()(np.zeros((times.size, 1), dtype="float32"), times)
 
-    def test_the_rebuild_keeps_real_data_loss_visible(self) -> None:
+    def test_a_lost_sample_is_reported_rather_than_filled(self) -> None:
+        # The trade this design makes on purpose: the grid gives one slot per
+        # sample received, so a sample the source never sent cannot become a step
+        # in it. The loss is reported as a suspicious step instead, and Repair is
+        # left with nothing to fabricate - which is what used to go wrong.
         stamps = rig_stamps(lost=(1000, 2000))
-        builder, _, times = self.rebuild(stamps)
-        steps = np.diff(times) * RIG_RATE
-        self.assertGreater(
-            float(steps.max()), 1.5, "a sample the source never sent must stay a gap"
-        )
-        self.assertGreaterEqual(
-            builder.lost_samples, 2, "the loss must be counted, not just survived"
-        )
+        state, times = self.rebuild(stamps)
 
-    def test_the_rebuild_moves_timestamps_only(self) -> None:
-        stamps = rig_stamps(1500)
-        builder = relay.GridBuilder(RIG_RATE, 2)
-        data = np.arange(stamps.size * 2, dtype="float32").reshape(-1, 2)
-        out_data, out_times = builder.feed(data, stamps)
-        np.testing.assert_array_equal(
-            out_data, data, "samples may be re-stamped, never rewritten"
+        self.assertEqual(len(state.large_steps), 2, "one report per lost sample")
+        self.assertEqual(times.size, stamps.size, "and no invented row")
+        steps = np.diff(times) * RIG_RATE
+        self.assertLessEqual(
+            float(np.abs(steps - 1.0).max()),
+            grid_tolerance_samples(),
+            "the grid closes up over the hole rather than carrying it",
         )
-        self.assertEqual(out_times.size, stamps.size)
+        repair = repair_stage()
+        repair(np.zeros((times.size, 1), dtype="float32"), times)
+        self.assertEqual(repair.repaired_samples, 0, "nothing was synthesised")
 
     def test_every_rebuilt_step_is_a_whole_number_of_samples(self) -> None:
         stamps = rig_stamps(4000, lost=(900,))
-        _, _, times = self.rebuild(stamps)
+        _, times = self.rebuild(stamps)
         steps = np.diff(times) * RIG_RATE
         np.testing.assert_allclose(
             steps,
@@ -206,6 +183,7 @@ class RelayPerSampleJitterTests(unittest.TestCase):
             atol=grid_tolerance_samples(),
             err_msg="the rebuilt grid must sit on the nominal grid, gaps included",
         )
+        self.assertEqual(times.size, stamps.size)
 
 
 class LiveOffloadWiringTests(unittest.TestCase):
