@@ -93,6 +93,15 @@ class RunFacts:
         held_rows: Rows where an excluded column was held instead of repaired.
         model_channels: Electrodes the offline model contract expects.
         model_missing: Model electrodes this run's contract does not carry.
+        timebase_mode: How the run treated the source's timestamps
+            (``"stamps"`` passes them through, ``"grid"`` rebuilds them).
+        timebase_relocked_samples: Drift the grid absorbed by re-locking, in
+            samples. The instantaneous residual is bounded by policy, so this is
+            the number that shows how far the source's clock and the grid
+            disagreed over the run.
+        timebase_anchor_rate: Rate the source's own anchors imply, in Hz.
+        timebase_relocks: Re-locks the run performed.
+        timebase_large_steps: Suspicious single timestamp steps the source made.
     """
 
     expected_sfreq: float
@@ -128,6 +137,11 @@ class RunFacts:
     held_rows: int
     model_channels: int
     model_missing: tuple[str, ...]
+    timebase_mode: str
+    timebase_relocked_samples: float
+    timebase_anchor_rate: float
+    timebase_relocks: int
+    timebase_large_steps: int
 
 
 @dataclass(frozen=True)
@@ -198,6 +212,7 @@ def evaluate(facts: RunFacts) -> Acceptance:
     checks: list[Check] = []
     _check_connection(checks, facts)
     _check_transport(checks, facts)
+    _check_timebase(checks, facts)
     _check_windows(checks, facts)
     _check_chain(checks, facts)
     _check_channel_scope(checks, facts)
@@ -317,6 +332,47 @@ def _check_transport(checks: list[Check], facts: RunFacts) -> None:
         checks.append(Check("input_lag", WARN, f"oldest consumed block {max_lag:.3f}s"))
     else:
         checks.append(Check("input_lag", FAIL, f"oldest consumed block {max_lag:.3f}s"))
+
+
+def _check_timebase(checks: list[Check], facts: RunFacts) -> None:
+    """Report what the run's own timeline had to absorb.
+
+    Evidence, not a verdict. Perfect samples and a wrong clock are compatible,
+    and the measurements say so: the amplifier's own ``.cnt`` matched our
+    recording sample for sample (88 500 pairs, nothing differing by more than one
+    LSB) while the timeline drifted 2-9 samples per 30 s. Whether that drift makes
+    a run unusable depends on what the windows are used for, so this reports the
+    numbers and leaves the threshold to the operator - the design document keeps
+    that question open on purpose.
+    """
+
+    if facts.timebase_mode != "grid":
+        checks.append(
+            Check("timebase", PASS, "the source's own timestamps were used")
+        )
+        return
+
+    rate = facts.timebase_anchor_rate
+    ppm = (
+        "not measurable"
+        if not math.isfinite(rate)
+        else f"{(rate - facts.expected_sfreq) / facts.expected_sfreq * 1e6:+.0f} ppm"
+    )
+    if facts.timebase_relocks == 0 and facts.timebase_large_steps == 0:
+        checks.append(
+            Check("timebase", PASS, f"the source clock needed no correction ({ppm})")
+        )
+        return
+    checks.append(
+        Check(
+            "timebase",
+            WARN,
+            f"absorbed {facts.timebase_relocked_samples:.1f} sample(s) over "
+            f"{facts.timebase_relocks} re-lock(s), "
+            f"{facts.timebase_large_steps} suspicious step(s); "
+            f"the source clock reads {ppm}",
+        )
+    )
 
 
 def _check_windows(checks: list[Check], facts: RunFacts) -> None:

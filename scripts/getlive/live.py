@@ -903,6 +903,11 @@ def _facts(run: _Run, electrode_summary: dict, model_missing: tuple[str, ...]) -
         held_rows=int(run.repair.held_rows),
         model_channels=len(MODEL_EEG_CHANNELS),
         model_missing=model_missing,
+        timebase_mode=args.timebase,
+        timebase_relocked_samples=run.stats.timebase_relocked_samples,
+        timebase_anchor_rate=run.stats.timebase_anchor_rate,
+        timebase_relocks=run.stats.timebase_relocks,
+        timebase_large_steps=run.stats.timebase_large_steps,
     )
 
 
@@ -1053,12 +1058,11 @@ def _announce_contract(
         )
 
 
-def main(argv: list[str] | None = None) -> int:
-    """Validate the arguments, connect the amplifier and stream."""
+def _find_outlet(parser: argparse.ArgumentParser, args: argparse.Namespace):
+    """Select the one plausible amplifier outlet, or say why none was chosen.
 
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    _validate_arguments(parser, args)
+    Returns the outlet row, or ``None`` after reporting what is on the network.
+    """
 
     # A datasheet cap knows its own size, so outlet selection can use it; an
     # auto or declared profile is sized by whatever the outlet publishes.
@@ -1079,9 +1083,58 @@ def main(argv: list[str] | None = None) -> int:
         )
     except RuntimeError as error:
         print(f"\nerror: {error}")
-        return 1
+        return None
     _report_outlet(args, row)
+    return row
 
+
+def _preflight(
+    stream,
+    args: argparse.Namespace,
+    source: dict,
+    profile: CapProfile,
+    requested: tuple[tuple[str, ...], tuple[str, ...]],
+):
+    """Run the package's pre-flight check, or explain what it refused.
+
+    Args:
+        requested: The ``(eeg, eog)`` channels this run asked for, kept apart so
+            the contract can be told how many of them are EEG.
+
+    Returns:
+        The run's channel contract, or ``None`` when the source was refused.
+    """
+
+    eeg, eog = requested
+    try:
+        return prepare(
+            stream,
+            sfreq=args.sfreq,
+            channels=eeg + eog,
+            source_unit_exponent=SOURCE_UNITS[args.source_units],
+            n_eeg=len(eeg),
+            stream_name=args.stream_name,
+            source_id=args.source_id,
+            stream_type=args.stream_type,
+        )
+    except RuntimeError as error:
+        print(f"\npre-flight rejected the source: {error}")
+        hint = _diagnose(str(error), args, source, profile)
+        if hint:
+            print(f"hint: {hint}")
+        return None
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Validate the arguments, connect the amplifier and stream."""
+
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    _validate_arguments(parser, args)
+
+    row = _find_outlet(parser, args)
+    if row is None:
+        return 1
     stream = _connect(args, row)
     if stream is None:
         return 1
@@ -1095,22 +1148,8 @@ def main(argv: list[str] | None = None) -> int:
         args.excluded_channels = excluded
         _announce_contract(source, profile, eeg, eog, excluded)
 
-        try:
-            contract = prepare(
-                stream,
-                sfreq=args.sfreq,
-                channels=eeg + eog,
-                source_unit_exponent=SOURCE_UNITS[args.source_units],
-                n_eeg=len(eeg),
-                stream_name=args.stream_name,
-                source_id=args.source_id,
-                stream_type=args.stream_type,
-            )
-        except RuntimeError as error:
-            print(f"\npre-flight rejected the source: {error}")
-            hint = _diagnose(str(error), args, source, profile)
-            if hint:
-                print(f"hint: {hint}")
+        contract = _preflight(stream, args, source, profile, (eeg, eog))
+        if contract is None:
             return 1
 
         return _stream(

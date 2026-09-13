@@ -127,6 +127,11 @@ def facts(**overrides) -> RunFacts:
         "held_rows": 0,
         "model_channels": 57,
         "model_missing": (),
+        "timebase_mode": "stamps",
+        "timebase_relocked_samples": 0.0,
+        "timebase_anchor_rate": float("nan"),
+        "timebase_relocks": 0,
+        "timebase_large_steps": 0,
     }
     values.update(overrides)
     return RunFacts(**values)
@@ -532,6 +537,7 @@ class AcceptanceTests(unittest.TestCase):
                 "data_flow": PASS,
                 "timing_gaps": PASS,
                 "input_lag": PASS,
+                "timebase": PASS,
                 "windows": PASS,
                 "quality_reasons": PASS,
                 "recovery": PASS,
@@ -549,6 +555,35 @@ class AcceptanceTests(unittest.TestCase):
         self.assertIn("warm-up", details(acceptance)["quality_reasons"])
         self.assertIn("every EEG electrode is judged", details(acceptance)["channel_scope"])
         self.assertIn("no channel fault", details(acceptance)["bad_channels"])
+
+    def test_a_grid_run_reports_the_drift_it_absorbed(self) -> None:
+        acceptance = evaluate(
+            facts(
+                timebase_mode="grid",
+                timebase_relocked_samples=11.0,
+                timebase_anchor_rate=499.0,
+                timebase_relocks=10,
+                timebase_large_steps=3,
+            )
+        )
+        self.assertEqual(statuses(acceptance)["timebase"], WARN)
+        detail = details(acceptance)["timebase"]
+        self.assertIn("11.0 sample(s)", detail)
+        self.assertIn("10 re-lock(s)", detail)
+        self.assertIn("3 suspicious step(s)", detail)
+        self.assertIn("-2000 ppm", detail)
+        self.assertTrue(
+            acceptance.ok, "absorbed drift is evidence to read, not a rejection"
+        )
+
+    def test_a_grid_run_with_a_clean_clock_passes(self) -> None:
+        acceptance = evaluate(facts(timebase_mode="grid", timebase_anchor_rate=500.0))
+        self.assertEqual(statuses(acceptance)["timebase"], PASS)
+
+    def test_a_stamps_run_says_which_timeline_it_used(self) -> None:
+        acceptance = evaluate(facts(timebase_mode="stamps"))
+        self.assertEqual(statuses(acceptance)["timebase"], PASS)
+        self.assertIn("source's own timestamps", details(acceptance)["timebase"])
 
     def test_a_failed_run_is_rejected(self) -> None:
         acceptance = evaluate(facts(failure="RuntimeError('boom')"))
