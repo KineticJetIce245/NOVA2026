@@ -12,7 +12,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from nova2026.transport.media import MediaTimeline
+from nova2026.transport.media import FRESH_SECONDS, MediaTimeline
 
 
 class TimelineTestCase(unittest.TestCase):
@@ -43,6 +43,47 @@ class TimelineTestCase(unittest.TestCase):
         )
         body.update(extra)
         return self.timeline.control(body)
+
+
+class TakeoverTests(TimelineTestCase):
+    """A slot whose owner has gone quiet can be claimed again."""
+
+    def test_a_silent_owner_abandons_the_slot(self):
+        self.command("prepare", 0.0)
+        self.command("playing", 0.0)
+        self.now += 0.25
+        self.assertEqual(self.command("report", 0.25)["sync_status"], "observed")
+
+        # The page is gone: nothing arrives for longer than the freshness window.
+        # Before this the slot was unusable for the rest of the process -- a new
+        # page could not prepare (playback was not stopped) and could not stop
+        # (another client owned it), so only restarting the demo brought it back.
+        self.now += FRESH_SECONDS + 0.1
+        fresh = self.command("prepare", 0.0, client_id="other")
+        self.assertEqual(fresh["sync_status"], "observed")
+        self.assertEqual(fresh["takeovers"], 1)
+        self.assertEqual(self.timeline.client_id, "other")
+
+    def test_a_live_owner_keeps_its_slot(self):
+        self.command("prepare", 0.0)
+        self.command("playing", 0.0)
+        self.now += 0.25
+        self.command("report", 0.25)
+
+        with self.assertRaises(ValueError) as caught:
+            self.command("prepare", 0.0, client_id="other")
+        self.assertIn("controller", str(caught.exception))
+        self.assertEqual(self.timeline.takeovers, 0)
+        self.assertEqual(self.timeline.client_id, "browser")
+
+    def test_an_owner_is_never_evicted_by_its_own_silence(self):
+        self.command("prepare", 0.0)
+        self.command("playing", 0.0)
+        self.now += 0.25
+        self.command("report", 0.25)
+        self.now += FRESH_SECONDS + 0.1
+        self.assertEqual(self.command("report", 0.5)["sync_status"], "observed")
+        self.assertEqual(self.timeline.takeovers, 0)
 
 
 class HandshakeTests(TimelineTestCase):

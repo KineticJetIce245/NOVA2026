@@ -136,6 +136,8 @@ class MediaTimeline:
         self.last_received: float | None = None
         self.valid = False
         self.ever_claimed_at: float | None = None
+        self.takeovers = 0
+        """How often a new controller reclaimed a slot its owner had left."""
 
     def descriptor(self) -> dict[str, Any]:
         """Return the asset identity the controller needs, without its path."""
@@ -216,6 +218,7 @@ class MediaTimeline:
                 revision=self.revision,
                 server_reference_s=self.reference,
                 server_received_s=self.last_received,
+                takeovers=self.takeovers,
                 sync_status="observed" if self.valid and fresh else "desynchronized",
             )
 
@@ -278,6 +281,30 @@ class MediaTimeline:
                 raise ValueError("client_id must be a nonempty string of at most 128 characters.")
             if type(request) is not int or not 0 <= request <= MAX_SAFE_INTEGER:
                 raise ValueError("request_id must be a nonnegative JavaScript-safe integer.")
+            # A slot whose owner has stopped reporting is ABANDONED, not owned.
+            # Closing the tab, reloading the page, or a sleeping laptop all leave
+            # a client that will never send again, and until this existed that
+            # client held the slot for the life of the process: `prepare` is
+            # refused while playback is not stopped, and `stopped` from a different
+            # client is refused by the check below, so neither a new page nor the
+            # operator could get it back. Only silence longer than the freshness
+            # window releases it, so a live owner still keeps its slot -- which is
+            # the protection D-54 is about -- and the release is counted rather
+            # than done quietly.
+            if (
+                self.client_id is not None
+                and client != self.client_id
+                and (
+                    self.last_received is None
+                    or self.clock() - self.last_received > FRESH_SECONDS
+                )
+            ):
+                self.takeovers += 1
+                self.client_id = None
+                self.playback = "stopped"
+                self.position = 0.0
+                self.valid = False
+                self.reference = self.clock()
             if self.client_id is not None and (
                 client != self.client_id or request <= self.request_id
             ):
