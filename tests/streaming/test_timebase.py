@@ -178,6 +178,21 @@ class TimeBaseRigTimelineTests(unittest.TestCase):
         )
         self.assertTrue(all(event.kind == "large_step" for event in state.large_steps))
 
+    def test_a_re_stamp_on_a_chunk_boundary_is_reported(self) -> None:
+        # The seam between two chunks is as much a step as the ones inside one.
+        # On the rig the re-stamps land exactly on block boundaries, and reading
+        # only np.diff(stamps) reported none of them.
+        stamps = measured_timeline(count=2000, drift_ppm=0.0, jumps=((500, 1.0),))
+        _, state = feed(TimeBase(GridPolicy.for_rate(RATE)), stamps, chunk=50)
+        self.assertEqual(
+            [round(event.size_samples, 3) for event in state.large_steps], [2.0]
+        )
+
+    def test_a_quiet_seam_is_not_a_step(self) -> None:
+        stamps = measured_timeline(count=2000, drift_ppm=0.0, jumps=())
+        _, state = feed(TimeBase(GridPolicy.for_rate(RATE)), stamps, chunk=50)
+        self.assertEqual(state.large_steps, ())
+
     def test_the_anchor_rate_exposes_the_clock_error(self) -> None:
         stamps = measured_timeline()
         _, state = feed(TimeBase(GridPolicy.for_rate(RATE)), stamps)

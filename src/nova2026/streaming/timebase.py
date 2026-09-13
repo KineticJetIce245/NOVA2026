@@ -306,13 +306,24 @@ class TimeBase:
         return stamps, count, per_sample
 
     def _record_large_steps(self, stamps: np.ndarray) -> None:
-        """Record the suspicious steps in one chunk of per-sample stamps.
+        """Record the suspicious steps in one chunk, the seam included.
 
         A step where the source's clock jumped is evidence about that clock, not
         proof that samples were lost: it is reported, and every sample that did
         arrive is still placed.
+
+        The step between the previous chunk's last sample and this chunk's first
+        one counts too. A re-stamp that happens to land on a block boundary is no
+        different from one inside a block, and leaving the seam out would report
+        fewer jumps purely because the source delivers data in blocks.
         """
 
+        if self._last_stamp is not None:
+            seam = (float(stamps[0]) - self._last_stamp) * self._rate
+            if seam >= self.policy.max_step_samples:
+                self._large_steps.append(
+                    TimeBaseEvent("large_step", self._next_index, float(seam))
+                )
         if stamps.size < 2:
             return
         steps = np.diff(stamps) * self._rate
