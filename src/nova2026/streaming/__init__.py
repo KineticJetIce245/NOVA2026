@@ -25,6 +25,13 @@ from .spatial import (
     processing_contract,
 )
 from .stats import StreamStats          # run counters, persisted at close (E)
+from .timebase import (                  # one owner for the LSL timeline
+    GridPolicy,
+    TimeBase,
+    TimeBaseEvent,
+    TimeBaseState,
+    repair_tolerance_samples,
+)
 from .window import EEGWindow            # one window + verdict, for consumers
 
 __all__ = [
@@ -42,9 +49,14 @@ __all__ = [
     "UnrepairableError",
     "cut_epochs",
     "EEGWindow",
+    "GridPolicy",
+    "TimeBase",
+    "TimeBaseEvent",
+    "TimeBaseState",
     "fit_ssp",
     "prepare",
     "processing_contract",
+    "repair_tolerance_samples",
     "resolve_outlet",
     "select_quality",
     "validate_source",
