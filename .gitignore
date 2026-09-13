@@ -193,6 +193,15 @@ __MACOSX/
 # JSON file holding three mutations, the test each one must redden, and whether it
 # did. The packet streams and live run records beside it stay out of git.
 !results/antneuro_contract_split_mutations.json
+# Exception: live-route run records. The live path against the operator's own
+# recording is the only place the whole chain runs from an amplifier-shaped source,
+# and these records are what say whether it decided. The one that matters most is
+# the first run to commit decisions on that rig: 281 of them, against zero in every
+# earlier attempt. They hold counters, the declared policy and decision words - no
+# EEG sample, no packet payload, nothing that identifies a participant. The packet
+# streams and the rendered WAV stay out of git under output/.
+!results/live_demo_*.json
+!results/live_demo_*.md
 # Exception: the declared-amplitude-limit run and its mutation record. The run
 # record is the evidence that the recording's own excursion was measured before a
 # limit was declared, that the declared value reached both stages that judge an
