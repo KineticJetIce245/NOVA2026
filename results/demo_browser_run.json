@@ -1,0 +1,4085 @@
+{
+  "kind": "real-browser check of the visible auditory demo",
+  "ran_at": "2026-09-13T13:05:21.833Z",
+  "command": {
+    "demo": "C:\\Files\\git\\NOVA2026\\.venv\\Scripts\\python.exe -B scripts/auditory_ui/demo.py --trial datasets/AAD-KULeuven/converted/S1/trial_004.npz --seconds 80 --serve-seconds 8",
+    "browser": "playwright chromium (headless), autoplay-policy=no-user-gesture-required"
+  },
+  "options": {
+    "trial": "datasets/AAD-KULeuven/converted/S1/trial_004.npz",
+    "model": "models/auditory_kuleuven.npz",
+    "seconds": 80,
+    "serveSeconds": 8,
+    "sampleSeconds": 70,
+    "shotAt": 15,
+    "recover": true,
+    "out": "results/demo_browser_run.json",
+    "shots": "results/demo_browser_shot",
+    "log": "output/auditory_ui/demo_browser_operator.log"
+  },
+  "url": "http://127.0.0.1:51231/",
+  "screenshots": [
+    "C:\\Files\\git\\NOVA2026\\results\\demo_browser_shot_00_clicked.png",
+    "C:\\Files\\git\\NOVA2026\\results\\demo_browser_shot_01_gate_should_be_open_at_15s.png",
+    "C:\\Files\\git\\NOVA2026\\results\\demo_browser_shot_02_after_70s.png"
+  ],
+  "browserVersion": "153.0.8010.12",
+  "click": {
+    "at": 3235,
+    "label": "Play",
+    "disabled": false,
+    "before": {
+      "elapsedSeconds": 0,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A Unavailable · score B Unavailable · difference Unavailable · gain A Unavailable · gain B Unavailable",
+      "gains": {
+        "A": "Unavailable",
+        "B": "Unavailable"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    "after": {
+      "elapsedSeconds": 0,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: warmup · score A Unavailable · score B Unavailable · difference Unavailable · gain A 0 dB · gain B 0 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    }
+  },
+  "samples": [
+    {
+      "elapsedSeconds": 6.2,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: no_decision · score A Unavailable · score B Unavailable · difference Unavailable · gain A 0 dB · gain B 0 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 7.207,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: no_decision · score A −0.0807 · score B −0.0026 · difference −0.0781 · gain A 0 dB · gain B 0 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 8.223,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: no_decision · score A −0.0832 · score B −0.0612 · difference −0.0220 · gain A 0 dB · gain B 0 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 9.234,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: no_decision · score A +0.0483 · score B −0.0763 · difference +0.1246 · gain A 0 dB · gain B 0 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 10.247,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: no_decision · score A +0.2149 · score B +0.0042 · difference +0.2107 · gain A 0 dB · gain B 0 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 11.262,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A +0.2762 · score B +0.0354 · difference +0.2408 · gain A 0 dB · gain B -6 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "-6 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 12.265,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A +0.2222 · score B +0.0858 · difference +0.1364 · gain A 0 dB · gain B -6 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "-6 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 13.275,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A +0.1965 · score B −0.0282 · difference +0.2248 · gain A 0 dB · gain B -6 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "-6 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 14.289,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A +0.1158 · score B +0.0411 · difference +0.0748 · gain A 0 dB · gain B -6 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "-6 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 15.293,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A +0.0316 · score B +0.0851 · difference −0.0535 · gain A 0 dB · gain B -6 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "-6 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 16.308,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A +0.0256 · score B +0.1999 · difference −0.1743 · gain A 0 dB · gain B -6 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "-6 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 17.31,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A −0.0832 · score B +0.1519 · difference −0.2351 · gain A -6 dB · gain B 0 dB",
+      "gains": {
+        "A": "-6 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 18.324,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A −0.1717 · score B +0.1982 · difference −0.3699 · gain A -6 dB · gain B 0 dB",
+      "gains": {
+        "A": "-6 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 19.339,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A −0.1523 · score B +0.1480 · difference −0.3003 · gain A -6 dB · gain B 0 dB",
+      "gains": {
+        "A": "-6 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 20.352,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A −0.2236 · score B +0.0438 · difference −0.2675 · gain A -6 dB · gain B 0 dB",
+      "gains": {
+        "A": "-6 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 21.366,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A −0.1705 · score B −0.0664 · difference −0.1041 · gain A -6 dB · gain B 0 dB",
+      "gains": {
+        "A": "-6 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 22.823,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: no_decision · score A +0.0108 · score B +0.0232 · difference −0.0125 · gain A 0 dB · gain B 0 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 23.839,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: no_decision · score A +0.0548 · score B −0.0148 · difference +0.0696 · gain A 0 dB · gain B 0 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 24.855,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: no_decision · score A +0.0870 · score B −0.0365 · difference +0.1234 · gain A 0 dB · gain B 0 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 25.871,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A +0.0707 · score B −0.0027 · difference +0.0734 · gain A 0 dB · gain B -6 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "-6 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 26.875,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: no_decision · score A +0.0480 · score B +0.0690 · difference −0.0210 · gain A 0 dB · gain B 0 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 27.882,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: no_decision · score A +0.1195 · score B +0.0831 · difference +0.0364 · gain A 0 dB · gain B 0 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 28.884,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: no_decision · score A +0.0269 · score B +0.1663 · difference −0.1394 · gain A 0 dB · gain B 0 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 29.898,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: no_decision · score A +0.0070 · score B +0.1650 · difference −0.1580 · gain A 0 dB · gain B 0 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 30.902,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A +0.0055 · score B +0.2775 · difference −0.2721 · gain A -6 dB · gain B 0 dB",
+      "gains": {
+        "A": "-6 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 31.904,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A −0.0243 · score B +0.3138 · difference −0.3381 · gain A -6 dB · gain B 0 dB",
+      "gains": {
+        "A": "-6 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 32.917,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A −0.1493 · score B +0.3455 · difference −0.4949 · gain A -6 dB · gain B 0 dB",
+      "gains": {
+        "A": "-6 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 33.929,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A −0.1069 · score B +0.3518 · difference −0.4587 · gain A -6 dB · gain B 0 dB",
+      "gains": {
+        "A": "-6 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 34.943,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A −0.0968 · score B +0.2935 · difference −0.3903 · gain A -6 dB · gain B 0 dB",
+      "gains": {
+        "A": "-6 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 35.946,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A −0.0743 · score B +0.1660 · difference −0.2403 · gain A -6 dB · gain B 0 dB",
+      "gains": {
+        "A": "-6 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 36.948,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A −0.0844 · score B +0.1599 · difference −0.2443 · gain A -6 dB · gain B 0 dB",
+      "gains": {
+        "A": "-6 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 37.961,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A −0.0117 · score B +0.1207 · difference −0.1325 · gain A -6 dB · gain B 0 dB",
+      "gains": {
+        "A": "-6 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 38.976,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A +0.0303 · score B −0.0310 · difference +0.0612 · gain A -6 dB · gain B 0 dB",
+      "gains": {
+        "A": "-6 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 39.991,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A +0.1482 · score B +0.2684 · difference −0.1202 · gain A -6 dB · gain B 0 dB",
+      "gains": {
+        "A": "-6 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 41.007,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A +0.1909 · score B +0.3960 · difference −0.2051 · gain A -6 dB · gain B 0 dB",
+      "gains": {
+        "A": "-6 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 42.023,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A +0.1898 · score B +0.2738 · difference −0.0841 · gain A -6 dB · gain B 0 dB",
+      "gains": {
+        "A": "-6 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 43.038,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: no_decision · score A +0.1893 · score B +0.1605 · difference +0.0287 · gain A 0 dB · gain B 0 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 44.052,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: no_decision · score A +0.1751 · score B +0.1510 · difference +0.0241 · gain A 0 dB · gain B 0 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 45.067,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: no_decision · score A +0.0887 · score B −0.0531 · difference +0.1419 · gain A 0 dB · gain B 0 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 46.082,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: no_decision · score A −0.1088 · score B −0.1328 · difference +0.0240 · gain A 0 dB · gain B 0 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 47.095,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: no_decision · score A −0.2788 · score B +0.0288 · difference −0.3076 · gain A 0 dB · gain B 0 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 48.101,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: no_decision · score A −0.2979 · score B +0.2299 · difference −0.5279 · gain A 0 dB · gain B 0 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 49.112,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A −0.2442 · score B +0.1574 · difference −0.4016 · gain A -6 dB · gain B 0 dB",
+      "gains": {
+        "A": "-6 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 50.127,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A −0.2173 · score B +0.1659 · difference −0.3832 · gain A -6 dB · gain B 0 dB",
+      "gains": {
+        "A": "-6 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 51.143,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A −0.0771 · score B +0.2575 · difference −0.3346 · gain A -6 dB · gain B 0 dB",
+      "gains": {
+        "A": "-6 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 52.156,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A −0.0594 · score B +0.1494 · difference −0.2088 · gain A -6 dB · gain B 0 dB",
+      "gains": {
+        "A": "-6 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 53.172,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A −0.0458 · score B +0.1342 · difference −0.1801 · gain A -6 dB · gain B 0 dB",
+      "gains": {
+        "A": "-6 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 54.187,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A +0.0231 · score B +0.1752 · difference −0.1521 · gain A -6 dB · gain B 0 dB",
+      "gains": {
+        "A": "-6 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 55.2,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A +0.0101 · score B +0.0783 · difference −0.0682 · gain A -6 dB · gain B 0 dB",
+      "gains": {
+        "A": "-6 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 56.214,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A −0.0668 · score B +0.1889 · difference −0.2557 · gain A -6 dB · gain B 0 dB",
+      "gains": {
+        "A": "-6 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 57.217,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A −0.0900 · score B +0.1451 · difference −0.2351 · gain A -6 dB · gain B 0 dB",
+      "gains": {
+        "A": "-6 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 58.219,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A −0.1542 · score B +0.1552 · difference −0.3094 · gain A -6 dB · gain B 0 dB",
+      "gains": {
+        "A": "-6 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 59.233,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A −0.0541 · score B +0.1276 · difference −0.1817 · gain A -6 dB · gain B 0 dB",
+      "gains": {
+        "A": "-6 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 60.236,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A +0.0108 · score B +0.0862 · difference −0.0754 · gain A -6 dB · gain B 0 dB",
+      "gains": {
+        "A": "-6 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 61.246,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: no_decision · score A −0.0416 · score B −0.0877 · difference +0.0461 · gain A 0 dB · gain B 0 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 62.247,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: no_decision · score A −0.0133 · score B −0.0062 · difference −0.0071 · gain A 0 dB · gain B 0 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 63.252,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: no_decision · score A −0.0290 · score B −0.1248 · difference +0.0958 · gain A 0 dB · gain B 0 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 64.26,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: no_decision · score A −0.0110 · score B −0.1708 · difference +0.1598 · gain A 0 dB · gain B 0 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 65.276,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: no_decision · score A −0.0478 · score B +0.0232 · difference −0.0710 · gain A 0 dB · gain B 0 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 66.289,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: no_decision · score A −0.0382 · score B −0.0123 · difference −0.0259 · gain A 0 dB · gain B 0 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 67.303,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: no_decision · score A +0.0212 · score B +0.0380 · difference −0.0169 · gain A 0 dB · gain B 0 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 68.316,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: no_decision · score A −0.0304 · score B +0.0938 · difference −0.1243 · gain A 0 dB · gain B 0 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 69.332,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: no_decision · score A −0.0155 · score B −0.0010 · difference −0.0145 · gain A 0 dB · gain B 0 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 70.347,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: no_decision · score A +0.0143 · score B −0.0108 · difference +0.0251 · gain A 0 dB · gain B 0 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 71.362,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: no_decision · score A −0.0070 · score B +0.0188 · difference −0.0258 · gain A 0 dB · gain B 0 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 72.377,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: no_decision · score A −0.0379 · score B +0.0500 · difference −0.0880 · gain A 0 dB · gain B 0 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 73.39,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: no_decision · score A +0.0833 · score B +0.0098 · difference +0.0736 · gain A 0 dB · gain B 0 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 74.407,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: no_decision · score A +0.0621 · score B −0.0607 · difference +0.1228 · gain A 0 dB · gain B 0 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 75.417,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: none reported · score A +0.0667 · score B −0.1653 · difference +0.2320 · gain A 0 dB · gain B -6 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "-6 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 76.431,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: no_decision · score A −0.1576 · score B −0.1471 · difference −0.0105 · gain A 0 dB · gain B 0 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    },
+    {
+      "elapsedSeconds": 77.444,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: no_decision · score A −0.1264 · score B −0.1105 · difference −0.0160 · gain A 0 dB · gain B 0 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    }
+  ],
+  "verdicts": {
+    "page_loaded": true,
+    "play_button_enabled_at_click": true,
+    "element_present": true,
+    "element_duration_seconds": 80,
+    "position_advanced": false,
+    "position_at_last_sample": 0,
+    "ever_paused_after_click": true,
+    "audio_error": null,
+    "focus_values": [
+      "Unavailable"
+    ],
+    "focus_left_unavailable": false,
+    "gain_values_seen": [
+      "0 dB",
+      "-6 dB"
+    ],
+    "gain_left_neutral": true,
+    "console_errors": 3,
+    "page_errors": 0,
+    "bad_responses": 3,
+    "media_control_posts": 3,
+    "websocket_packets": 1328,
+    "websocket_types": {
+      "session": 1,
+      "audio_sources": 1,
+      "sync": 14,
+      "media": 303,
+      "attention": 312,
+      "gain": 312,
+      "signal_quality": 312,
+      "prediction": 73
+    }
+  },
+  "demoExit": {
+    "code": 0,
+    "killed": false
+  },
+  "demoReadyAfterMs": 2652,
+  "recovery": {
+    "stopDisabled": false,
+    "retriedPlay": true,
+    "after": {
+      "elapsedSeconds": 6.05,
+      "mediaTime": "Media Time 00:00.00 / 01:20.00",
+      "currentFocus": "Unavailable",
+      "focusSummary": null,
+      "verdict": "No data",
+      "storyCode": "Latest frame · decision unavailable · reason: no_decision · score A Unavailable · score B Unavailable · difference Unavailable · gain A 0 dB · gain B 0 dB",
+      "gains": {
+        "A": "0 dB",
+        "B": "0 dB"
+      },
+      "progressPercent": "0",
+      "connection": "LIVESession: running",
+      "audioModeNote": "Unmodified stereo mix",
+      "buttons": [
+        {
+          "text": "Play",
+          "disabled": false
+        },
+        {
+          "text": "Pause",
+          "disabled": true
+        },
+        {
+          "text": "Stop",
+          "disabled": false
+        }
+      ],
+      "element": {
+        "src": "http://127.0.0.1:51231/api/media/file",
+        "currentTime": 0,
+        "duration": 80,
+        "paused": true,
+        "ended": false,
+        "readyState": 4,
+        "networkState": 1,
+        "error": null,
+        "playbackRate": 1
+      },
+      "audioContexts": "present",
+      "buffered": [
+        0,
+        1.486
+      ]
+    }
+  },
+  "capture": {
+    "console": [
+      {
+        "type": "error",
+        "text": "Failed to load resource: the server responded with a status of 409 (Conflict)"
+      },
+      {
+        "type": "error",
+        "text": "Failed to load resource: the server responded with a status of 409 (Conflict)"
+      },
+      {
+        "type": "error",
+        "text": "Failed to load resource: the server responded with a status of 409 (Conflict)"
+      }
+    ],
+    "pageErrors": [],
+    "requestFailures": [
+      {
+        "url": "http://127.0.0.1:51231/api/media/file",
+        "method": "GET",
+        "failure": "net::ERR_ABORTED"
+      }
+    ],
+    "badResponses": [
+      {
+        "status": 409,
+        "url": "http://127.0.0.1:51231/api/media/control"
+      },
+      {
+        "status": 409,
+        "url": "http://127.0.0.1:51231/api/media/control"
+      },
+      {
+        "status": 409,
+        "url": "http://127.0.0.1:51231/api/media/control"
+      }
+    ],
+    "mediaControl": [
+      {
+        "at": 1789304725182,
+        "sent": "{\"session_id\":\"25e0e84d-c79f-477f-82f7-8409753f21d1\",\"media_id\":\"0d144c8da64d442a8576d0c2b104f0bb\",\"client_id\":\"c71fd680-ca43-4845-94d7-4daa7fe21500\",\"request_id\":1,\"action\":\"prepare\",\"media_time_s\":0,\"duration_s\":80}",
+        "answered": {
+          "detail": "Media command rejected; stop and prepare again"
+        }
+      },
+      {
+        "at": 1789304728227,
+        "sent": "{\"session_id\":\"25e0e84d-c79f-477f-82f7-8409753f21d1\",\"media_id\":\"0d144c8da64d442a8576d0c2b104f0bb\",\"client_id\":\"c71fd680-ca43-4845-94d7-4daa7fe21500\",\"request_id\":2,\"action\":\"stopped\",\"media_time_s\":0,\"duration_s\":80}",
+        "answered": {
+          "detail": "Media command rejected; stop and prepare again"
+        }
+      },
+      {
+        "at": 1789304729734,
+        "sent": "{\"session_id\":\"25e0e84d-c79f-477f-82f7-8409753f21d1\",\"media_id\":\"0d144c8da64d442a8576d0c2b104f0bb\",\"client_id\":\"c71fd680-ca43-4845-94d7-4daa7fe21500\",\"request_id\":3,\"action\":\"prepare\",\"media_time_s\":0,\"duration_s\":80}",
+        "answered": {
+          "detail": "Media command rejected; stop and prepare again"
+        }
+      }
+    ],
+    "sockets": [
+      {
+        "url": "ws://127.0.0.1:51231/ws/live",
+        "framesReceived": 1328,
+        "framesSent": 0
+      }
+    ],
+    "websocketFrames": {
+      "count": 1328,
+      "byType": {
+        "session": 1,
+        "audio_sources": 1,
+        "sync": 14,
+        "media": 303,
+        "attention": 312,
+        "gain": 312,
+        "signal_quality": 312,
+        "prediction": 73
+      },
+      "first": {
+        "type": "session",
+        "timestamp": 0,
+        "payload": {
+          "id": "25e0e84d-c79f-477f-82f7-8409753f21d1",
+          "status": "running",
+          "simulated": false
+        }
+      },
+      "last": {
+        "type": "media",
+        "timestamp": 77.93986149999546,
+        "payload": {
+          "media_id": "0d144c8da64d442a8576d0c2b104f0bb",
+          "title": "KU Leuven trial",
+          "kind": "audio",
+          "url": "/api/media/file",
+          "session_id": "25e0e84d-c79f-477f-82f7-8409753f21d1",
+          "media_time_s": 77.44696929998463,
+          "duration_s": 80,
+          "playback_state": "playing",
+          "revision": 2,
+          "server_reference_s": 208354.3826483,
+          "server_received_s": 208432.0957717,
+          "sync_status": "observed"
+        }
+      },
+      "sample": [
+        {
+          "type": "session",
+          "timestamp": 0,
+          "payload": {
+            "id": "25e0e84d-c79f-477f-82f7-8409753f21d1",
+            "status": "running",
+            "simulated": false
+          }
+        },
+        {
+          "type": "audio_sources",
+          "timestamp": 0,
+          "payload": {
+            "sources": [
+              {
+                "id": "A",
+                "label": "part1_track1_dry.wav",
+                "input_type": "kuleuven_replay",
+                "reference": "part1_track1_dry.wav"
+              },
+              {
+                "id": "B",
+                "label": "part1_track2_dry.wav",
+                "input_type": "kuleuven_replay",
+                "reference": "part1_track2_dry.wav"
+              }
+            ],
+            "policy": {
+              "check_channels": false,
+              "max_bad_channels": 0,
+              "exclude_channels": [],
+              "source_unit_exponent": -6,
+              "saturation_limit_uv": null,
+              "amplitude_limit_uv": null,
+              "margin": 0.05,
+              "warmup_seconds": 2,
+              "frame_seconds": 0.25
+            },
+            "simulated": false
+          }
+        },
+        {
+          "type": "sync",
+          "timestamp": 0,
+          "payload": {
+            "status": "unobserved",
+            "offset_ms": null,
+            "drift_warning": null,
+            "timeline": "eeg_source_clock",
+            "fixed_latency_ms": null,
+            "reasons": [],
+            "simulated": false
+          }
+        },
+        {
+          "type": "media",
+          "timestamp": 0,
+          "payload": {
+            "media_id": "0d144c8da64d442a8576d0c2b104f0bb",
+            "title": "KU Leuven trial",
+            "kind": "audio",
+            "url": "/api/media/file",
+            "session_id": "25e0e84d-c79f-477f-82f7-8409753f21d1",
+            "media_time_s": 0,
+            "duration_s": null,
+            "playback_state": "stopped",
+            "revision": 1,
+            "server_reference_s": null,
+            "server_received_s": null,
+            "sync_status": "desynchronized"
+          }
+        },
+        {
+          "type": "attention",
+          "timestamp": 0,
+          "payload": {
+            "decision": "unavailable",
+            "correlation_a": null,
+            "correlation_b": null,
+            "reasons": [
+              "warmup"
+            ],
+            "simulated": false
+          }
+        },
+        {
+          "type": "gain",
+          "timestamp": 0,
+          "payload": {
+            "a_db": 0,
+            "b_db": 0,
+            "simulated": false
+          }
+        },
+        {
+          "type": "signal_quality",
+          "timestamp": 0,
+          "payload": {
+            "quality": null,
+            "artifact": null,
+            "bad_channels": [],
+            "simulated": false
+          }
+        },
+        {
+          "type": "sync",
+          "timestamp": 0,
+          "payload": {
+            "status": "unobserved",
+            "offset_ms": null,
+            "drift_warning": null,
+            "timeline": "eeg_source_clock",
+            "fixed_latency_ms": null,
+            "reasons": [
+              "warmup"
+            ],
+            "simulated": false
+          }
+        },
+        {
+          "type": "media",
+          "timestamp": 0.26456459998735227,
+          "payload": {
+            "media_id": "0d144c8da64d442a8576d0c2b104f0bb",
+            "title": "KU Leuven trial",
+            "kind": "audio",
+            "url": "/api/media/file",
+            "session_id": "25e0e84d-c79f-477f-82f7-8409753f21d1",
+            "media_time_s": 0,
+            "duration_s": 80,
+            "playback_state": "paused",
+            "revision": 2,
+            "server_reference_s": 208354.3826483,
+            "server_received_s": 208354.3826483,
+            "sync_status": "observed"
+          }
+        },
+        {
+          "type": "attention",
+          "timestamp": 0.25,
+          "payload": {
+            "decision": "unavailable",
+            "correlation_a": null,
+            "correlation_b": null,
+            "reasons": [
+              "warmup"
+            ],
+            "simulated": false,
+            "media_id": "0d144c8da64d442a8576d0c2b104f0bb",
+            "media_revision": 2,
+            "media_time_s": 0
+          }
+        },
+        {
+          "type": "gain",
+          "timestamp": 0.25,
+          "payload": {
+            "a_db": 0,
+            "b_db": 0,
+            "simulated": false,
+            "media_id": "0d144c8da64d442a8576d0c2b104f0bb",
+            "media_revision": 2,
+            "media_time_s": 0
+          }
+        },
+        {
+          "type": "signal_quality",
+          "timestamp": 0.25,
+          "payload": {
+            "quality": null,
+            "artifact": null,
+            "bad_channels": [],
+            "simulated": false
+          }
+        },
+        {
+          "type": "media",
+          "timestamp": 0.5153562999912538,
+          "payload": {
+            "media_id": "0d144c8da64d442a8576d0c2b104f0bb",
+            "title": "KU Leuven trial",
+            "kind": "audio",
+            "url": "/api/media/file",
+            "session_id": "25e0e84d-c79f-477f-82f7-8409753f21d1",
+            "media_time_s": 0.0000020999868866056204,
+            "duration_s": 80,
+            "playback_state": "playing",
+            "revision": 2,
+            "server_reference_s": 208354.3826483,
+            "server_received_s": 208354.647607,
+            "sync_status": "observed"
+          }
+        },
+        {
+          "type": "attention",
+          "timestamp": 0.5,
+          "payload": {
+            "decision": "unavailable",
+            "correlation_a": null,
+            "correlation_b": null,
+            "reasons": [
+              "warmup"
+            ],
+            "simulated": false,
+            "media_id": "0d144c8da64d442a8576d0c2b104f0bb",
+            "media_revision": 2,
+            "media_time_s": 0.0000020999868866056204
+          }
+        },
+        {
+          "type": "gain",
+          "timestamp": 0.5,
+          "payload": {
+            "a_db": 0,
+            "b_db": 0,
+            "simulated": false,
+            "media_id": "0d144c8da64d442a8576d0c2b104f0bb",
+            "media_revision": 2,
+            "media_time_s": 0.0000020999868866056204
+          }
+        },
+        {
+          "type": "signal_quality",
+          "timestamp": 0.5,
+          "payload": {
+            "quality": null,
+            "artifact": null,
+            "bad_channels": [],
+            "simulated": false
+          }
+        },
+        {
+          "type": "media",
+          "timestamp": 0.7774379999900702,
+          "payload": {
+            "media_id": "0d144c8da64d442a8576d0c2b104f0bb",
+            "title": "KU Leuven trial",
+            "kind": "audio",
+            "url": "/api/media/file",
+            "session_id": "25e0e84d-c79f-477f-82f7-8409753f21d1",
+            "media_time_s": 0.25675410000258125,
+            "duration_s": 80,
+            "playback_state": "playing",
+            "revision": 2,
+            "server_reference_s": 208354.3826483,
+            "server_received_s": 208354.9048828,
+            "sync_status": "observed"
+          }
+        },
+        {
+          "type": "attention",
+          "timestamp": 0.75,
+          "payload": {
+            "decision": "unavailable",
+            "correlation_a": null,
+            "correlation_b": null,
+            "reasons": [
+              "warmup"
+            ],
+            "simulated": false,
+            "media_id": "0d144c8da64d442a8576d0c2b104f0bb",
+            "media_revision": 2,
+            "media_time_s": 0.25675410000258125
+          }
+        },
+        {
+          "type": "gain",
+          "timestamp": 0.75,
+          "payload": {
+            "a_db": 0,
+            "b_db": 0,
+            "simulated": false,
+            "media_id": "0d144c8da64d442a8576d0c2b104f0bb",
+            "media_revision": 2,
+            "media_time_s": 0.25675410000258125
+          }
+        },
+        {
+          "type": "signal_quality",
+          "timestamp": 0.75,
+          "payload": {
+            "quality": null,
+            "artifact": null,
+            "bad_channels": [],
+            "simulated": false
+          }
+        },
+        {
+          "type": "media",
+          "timestamp": 1.0278778999927454,
+          "payload": {
+            "media_id": "0d144c8da64d442a8576d0c2b104f0bb",
+            "title": "KU Leuven trial",
+            "kind": "audio",
+            "url": "/api/media/file",
+            "session_id": "25e0e84d-c79f-477f-82f7-8409753f21d1",
+            "media_time_s": 0.521026600006735,
+            "duration_s": 80,
+            "playback_state": "playing",
+            "revision": 2,
+            "server_reference_s": 208354.3826483,
+            "server_received_s": 208355.1698687,
+            "sync_status": "observed"
+          }
+        },
+        {
+          "type": "attention",
+          "timestamp": 1,
+          "payload": {
+            "decision": "unavailable",
+            "correlation_a": null,
+            "correlation_b": null,
+            "reasons": [
+              "warmup"
+            ],
+            "simulated": false,
+            "media_id": "0d144c8da64d442a8576d0c2b104f0bb",
+            "media_revision": 2,
+            "media_time_s": 0.521026600006735
+          }
+        },
+        {
+          "type": "gain",
+          "timestamp": 1,
+          "payload": {
+            "a_db": 0,
+            "b_db": 0,
+            "simulated": false,
+            "media_id": "0d144c8da64d442a8576d0c2b104f0bb",
+            "media_revision": 2,
+            "media_time_s": 0.521026600006735
+          }
+        },
+        {
+          "type": "signal_quality",
+          "timestamp": 1,
+          "payload": {
+            "quality": null,
+            "artifact": null,
+            "bad_channels": [],
+            "simulated": false
+          }
+        },
+        {
+          "type": "media",
+          "timestamp": 1.2788935000135098,
+          "payload": {
+            "media_id": "0d144c8da64d442a8576d0c2b104f0bb",
+            "title": "KU Leuven trial",
+            "kind": "audio",
+            "url": "/api/media/file",
+            "session_id": "25e0e84d-c79f-477f-82f7-8409753f21d1",
+            "media_time_s": 0.7877237999928184,
+            "duration_s": 80,
+            "playback_state": "playing",
+            "revision": 2,
+            "server_reference_s": 208354.3826483,
+            "server_received_s": 208355.4356606,
+            "sync_status": "observed"
+          }
+        },
+        {
+          "type": "attention",
+          "timestamp": 1.25,
+          "payload": {
+            "decision": "unavailable",
+            "correlation_a": null,
+            "correlation_b": null,
+            "reasons": [
+              "warmup"
+            ],
+            "simulated": false,
+            "media_id": "0d144c8da64d442a8576d0c2b104f0bb",
+            "media_revision": 2,
+            "media_time_s": 0.7877237999928184
+          }
+        },
+        {
+          "type": "gain",
+          "timestamp": 1.25,
+          "payload": {
+            "a_db": 0,
+            "b_db": 0,
+            "simulated": false,
+            "media_id": "0d144c8da64d442a8576d0c2b104f0bb",
+            "media_revision": 2,
+            "media_time_s": 0.7877237999928184
+          }
+        },
+        {
+          "type": "signal_quality",
+          "timestamp": 1.25,
+          "payload": {
+            "quality": null,
+            "artifact": null,
+            "bad_channels": [],
+            "simulated": false
+          }
+        },
+        {
+          "type": "media",
+          "timestamp": 1.5443115000089165,
+          "payload": {
+            "media_id": "0d144c8da64d442a8576d0c2b104f0bb",
+            "title": "KU Leuven trial",
+            "kind": "audio",
+            "url": "/api/media/file",
+            "session_id": "25e0e84d-c79f-477f-82f7-8409753f21d1",
+            "media_time_s": 1.0540426999796182,
+            "duration_s": 80,
+            "playback_state": "playing",
+            "revision": 2,
+            "server_reference_s": 208354.3826483,
+            "server_received_s": 208355.7021462,
+            "sync_status": "observed"
+          }
+        },
+        {
+          "type": "attention",
+          "timestamp": 1.5,
+          "payload": {
+            "decision": "unavailable",
+            "correlation_a": null,
+            "correlation_b": null,
+            "reasons": [
+              "warmup"
+            ],
+            "simulated": false,
+            "media_id": "0d144c8da64d442a8576d0c2b104f0bb",
+            "media_revision": 2,
+            "media_time_s": 1.0540426999796182
+          }
+        },
+        {
+          "type": "gain",
+          "timestamp": 1.5,
+          "payload": {
+            "a_db": 0,
+            "b_db": 0,
+            "simulated": false,
+            "media_id": "0d144c8da64d442a8576d0c2b104f0bb",
+            "media_revision": 2,
+            "media_time_s": 1.0540426999796182
+          }
+        },
+        {
+          "type": "signal_quality",
+          "timestamp": 1.5,
+          "payload": {
+            "quality": null,
+            "artifact": null,
+            "bad_channels": [],
+            "simulated": false
+          }
+        },
+        {
+          "type": "media",
+          "timestamp": 1.795768699987093,
+          "payload": {
+            "media_id": "0d144c8da64d442a8576d0c2b104f0bb",
+            "title": "KU Leuven trial",
+            "kind": "audio",
+            "url": "/api/media/file",
+            "session_id": "25e0e84d-c79f-477f-82f7-8409753f21d1",
+            "media_time_s": 1.3205779999843799,
+            "duration_s": 80,
+            "playback_state": "playing",
+            "revision": 2,
+            "server_reference_s": 208354.3826483,
+            "server_received_s": 208355.9688808,
+            "sync_status": "observed"
+          }
+        },
+        {
+          "type": "attention",
+          "timestamp": 1.75,
+          "payload": {
+            "decision": "unavailable",
+            "correlation_a": null,
+            "correlation_b": null,
+            "reasons": [
+              "warmup"
+            ],
+            "simulated": false,
+            "media_id": "0d144c8da64d442a8576d0c2b104f0bb",
+            "media_revision": 2,
+            "media_time_s": 1.3205779999843799
+          }
+        },
+        {
+          "type": "gain",
+          "timestamp": 1.75,
+          "payload": {
+            "a_db": 0,
+            "b_db": 0,
+            "simulated": false,
+            "media_id": "0d144c8da64d442a8576d0c2b104f0bb",
+            "media_revision": 2,
+            "media_time_s": 1.3205779999843799
+          }
+        },
+        {
+          "type": "signal_quality",
+          "timestamp": 1.75,
+          "payload": {
+            "quality": null,
+            "artifact": null,
+            "bad_channels": [],
+            "simulated": false
+          }
+        },
+        {
+          "type": "media",
+          "timestamp": 2.0467086999851745,
+          "payload": {
+            "media_id": "0d144c8da64d442a8576d0c2b104f0bb",
+            "title": "KU Leuven trial",
+            "kind": "audio",
+            "url": "/api/media/file",
+            "session_id": "25e0e84d-c79f-477f-82f7-8409753f21d1",
+            "media_time_s": 1.5849285000003874,
+            "duration_s": 80,
+            "playback_state": "playing",
+            "revision": 2,
+            "server_reference_s": 208354.3826483,
+            "server_received_s": 208356.2329998,
+            "sync_status": "observed"
+          }
+        },
+        {
+          "type": "attention",
+          "timestamp": 2,
+          "payload": {
+            "decision": "unavailable",
+            "correlation_a": null,
+            "correlation_b": null,
+            "reasons": [
+              "no_evidence"
+            ],
+            "simulated": false,
+            "media_id": "0d144c8da64d442a8576d0c2b104f0bb",
+            "media_revision": 2,
+            "media_time_s": 1.5849285000003874
+          }
+        },
+        {
+          "type": "gain",
+          "timestamp": 2,
+          "payload": {
+            "a_db": 0,
+            "b_db": 0,
+            "simulated": false,
+            "media_id": "0d144c8da64d442a8576d0c2b104f0bb",
+            "media_revision": 2,
+            "media_time_s": 1.5849285000003874
+          }
+        },
+        {
+          "type": "signal_quality",
+          "timestamp": 2,
+          "payload": {
+            "quality": null,
+            "artifact": null,
+            "bad_channels": [],
+            "simulated": false
+          }
+        }
+      ]
+    }
+  },
+  "demoLogTail": "[09:05:24] trial S1/4: 10241 samples (80.0s), 64 channels\r\n[09:05:24] decoder models/auditory_kuleuven.npz: window 5.0s, step 1.0s, channels 64\r\n[09:05:24] envelopes verified: part1_track1_dry.npz, part1_track2_dry.npz (coverage ((0.0, 393.984375), (0.0, 393.984375)))\r\n[09:05:24] operating point: margin=0.05 (calibrated default), policy check_channels=False (section 3.17 item 1)\r\n[09:05:24] rendered dichotic stereo 80.0s -> output/auditory_ui/demo_browser_stereo.wav (left sha256 a5c2c328d6af...)\r\n[09:05:24] media cut to the EEG: candidates 80.000s, EEG 80.000s, dropped 0 samples (0.000s); file is 80.000s\r\n[09:05:24] serving the demo at http://127.0.0.1:51231/\r\nC:\\Files\\git\\NOVA2026\\src\\nova2026\\auditory\\streaming.py:170: ResamplerQualityWarning: The QQ preset performs essentially no anti-aliasing; it is only safe when an earlier stage already band-limits the signal.\r\n  else Resampler(\r\n[09:06:45] replay finished; still serving http://127.0.0.1:51231/ (for 8s)\r\n[09:06:45] transport stopped (server thread alive: False)\r\n[09:06:45] 1366 packets recorded from /ws/live\r\n[09:06:45] replay metrics: {\"window_accuracy\": 0.7894736842105263, \"windows_decided\": 38, \"balanced_accuracy_decided\": 0.39473684210526316, \"window_null_majority\": 1.0, \"false_selection_changes\": 2}\r\n[09:06:45] session ended with status 'stopped'\r\n[09:06:45] decisions: {\"unavailable\": 19, \"uncertain\": 150, \"A\": 32, \"B\": 120}\r\n[09:06:45] effective run policy: {\"check_channels\": false, \"max_bad_channels\": 0, \"exclude_channels\": [], \"source_unit_exponent\": -6, \"saturation_limit_uv\": null, \"amplitude_limit_uv\": null, \"margin\": 0.05, \"warmup_seconds\": 2.0, \"frame_seconds\": 0.25}\r\n[09:06:45] bad-channel census: no channel was flagged\r\nrun record: output\\auditory_ui\\demo_browser_python_record.json\r\nopen: http://127.0.0.1:51231/\r\neffective margin: 0.05 (documented default 0.5)\r\nreplay metrics: {\"window_accuracy\": 0.7894736842105263, \"windows_decided\": 38, \"coverage\": 1.0, \"false_selection_changes\": 2}\r\ngain gate: open=True at 11s, attenuated gain frames 152 of 321\r\nfrontend: rejected=0 over 1366 packets\r\n"
+}

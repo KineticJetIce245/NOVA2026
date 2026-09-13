@@ -119,6 +119,30 @@ results/*
 # output/auditory_ui/.
 !results/demo_run_*.json
 !results/demo_run_*.md
+# Exception: the real-browser check of the visible demo page and the truncation
+# mutation record. The run record is the only evidence in this repository that
+# says what the page did when it was actually clicked - the media timeline
+# position, the CURRENT FOCUS text and the per-source dB values, sampled once a
+# second, beside the browser console, the page errors, the failed requests and
+# the /ws/live packet census. It holds protocol fields, decision words and
+# measurements; the rendered WAV and the packet stream stay out under output/.
+# The screenshots are the same evidence as an image, and the mutation record is
+# the section 6.4 obligation of the truncation fix.
+!results/demo_browser_*
+!results/render_truncation_mutation.json
+# Exception: the "make the demo understandable at a glance" run record and its
+# screenshots - the decision timeline, the shared-axis source comparison and the
+# unsmoothed A-minus-B difference trace. This is the run that actually shows a
+# human what the system decided and why, and it is the only browser evidence in
+# the repository where the audio element really advanced (`position_advanced`
+# true, zero bad responses) rather than sitting at currentTime 0 with the media
+# control endpoint answering 409. Decision D-50 records why that distinction
+# matters and why the earlier `demo_browser_*` record must not be read as a pass.
+!results/attune_story_*
+# Exception: the mutation record for the `--serve-seconds` / `--browser` fix. It
+# is that change's section 6.4 obligation: the evidence that the new tests can
+# actually fail. One JSON file, measurements only.
+!results/demo_serve_mutation.json
 
 # Exception: step 10.5's perturbation matrix run is the acceptance record for V9 -
 # one clean path, fifteen injected faults and seven adversarial EEG inputs, each
@@ -150,7 +174,17 @@ results/*
 .DS_Store
 __MACOSX/
 !results/antneuro_live_*.md
-!results/antneuro_live_*.jsonl
+# The packet stream does NOT belong here. The line below the .md exception used
+# to be `!results/antneuro_live_*.jsonl`, which re-included four raw packet
+# streams (2.6 MB, 6883 packets) that the very next exception's own comment
+# promises stay out of git "alongside every other packet stream". It contradicted
+# both that promise and the rule at the head of this file's results/ section:
+# run *records* are committed because they hold measurements, decision words and
+# counters, while packet streams are derived artifacts that live under output/.
+# Measured 2026-09-14: the four files are antneuro_live_declared_20260914_packets
+# (763 KB), antneuro_live_excluded_probe_packets (228 KB),
+# antneuro_live_run_packets (838 KB) and antneuro_live_split_20260914_packets
+# (787 KB). Decision D-50 records the removal.
 !results/antneuro_mutations_live.json
 # Exception: the declared-amplitude-limit run and its mutation record. The run
 # record is the evidence that the recording's own excursion was measured before a

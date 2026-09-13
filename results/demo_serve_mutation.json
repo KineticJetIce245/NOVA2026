@@ -1,0 +1,26 @@
+{
+  "kind": "stay-open mutation record; every named mutation must be caught",
+  "ran_at": "2026-09-13T13:15:44.611395+00:00",
+  "suite": "scripts.auditory.tests.test_demo_serve",
+  "baseline_green": true,
+  "mutations": [
+    {
+      "mutation": "signal the run's stop event when the replay ends",
+      "module": "scripts/auditory_ui/demo.py",
+      "note": "the code as it stood: the stay-open loop exits on its first check",
+      "test": "scripts.auditory.tests.test_demo_serve.ServePhaseTests.test_the_transport_keeps_answering_after_the_drive_phase_returns",
+      "caught": true,
+      "detail": "AssertionError: True is not false : the drive phase signalled the run's stop event; that is the defect, verbatim | ---------------------------------------------------------------------- | Ran 1 test in 4.425s | FAILED (failures=1)"
+    },
+    {
+      "mutation": "ignore the stop request in the stay-open loop",
+      "module": "scripts/auditory_ui/demo.py",
+      "note": "a fix that keeps serving by never listening for the stop",
+      "test": "scripts.auditory.tests.test_demo_serve.ServePhaseTests.test_the_run_ends_when_the_operator_stops_it",
+      "caught": true,
+      "detail": " - leaked function \"process_int32\" |  - ... skipped remainder | nanobind: this is likely caused by a reference counting issue in the binding code. | See https://nanobind.readthedocs.io/en/latest/refleaks.html"
+    }
+  ],
+  "caught": 2,
+  "total": 2
+}
