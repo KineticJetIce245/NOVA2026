@@ -1935,3 +1935,44 @@ Run them with:
    USABLE with one FAIL. At 500 Hz the same preset starts in 1.88 s and passes.
    The Unicorn Recorder streams at 250 Hz, so a session on it needs a different
    `--resample-quality` or `--out-sfreq` rather than the defaults.
+7. **Start the source, then attach the consumer promptly.** A source that has been
+   publishing unwatched leaves the inlet reading a backlog: the first rehearsal
+   below tripped the 3 s age guard on samples 4.8 s old without a single block
+   being consumed. Restarting the source immediately before the run fixed it. This
+   is the same lesson as 11.10, from the other side.
+
+### 11.15 The §9 contrast, reproduced without the cap
+
+The experiment in `TIMEBASE_DESIGN.md` §9 asks whether the source's own stamps
+step or the relay invented the steps. The cap has been offline since the
+bring-up, so the contrast was reproduced against the repository's own fixture
+publisher instead: `scripts.getlive.publish_raw --channels 24 --sfreq 500
+--metadata --jitter 0.0003` publishes a 24-channel 500 Hz outlet whose per-sample
+stamps carry 0.3 ms of Gaussian jitter - the same shape as the rig's 0.48%
+sub-nominal steps. Two runs, one source, one timeline, only `--timebase`
+different:
+
+| | `--timebase stamps` | `--timebase grid` |
+| --- | --- | --- |
+| samples | 300 | 11 850 |
+| windows | 0 | 41 (37 valid) |
+| recoveries | **6** | **0** |
+| suspicious steps reported | 0 | 126 |
+| absorbed drift | - | 0.0 samples |
+| verdict | NOT USABLE, "Too many data faults" | NOT USABLE, on the age guard only |
+
+The first column is the rig's original failure, on a laptop, in six recoveries.
+The second keeps the chain alive and produces windows; it still fails the run
+because the *fixture* cannot hold real time for 30 s - it sleeps `chunk/sfreq`
+plus its own overhead, drifts behind, and trips the 3 s age guard at 25.5 s.
+That is a limitation of the fixture, not of the grid, and it is why checklist
+item 7 exists.
+
+Note what `0.0` absorbed drift next to `126` suspicious steps means: jitter has no
+*net* drift, so the re-lock counter stays at zero and the warning comes from the
+step count alone. The two counters measure different things, which is what they
+were built to do.
+
+Until `fatal% = 0` has been measured on the amplifier itself, the grid path is
+confirmed only against synthetic timelines, and `--timebase` keeps defaulting to
+`stamps`.
