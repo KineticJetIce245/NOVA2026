@@ -41,6 +41,15 @@ scikit-learn 1.9.0 / pandas 3.0.5 / matplotlib 3.11.1；Node v26.7.0；
 3. 数据集**不含通道位置文件**；`mne.channels.make_standard_montage('biosemi64')` 第 48 个（1-based）正是
    `Cz`，与官方 `rereference='Cz'` 一致 → 通道命名口径据此钉死，并在 `metadata.json` 写明依据。
 4. attune-ui 是团队成员在另一仓库的子模块，**无需许可**；只读克隆在 `C:\Files\git\_research\attune-ui`。
+5. **音频素材实测**（主 agent 侦察，`datasets/AAD-KULeuven/stimuli/*_dry.wav`）：
+   **44 100 Hz / 单声道 / int16**；完整段约 **394.0–395.3 s**，`rep_` 段 **125.0 s**；
+   peak 约 3297–4886（int16 满量程的 10–15%，故归一化后幅度 ≈0.10–0.15）。
+   16 个 dry + 16 个 hrtf。**包络体积可忽略**：单个候选中位约 389 s × 64 Hz ≈ 2.5 万点 float32 ≈ 100 KB。
+6. **素材比 EEG 长**：`S1` trial 1 的 EEG 是 49 792 点 @128 Hz = **389.0 s**，而对应素材 394.0 s。
+   音频**必须按 EEG 长度截断**（与数据集 README 的建议一致），否则 `AuditoryTrial` 的两列长度会超出可对齐范围。
+7. **回放加速**：完整 trial 是 6.5 分钟，1× 回放对开发迭代太慢。步骤 10.5 的 `demorun` 需要
+   `--clip <秒>`（默认取一段短切片），演示用完整段。切片只影响播放长度，不影响对齐全链路。
+8. EEG 侧采样率 128 Hz、模型侧 64 Hz，链内重采样比正好为 2。
 
 ---
 
