@@ -48,11 +48,31 @@ export const decoders = new Map([
   })],
   ['sync', p => ({ status: text(p.status), offsetMs: number(p.offset_ms), driftWarning: boolean(p.drift_warning),
     timeline: text(p.timeline), fixedLatencyMs: number(p.fixed_latency_ms) })],
-  ['eeg_display', p => ({
-    sampleRate: number(p.sample_rate) !== null && p.sample_rate > 0 ? p.sample_rate : null,
-    channels: Array.isArray(p.channels) && p.channels.every(v => typeof v === 'string') ? p.channels : null,
-    samples: Array.isArray(p.samples) && p.samples.every(row => Array.isArray(row) && row.every(v => number(v) !== null)) ? p.samples : null,
-  })],
+  ['eeg_display', p => {
+    // Frozen two-trace packet: index 0 of `samples` is RAW EEG, index 0 of
+    // `filtered_samples` is the same channel after the packet's own causal
+    // 1-9 Hz band-pass. Both rates may differ; both traces may be absent.
+    // Values pass through unchanged: a wrong-typed, non-finite or absent field
+    // is null, never coerced and never zero. Extended fields exist only when the
+    // packet declares them, so older three-field packets keep their shape.
+    const trace = v => Array.isArray(v) && v.every(row => Array.isArray(row) && row.every(cell => number(cell) !== null)) ? v : null;
+    const positive = v => number(v) !== null && v > 0 ? v : null;
+    const declared = (key, name, decode) => Object.hasOwn(p, key) ? { [name]: decode(p[key]) } : {};
+    return {
+      sampleRate: positive(p.sample_rate),
+      channels: Array.isArray(p.channels) && p.channels.every(v => typeof v === 'string') ? p.channels : null,
+      samples: trace(p.samples),
+      ...declared('filtered_samples', 'filteredSamples', trace),
+      ...declared('filtered_sample_rate', 'filteredSampleRate', positive),
+      ...declared('original_units', 'originalUnits', text),
+      ...declared('filtered_units', 'filteredUnits', text),
+      ...declared('original_scale_hint_uv', 'originalScaleHintUv', positive),
+      ...declared('filtered_scale_hint_uv', 'filteredScaleHintUv', positive),
+      ...declared('window_seconds', 'windowSeconds', positive),
+      ...declared('lag_seconds', 'lagSeconds', number),
+      ...declared('channel_source', 'channelSource', text),
+    };
+  }],
 ]);
 export function decodePacket(packet, registry = decoders) {
   const decode = registry.get(packet.type);

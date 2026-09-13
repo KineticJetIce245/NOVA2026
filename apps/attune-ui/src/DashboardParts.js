@@ -1,5 +1,8 @@
 import React from 'react';
+import { eegDisplayModel, captionLines, TRACE_BOX } from './eegDisplay.js';
 const h = React.createElement;
+// Legend, draw order and colour key for the two stacked traces.
+export const TRACES = [['raw', 'Raw EEG — what the electrodes picked up'], ['filtered', 'Band-passed 1-9 Hz — the part the decoder actually uses']];
 const value = (v, suffix = '') => typeof v === 'number' && Number.isFinite(v) ? `${v}${suffix}` : 'Unavailable';
 export function StatusPill({ children }) { return h('span', { className: 'status-pill' }, children); }
 export function Header({ state, session, mediaMode = false }) {
@@ -53,13 +56,27 @@ export function StatusCard({ title, rows }) {
   return h('section', { className: 'card' }, h('h2', null, title), h('dl', { className: 'metric-list' }, ...rows.map(([label, content]) => h('div', { key: label }, h('dt', null, label), h('dd', null, content ?? 'Unavailable')))));
 }
 export function LiveSignalPanel({ stream, inactive, compact = false }) {
-  const samples = stream?.values.samples?.[0];
-  // Display coordinates only, fixed illustrative scale; no filtering or inference.
-  const points = samples?.map((v, i) => `${i * 600 / Math.max(1, samples.length - 1)},${60 - Math.max(-1, Math.min(1, v)) * 45}`).join(' ');
+  const model = eegDisplayModel(stream);
+  const lines = captionLines(model);
+  // One vertical gridline per second of the declared window, spanning both bands.
+  const grid = typeof model.windowSeconds === 'number' && Number.isFinite(model.windowSeconds) && model.windowSeconds > 0
+    ? Array.from({ length: Math.max(0, Math.ceil(model.windowSeconds) - 1) }, (unused, index) => (index + 1) / model.windowSeconds * TRACE_BOX.width)
+      .filter(x => x > 0 && x < TRACE_BOX.width)
+      .map(x => h('line', { key: `grid-${x}`, className: 'eeg-grid', x1: x, y1: 0, x2: x, y2: TRACE_BOX.height }))
+    : [];
   return h('section', { className: 'card signal-card' },
     h('div', { className: 'card-heading' }, h('h2', null, compact ? 'EEG' : 'Live signal / history'), h(StatusPill, null, inactive ? 'Historical / inactive' : stream?.simulated ? 'SIMULATED display' : 'Display data')),
-    samples?.length > 1 ? h('svg', { viewBox: '0 0 600 120', role: 'img', 'aria-label': 'EEG display samples, first channel', className: 'signal-trace' }, h('polyline', { points, fill: 'none', stroke: 'currentColor', strokeWidth: 2 })) : h('div', { className: 'signal-empty' }, 'Awaiting EEG display data'),
-    h('p', { className: 'muted' }, samples?.length > 1 ? `First channel · ${stream.values.channels?.[0] ?? 'Unnamed'} · t=${stream.timestamp} s · Display scale ±1 (clipped)` : 'A space for incoming signal samples. No measurements available yet.'));
+    model.status === 'awaiting' ? h('div', { className: 'signal-empty' }, 'Awaiting EEG display data') : h(React.Fragment, null,
+      h('div', { className: 'eeg-legend timeline-legend' }, ...TRACES.map(([kind, legend]) => h('span', { key: kind, className: 'legend-item' },
+        h('span', { className: `legend-swatch eeg-swatch-${kind}`, 'aria-hidden': true }), legend))),
+      h('svg', { viewBox: `0 0 ${TRACE_BOX.width} ${TRACE_BOX.height}`, preserveAspectRatio: 'none', role: 'img', 'aria-label': 'EEG display samples, first channel — raw above, band-passed below', className: 'signal-trace eeg-trace' },
+        ...grid,
+        h('line', { className: 'eeg-divider', x1: 0, y1: TRACE_BOX.dividerY, x2: TRACE_BOX.width, y2: TRACE_BOX.dividerY }),
+        model.raw.points && h('polyline', { className: 'eeg-raw', points: model.raw.points }),
+        model.filtered.points && h('polyline', { className: 'eeg-filtered', points: model.filtered.points })),
+      h('div', { className: 'eeg-note' }, ...lines.map((line, index) => h('p', { key: `line-${index}`,
+        className: `eeg-note-line${index < 2 ? ` eeg-callout-${TRACES[index][0]}${model[TRACES[index][0]].clipped ? ' eeg-scale-clipped' : ''}` : index === 3 ? ' eeg-caveat' : ''}` }, line)))),
+    model.status === 'awaiting' && h('p', { className: 'muted' }, 'A space for incoming signal samples. No measurements available yet.'));
 }
 export function SessionControls({ state, command, busy, commandError, mediaMode = false }) {
   return h('section', { className: 'card session-controls', 'aria-label': 'Session controls' },

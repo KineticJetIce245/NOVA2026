@@ -212,3 +212,22 @@ audio.shared-media { display: none; }
   .axis-row { grid-template-columns: 86px minmax(0, 1fr) 74px; gap: 8px; }
   .timeline-strip { height: 34px; }
 }
+
+/* Two-trace EEG display: raw above, band-passed below, one shared time grid. */
+.eeg-legend { margin: 0 0 8px; font-size: 11px; }
+.eeg-legend .legend-item { font-size: 11px; }
+.eeg-swatch-raw { background: var(--accent-blue); }
+.eeg-swatch-filtered { background: #6f4f9c; }
+.eeg-trace { display: block; }
+.eeg-trace polyline { fill: none; stroke-width: 1.5; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.eeg-trace .eeg-raw { stroke: var(--accent-blue); }
+.eeg-trace .eeg-filtered { stroke: #6f4f9c; }
+.eeg-trace .eeg-grid { stroke: #eee7f3; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.eeg-trace .eeg-divider { stroke: var(--border); stroke-width: 1; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; }
+.eeg-note { margin: 10px 0 0; }
+.signal-card .eeg-note p, .audio-session .signal-card .eeg-note p { margin: 3px 0 0; font-size: 11px; line-height: 1.35; text-align: left; }
+.eeg-callout-raw { color: var(--accent-blue); }
+.eeg-callout-filtered { color: var(--accent-ink); }
+.eeg-scale-clipped { font-weight: 650; }
+.eeg-caveat { color: var(--text-secondary); }
+.audio-session .signal-card .eeg-note p { font-size: 10px; }
