@@ -84,13 +84,15 @@ empty result rather than a guess.
 | `sync` | `status`, `offset_ms`, `drift_warning`, `timeline`, `fixed_latency_ms` | `status` is free text and is *not* constrained by the adapter | at start and when the reason set changes |
 | `session` | `status`, `session_id`, `source` | **no adapter**: `decodePacket` passes the payload through and flags `known: false`; the dashboard and the gain gate read `values.status === 'running'` | lifecycle, `source = "server"` |
 | `audio_sources` | `sources[]` with `id` (`A`/`B`), `label`, `input_type`, `reference` | exactly two sources with distinct ids, else `[]` | once at start |
-| `eeg_display` | `sample_rate`, `channels[]`, `samples[][]` | sample rate must be positive, channels strings, samples finite numbers | **no** - nothing publishes it today |
+| `eeg_display` | `sample_rate`, `channels[]`, `samples[][]`, `filtered_samples[][]`, `filtered_sample_rate`, `original_units`, `filtered_units`, `original_scale_hint_uv`, `filtered_scale_hint_uv`, `window_seconds`, `lag_seconds`, `channel_source`, `simulated` | sample rate must be positive, channels strings, samples finite numbers. `samples` and `filtered_samples` are **samples x channels**: one row per time sample, one entry per channel, so `len(row) == len(channels)` for every row and `len(samples)` is the number of drawn points (`tests/streaming/test_eeg_display.py` pins both). The display tap names a single electrode, so a live packet carries one channel and one value per row | when the run names an electrode with `--eeg-display-channel`; with no flag the tap is off and nothing is published |
 | `vigilance` | `score`, `metric`, `lapse_score` | scores must lie in `[0, 1]` | **no** |
 | `feedback` | `status`, `action_type`, `message`, `severity`, plus `simulated` and `metadata.development_only` | anything not marked `simulated: true` **and** `metadata.development_only: true` decodes to `suppressed`; this is how real data can never be shown as a demonstration | **no** |
 
 The demo and evidence runs publish eight types: `session`, `audio_sources`, `attention`, `gain`,
 `signal_quality`, `media`, `sync`, `prediction`
-(`results/demo_run_20260914.md`: 2123 packets, `rejected = 0`).
+(`results/demo_run_20260914.md`: 2123 packets, `rejected = 0`), plus a ninth, `eeg_display`, only
+when the run names an electrode with `--eeg-display-channel`. The tap is off by default, so a run
+without that flag is byte-for-byte the run it was before the traces existed.
 
 ## 4. The media handshake
 

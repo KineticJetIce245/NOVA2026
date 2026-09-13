@@ -2,8 +2,8 @@
 // Display adaptation only: the values published by the backend are drawn as they
 // arrived. No filtering, smoothing, inference, resampling or silent rescaling.
 // The one transformation that does happen (clipping at the packet's own scale
-// hint) is reported in the caption, and each trace is mapped on its own x axis
-// from its own sample rate.
+// hint) is reported in the caption, and each trace is placed across the window the
+// packet declares, so both traces land on one shared time grid.
 export const TRACE_BOX = Object.freeze({
   width: 600, height: 160, dividerY: 80, halfHeight: 34,
   rawCenterY: 40, filteredCenterY: 120, minHalfRange: 1e-3,
@@ -13,13 +13,19 @@ const positive = v => finite(v) && v > 0 ? v : null;
 const round = n => Math.round(n * 100) / 100;
 const MICROVOLT = new Set(['uv', 'µv', 'μv', 'microvolt', 'microvolts', 'uv (microvolts)']);
 
-// index 0 is the trace the decoder consumes for `samples`, and the band-passed
-// trace for `filtered_samples`. A non-finite value makes the whole trace
-// Unavailable: it is never drawn as zero and never silently replaced.
+// `samples` and `filtered_samples` are samples x channels on the wire: one row
+// per time sample, one entry per channel. That shape is owned by the producer's
+// display tap and pinned by tests/streaming/test_eeg_display.py, which asserts
+// len(row) == len(channels) for every row and takes the row count as the number
+// of drawn points. The tap names a single electrode, so the trace for this panel
+// is channel 0 down the rows -- never row 0. Reading row 0 collapsed the trace to
+// its first time sample (a one-point polyline, i.e. nothing drawn) which is what
+// left the panel blank on a live page.
+// A non-finite value makes the whole trace Unavailable: it is never drawn as
+// zero and never silently replaced.
 export function traceValues(rows) {
   if (!Array.isArray(rows) || rows.length === 0) return null;
-  const values = rows[0];
-  if (!Array.isArray(values) || values.length === 0) return null;
+  const values = rows.map(row => (Array.isArray(row) ? row[0] : null));
   return values.every(finite) ? values : null;
 }
 export function peakAbs(values) {
@@ -40,17 +46,19 @@ export function traceWindowSeconds(values, sampleRate, windowSeconds) {
   const rate = positive(sampleRate);
   return rate !== null && Array.isArray(values) && values.length > 0 ? values.length / rate : null;
 }
-// x = sample_index / own_sample_rate, normalised by the shared window, so two
-// traces at different rates still share one time grid.
-export function tracePoints({ values, sampleRate, windowSeconds, centerY, halfRange }) {
-  const rate = positive(sampleRate), window = positive(windowSeconds), drawn = positive(halfRange);
+// x = the point's place across the declared window, so both traces cover the same
+// seconds and share one time grid. It is deliberately NOT `index / sample_rate`:
+// the packet's points are a decimated trace covering `window_seconds` -- the
+// producer decimates both traces to one shared point count ("the roughly 16 Hz
+// the panel draws at") -- so the declared `sample_rate` is the rate the chain was
+// FED, not the spacing of these points. Mapping index/sample_rate drew a
+// five-second window into the leftmost eighth of the box, because
+// 80 points x (1/128 s) = 0.625 s, which is not the 5 s the packet declares.
+export function tracePoints({ values, centerY, halfRange }) {
+  const drawn = positive(halfRange);
   if (!Array.isArray(values) || values.length === 0 || drawn === null) return null;
-  const timed = rate !== null && window !== null;
   return values.map((v, index) => {
-    // Own rate for the timed mapping; bare index spacing (no seconds claimed)
-    // when the packet declares no rate for this trace.
-    const x = timed ? (index / rate) / window * TRACE_BOX.width
-      : values.length > 1 ? index / (values.length - 1) * TRACE_BOX.width : 0;
+    const x = values.length > 1 ? index / (values.length - 1) * TRACE_BOX.width : 0;
     const y = centerY - Math.max(-1, Math.min(1, v / drawn)) * TRACE_BOX.halfHeight;
     return `${round(x)},${round(y)}`;
   }).join(' ');
