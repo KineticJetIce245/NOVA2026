@@ -1848,14 +1848,16 @@ above 0.5 s; `--compute 0.8` is the load that should start dropping frames.
 
 ### 11.12 Reproducing the rig data by hand
 
-Two terminals, from the repository root. Terminal 1, the relay (leave it
-running; restart it if it has been up for minutes - see 11.10):
+Two terminals, from the repository root. Terminal 1, the relay - which for this
+amplifier is only about the declaration it gets wrong (it publishes `Volt` while
+its samples are microvolts), because the grid is now the live script's default.
+Restart it if it has been up for minutes (11.10):
 
 ```bash
 .venv/bin/python -u -B -m scripts.getlive.relay \
   --source-name EE511-010010-200563_on_DESKTOP-ET4GTF5 --keep 0-23 \
   --labels Fp1,Fp2,F9,F7,F3,Fz,F4,F8,F10,M1,T7,C3,C4,T8,M2,Cz,P7,P3,Pz,P4,P8,Oz,O1,O2 \
-  --units microvolts --regrid-jitter --out-name NOVA_Relay
+  --units microvolts --out-name NOVA_Relay
 ```
 
 Terminal 2, the acceptance run (`--record` is what makes it a dataset):
@@ -1867,6 +1869,10 @@ MPLCONFIGDIR=/tmp/mplconfig .venv/bin/python -B -m scripts.getlive \
   --record records --subject nova2026 --session bringup30 \
   --out records/getlive_bringup30.json
 ```
+
+`--timebase grid` is the default (11.16), so nothing above has to ask for it.
+Adding `--timebase stamps` restores the pass-through this run was originally made
+with, which is the one that died in two seconds.
 
 The run lands in `records/<subject>/<session>/run-<timestamp>/` as a SQLite file
 whose `chunks` table holds the raw float32 samples, plus per-window verdicts in
@@ -1982,3 +1988,43 @@ available - and it is the default anyway, on the evidence above and two tests: t
 only amplifier this project measured fails without it, grid mode is a near-no-op on
 a clean source, and it also regularises a chunk-stamped one. `--timebase stamps`
 remains for a source whose grid is sound.
+
+### 11.16 The relay no longer carries its own grid
+
+Phase 2 of the timeline work, done after the rig stopped being available.
+
+`relay.py` used to hold two grid algorithms of its own - `Regridder`, which spread
+each block over the span from its own first stamp to its successor's, and
+`GridBuilder`, which placed samples from a counted index - reached by two mutually
+exclusive flags. The library's `TimeBase` does the second, and it does the first
+one's job as well, which was shown on the fixture before anything was deleted: a
+chunk-stamped source reaches a flat per-sample grid through it.
+
+So the relay owns one grid now, from the library, behind one flag. It went from 666
+to 349 lines, and with the two classes went the constants and the threshold
+function only they used, plus `--regrid-lost-ratio`, which described the algorithm
+that no longer exists. `--regrid-jitter` is still accepted as the earlier spelling
+of the same mode, so the commands in 11.12 keep working.
+
+Two differences, both improvements:
+
+* **No latency.** `Regridder` held one block back, because a block's span is only
+  known once its successor arrives. A counted grid needs no successor, so
+  regridding no longer costs that.
+* **A hole closes up instead of appearing as a step.** That is the trade 11.4
+  describes: the grid gives one slot per sample received, so a sample the source
+  never sent cannot become a step in it. It is reported as a suspicious step and
+  counted as absorbed drift, and `--timebase-drift-limit` turns that into a
+  rejection when a run wants one.
+
+Measured through the real transport on a chunk-stamped fixture (8 samples per
+block): the median *and* the p99 step are both exactly 1.0000 samples, `zeroish%`
+goes 88.64 -> 0.68, `samples/chunk` 8 -> 1. The 0.68% that remains is what the
+receiving inlet's own clock sync adds to a grid that arrives regular - the same
+order as the 0.5-1.1% the `+dejitter` column shows on the raw fixture - and not a
+block structure that survived.
+
+Sample *placement* has one owner now: `TimeBase`. The recording still rebuilds a
+nominal-rate grid from its chunk anchors when it is read back, by design, since
+per-sample timestamps are not stored - but nothing invents slots for samples that
+never arrived, which is what the relay used to do and what `Repair` then repaired.

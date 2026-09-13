@@ -318,53 +318,60 @@ a time-based downstream analysis inherits.
 | `Too many data faults` after a second or two | the same, and the recovery budget ran out before a single window | `--timebase grid`; the EE-511 rig does this on every run without it |
 | the same, and `ts_check` reports a high `compressed%` | the source is chunk-stamped: a whole block shares one timestamp | `--timebase grid` lands it on a clean grid; the relay's `--regrid` (below) is the older route |
 
-## Repairing a chunk-stamped source: `relay.py --regrid`
+## Repairing a chunk-stamped source: `--timebase grid`
 
 A recorder that stamps a whole block once hands out a grid `Repair` can only
-refuse, and measuring it does not make it usable. `relay.py --regrid` rebuilds the
-grid on the way through:
+refuse, and measuring it does not make it usable. Two ways to fix it, and the
+first is the one to reach for:
 
 ```powershell
-# terminal 1: the chunk-stamped source, republished with a real grid
+# the live script grids by default, so this is the whole job
+.venv/Scripts/python.exe -B -m scripts.getlive --sfreq 250 --source-units uV `
+    --cap declared --eog drop --duration 30
+```
+
+If the source also declares no usable channel metadata, put the relay in front of
+it - the relay is what adds labels, types and units - and let either the relay or
+the live script rebuild the timeline. Both use the same code, the library's
+`TimeBase`, so they agree by construction:
+
+```powershell
+# terminal 1: republish the metadata the source never declared, on a counted grid
 .venv/Scripts/python.exe -B -m scripts.getlive.relay --source-name UnicornRecorderRawDataLSLStream `
     --labels Fz,C3,Cz,C4,Pz,PO7,Oz,PO8 --keep 0-7 --regrid
 
-# terminal 2: the same measurement, now on the republished outlet
+# terminal 2: measure it
 .venv/Scripts/python.exe -B -m scripts.getlive.ts_check --name NOVA_Relay --sfreq 250
 ```
 
-The rule it follows is one sentence: **a block covers the time from its own first
-stamp until the next block's first stamp**, and its samples are spread evenly
-across that span. Three consequences matter on real hardware:
+`--regrid` puts the timeline on a counted grid (`--regrid-jitter` is the earlier
+spelling and selects the same mode). What it does, in one sentence: **every sample
+received gets one slot at the declared rate**, so the source's stamps cannot place
+anything - they are read only to measure how far they have drifted from that count.
+Three consequences matter on real hardware:
 
-* the seam between two blocks is exactly one sample, so no step is ever zero or
-  backwards;
+* no step is ever zero or backwards, whatever the source's stamps do;
 * nothing is assumed about how many samples a block carries, which is not a
   constant on real hardware;
-* the declared rate is only used to *notice* a lost block, never to place samples,
-  so a device that runs a little off its declared rate cannot make the grid drift.
+* nothing is held back, so unlike the block-spreading algorithm this replaced,
+  regridding costs no latency. The price is that a hole closes up: the grid gives
+  one slot per sample received, so a sample the source never sent cannot appear as
+  a step in it. It is reported as a suspicious step and counted as absorbed drift
+  instead, and the run's own report carries both.
 
-A block that lost data is still spread - keeping its own stamps would put the
-near-zero steps back - so the loss appears as one long step, which is the gap
-`Repair` stops on, and the relay counts it and says so. One block is held back
-because its span is not known until its successor arrives, so the relay adds up to
-one block of latency, and the republished stream carries a `+regrid` suffix on its
-source id so nothing downstream has to guess whose clock it is on.
+Measured on the fixture, chunk-stamped on purpose with 8 samples per block, through
+the real transport:
 
-Measured on the fixture (chunk-stamped on purpose, 9 samples per block), same
-run before and after the relay:
+| outlet | `zeroish%` | `fatal%` (clocksync) | `samples/chunk` | median step |
+| --- | --- | --- | --- | --- |
+| raw fixture | 88.64 | 88.64 | 8 | 0.0030 |
+| through `--regrid` | 0.68 | 0.68 | 1 | 1.0000 |
 
-| outlet | `zeroish%` | `fatal%` (clocksync) | `samples/chunk` |
-| --- | --- | --- | --- |
-| raw fixture | 89.39 | 89.39 | 9 |
-| through `--regrid` | 0.58 | 0.58 | 1 |
-
-`--timebase grid` does the same job in process, with no second LSL hop, no block
-of held-back latency and no `+regrid` suffix: fed the same chunk-stamped shape it
-produced one slot per sample at exactly one sample per step, and `Repair` accepted
-the result. The relay keeps its grid modes for a source whose *metadata* is also
-unusable - that is a separate job it still does - and they can be retired once the
-in-process path has been confirmed on the amplifier.
+The step distribution through the relay has a median *and* a p99 of exactly
+1.0000 samples: the grid is regular. The 0.68% that `ts_check` still counts as
+fatal is what the receiving inlet's own clock sync adds to a grid that arrives
+regular - the same order as the 0.5-1.1% the `+dejitter` column shows on the raw
+fixture, and not a block structure that survived.
 
 ## Diagnosing a bad timestamp grid
 
