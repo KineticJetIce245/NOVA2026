@@ -120,6 +120,19 @@ results/*
 !results/demo_run_*.json
 !results/demo_run_*.md
 
+# Exception: step 9.5's ANT import review. It is the marker table the operator has
+# to check against the recording - every onset, code, name, candidate and
+# disposition, including the excluded and the disputed ones - beside the per
+# session shapes, durations, label distribution, surviving fraction, the railed
+# channels and the per-switch surviving seconds. It holds measurements and marker
+# names only, no signal, and nothing that identifies a participant. The imported
+# trials and the per-session marker CSVs stay out of git under datasets/AAD-ANT/,
+# and the recording itself stays out under tmp/. The mutation record is here for
+# the same reason as step 9's: it is this step's section 6.4 obligation.
+!results/antneuro_import_*.json
+!results/antneuro_import_*.md
+!results/antneuro_mutations.json
+
 # macOS metadata. On exFAT (this repository lives on one) macOS cannot store
 # extended attributes, so it writes an AppleDouble sidecar next to every file it
 # creates: "._relay.py" beside "relay.py". Those are metadata, not content, and

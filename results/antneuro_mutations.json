@@ -1,0 +1,161 @@
+{
+  "kind": "step-9.5 mutation record; every named mutation must be caught",
+  "ran_at": "2026-09-13T10:13:22.787044+00:00",
+  "suite": "scripts.auditory.tests.test_antneuro",
+  "module": "scripts/auditory/antneuro.py",
+  "baseline_green": true,
+  "mutations": [
+    {
+      "mutation": "swap two channels in the contract order",
+      "test": "ChannelContractTests.test_the_contract_is_the_twenty_shared_electrodes_in_plan_order",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.000s | FAILED (errors=1)"
+    },
+    {
+      "mutation": "select the contract channels by position instead of by name",
+      "test": "ChannelContractTests.test_channels_are_selected_by_name_and_extras_are_dropped_by_name",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.000s | FAILED (errors=1)"
+    },
+    {
+      "mutation": "ignore a contract channel the recording does not have",
+      "test": "ChannelContractTests.test_a_missing_contract_channel_is_refused_by_name",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.000s | FAILED (errors=1)"
+    },
+    {
+      "mutation": "accept a channels-by-samples array (MNE's own orientation)",
+      "test": "ChannelContractTests.test_a_channel_by_samples_array_is_refused_rather_than_misread",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.000s | FAILED (errors=1)"
+    },
+    {
+      "mutation": "scale volts by 1000 instead of 1e6",
+      "test": "UnitTests.test_volts_become_microvolts_and_the_trial_records_both_units",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.000s | FAILED (errors=1)"
+    },
+    {
+      "mutation": "guess a scale for an unknown unit",
+      "test": "UnitTests.test_an_unknown_unit_is_refused_rather_than_scaled_by_guess",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.000s | FAILED (errors=1)"
+    },
+    {
+      "mutation": "leave non-cue markers out of the table",
+      "test": "MarkerTableTests.test_every_recorded_marker_appears_in_the_table",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.000s | FAILED (errors=1)"
+    },
+    {
+      "mutation": "ignore the operator's exclusion table",
+      "test": "MarkerTableTests.test_the_operator_exclusions_are_applied_and_reported",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.000s | FAILED (errors=1)"
+    },
+    {
+      "mutation": "treat the exclusion table's entries as optional",
+      "test": "MarkerTableTests.test_an_exclusion_that_matches_no_marker_is_an_error",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.000s | FAILED (errors=1)"
+    },
+    {
+      "mutation": "report a broken alternation as strict",
+      "test": "MarkerTableTests.test_a_broken_alternation_is_recorded_and_not_hidden",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.000s | FAILED (errors=1)"
+    },
+    {
+      "mutation": "exclude the buffer's endpoints from the unknown span",
+      "test": "LabelRuleTests.test_the_buffer_is_symmetric_and_includes_its_endpoints",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.000s | FAILED (errors=1)"
+    },
+    {
+      "mutation": "accept a buffer outside the operator's range",
+      "test": "LabelRuleTests.test_a_buffer_outside_the_operators_range_is_refused",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.000s | FAILED (errors=1)"
+    },
+    {
+      "mutation": "label every sample, ignoring the buffers entirely",
+      "test": "LabelRuleTests.test_cues_closer_than_twice_the_buffer_leave_no_label_for_the_first",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.000s | FAILED (errors=1)"
+    },
+    {
+      "mutation": "treat the disputed right cue as excluded",
+      "test": "LabelRuleTests.test_the_ambiguous_cue_labels_its_own_side_through_a_whole_session",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.000s | FAILED (errors=1)"
+    },
+    {
+      "mutation": "report the conservative buffer as if it were the chosen one",
+      "test": "LabelRuleTests.test_the_conservative_buffer_is_reported_beside_the_chosen_one",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.000s | FAILED (errors=1)"
+    },
+    {
+      "mutation": "place the audio without the Start anchor",
+      "test": "AudioPlacementTests.test_audio_is_placed_through_the_start_anchor_and_the_session_offset",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.000s | FAILED (errors=1)"
+    },
+    {
+      "mutation": "sample the stimulus from before playback started",
+      "test": "AudioPlacementTests.test_positions_before_playback_are_zero_and_counted_as_uncovered",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.000s | FAILED (errors=1)"
+    },
+    {
+      "mutation": "record the playable range at 44.1 kHz",
+      "test": "AudioPlacementTests.test_the_playable_source_range_is_recorded_for_the_renderer",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.000s | FAILED (errors=1)"
+    },
+    {
+      "mutation": "measure the duration one sample short",
+      "test": "InterchangeTests.test_the_summary_reports_shape_duration_and_the_label_distribution",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.000s | FAILED (errors=1)"
+    },
+    {
+      "mutation": "lose the trial's group identity",
+      "test": "InterchangeTests.test_the_written_trial_loads_back_with_the_contract_and_its_labels",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.000s | FAILED (errors=1)"
+    },
+    {
+      "mutation": "print only the first few markers in the review document",
+      "test": "InterchangeTests.test_the_review_document_carries_every_marker_and_the_checks",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.000s | FAILED (errors=1)"
+    },
+    {
+      "mutation": "guess an audio offset for a session the operator never gave one for",
+      "test": "RefusalTests.test_a_session_without_an_operator_offset_is_refused",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.000s | FAILED (errors=1)"
+    },
+    {
+      "mutation": "name any file as a session",
+      "test": "RefusalTests.test_an_unknown_file_name_cannot_name_a_session",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.000s | FAILED (errors=1)"
+    },
+    {
+      "mutation": "use the left envelope for both candidates",
+      "test": "RefusalTests.test_a_missing_candidate_envelope_refuses_the_import_by_name",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.000s | FAILED (errors=1)"
+    },
+    {
+      "mutation": "report the railed fraction over the wrong axis",
+      "test": "RailTests.test_a_railed_channel_is_measured_reported_and_not_removed",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.000s | FAILED (errors=1)"
+    }
+  ],
+  "caught": 25,
+  "total": 25
+}
