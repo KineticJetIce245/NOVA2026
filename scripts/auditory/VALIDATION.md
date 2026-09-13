@@ -1,5 +1,10 @@
 # Audio v2 software verification - September 12 update
 
+> Historical record: this file describes the audio-v2 state before the auditory-UI integration.
+> The claims of the integrated pipeline - and, more importantly, the numbers that were **not**
+> measured - are in the root [`VALIDATION.md`](../../VALIDATION.md) (step 12). Nothing below
+> should be quoted as the project's current validation status.
+
 The supported path now uses `nova2026.streaming` for auditory training, replay
 and live EEG. Old saved models must be retrained. The current streaming suite
 passes 181 tests on Windows, including LSL transport and recording. The 45 auditory
