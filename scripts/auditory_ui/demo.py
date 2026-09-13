@@ -89,7 +89,11 @@ from nova2026.auditory.sources import (  # noqa: E402
 )
 from nova2026.transport.media import MediaTimeline  # noqa: E402
 from nova2026.transport.server import LOOPBACK_HOSTS, create_app  # noqa: E402
-from scripts.auditory_ui.media import MEDIA_TICK_SECONDS, SimulatedMediaClient  # noqa: E402
+from scripts.auditory_ui.media import (  # noqa: E402
+    MEDIA_TICK_SECONDS,
+    SimulatedMediaClient,
+    StandbyMediaClient,
+)
 from scripts.auditory_ui.session import clip_trial, fixture_trial, free_port  # noqa: E402
 
 DEFAULT_TRIAL = "datasets/AAD-KULeuven/converted/S1/trial_008.npz"
@@ -102,6 +106,100 @@ DEFAULT_MEDIA_OUT = "output/auditory_ui/demo_stereo.wav"
 """Rendered stereo asset; under ``output/``, which is git-ignored."""
 
 TERMINAL_STATUSES = ("stopped", "error")
+
+DEFAULT_STANDBY_SECONDS = 10.0
+"""How long ``--media-owner`` ``standby`` reserves the slot for the page.
+
+Ten seconds is a *reservation*, not a heuristic about how fast a person clicks:
+ten is enough for the page to load, connect its socket and take the slot, which
+is what the logs of the runs in ``results/`` show happening. It is also the
+whole of the cost when nothing claims: a replay shorter than this window gets no
+attention attenuation at all, because the gain gate needs a real controller
+reporting. Pass ``--media-owner demo`` to spend no time at all, or
+``--media-owner page`` (which ``--open-browser`` selects by itself) never to
+yield to the stand-in. The value is recorded in the run either way.
+"""
+
+MEDIA_OWNERS = ("auto", "standby", "page", "demo")
+"""Who the caller intends to own the transport's single media slot."""
+
+
+def media_owner(args) -> tuple[str, str]:
+    """The media-ownership mode this run will use, and why - the switch, not a guess.
+
+    The transport allows exactly one media controller at a time and the slot is
+    sticky (``MediaTimeline.control``), so whoever prepares first keeps it and the
+    other client's ``prepare`` is refused with a 409. The stand-in and the browser
+    page both want that slot, which is why "did I hear anything" used to be decided
+    by who happened to be quicker.
+
+    Which of them *should* win is a property of the run, not of the machine, so it
+    is decided here and printed before the port is even open:
+
+    * ``demo`` - the stand-in owns the slot immediately, exactly as every run
+      before this flag did. This is the unattended path: the acceptance run and
+      ``test_demo_serve.py``. Nothing about it changes.
+    * ``page`` - the stand-in never claims. Correct when a human is certainly
+      watching; an unattended run in this mode attenuates nothing, because the
+      gain gate requires a controller that is genuinely reporting a position and
+      this process is forbidden from inventing one (decision D-02).
+    * ``standby`` - the page is offered the slot for ``--standby-seconds`` and the
+      stand-in takes it only if nothing claimed it. For "open this URL yourself".
+    * ``auto`` - ``--open-browser`` is the caller stating that a page exists, so it
+      selects ``page``; anything else is an unattended run and selects ``standby``.
+
+    ``auto`` deliberately does not mean "demo". A human who opens the printed URL
+    by hand is indistinguishable, from inside this process, from a run nobody is
+    watching - and the whole defect is that the stand-in won that case. Reserving
+    the slot costs an unattended run ``--standby-seconds``; losing it silently
+    costs a person the entire demo.
+    """
+
+    if args.media_owner != "auto":
+        return args.media_owner, "explicit --media-owner"
+    if args.open_browser:
+        return "page", "--open-browser: this process opens the page, so the page owns it"
+    return "standby", "unattended: the page is offered the slot, then the stand-in takes it"
+
+
+async def settle_media_owner(
+    owner: str, media, client: SimulatedMediaClient, standby_seconds: float
+) -> tuple[bool, dict | None]:
+    """Decide who owns the media slot, and say whether the stand-in may report.
+
+    This is the whole arbitration, in one place, because ``drive`` is not the only
+    caller: the tests drive this function directly, so a test cannot pass by
+    exercising a second copy of the decision while ``drive`` does something else.
+    Nothing here is a guess about timing - in ``standby`` the question "has a
+    controller claimed the slot" is read from the running timeline, which only a
+    *completed* ``prepare`` ever sets.
+
+    Args:
+        owner: ``demo`` (claim at once), ``page`` (never claim) or ``standby``
+            (offer the slot to the page, then claim if nothing did).
+        media: The live ``MediaTimeline``; required unless ``owner`` is ``demo``.
+        client: The stand-in that claims the slot.
+        standby_seconds: The window ``standby`` reserves for the page.
+
+    Returns:
+        ``(claimed, outcome)``: whether the stand-in owns the slot and must start
+        reporting, and the record of the arbitration - ``None`` in ``demo`` mode,
+        where there was no arbitration and nothing about the run has changed.
+
+    Raises:
+        RuntimeError: If ``standby`` or ``page`` was asked for without the
+            timeline those modes have to read.
+    """
+
+    if owner == "demo":
+        return True, None
+    if media is None:
+        raise RuntimeError(f"media ownership {owner!r} needs the live timeline")
+    standby = StandbyMediaClient(
+        client, media, deadline_seconds=None if owner == "page" else standby_seconds
+    )
+    outcome = await standby.wait_for_owner()
+    return outcome["owner"] == "demo", outcome
 
 
 def log(message: str, lines: list[str]) -> None:
@@ -249,7 +347,9 @@ async def capture(port: int, packets: list, stop: asyncio.Event, client, arrival
         return
 
 
-async def drive(port: int, args, session, media_report: dict, stop: asyncio.Event) -> dict:
+async def drive(
+    port: int, args, session, media_report: dict, stop: asyncio.Event, media=None, owner: str = "demo"
+) -> dict:
     """Start the transport session, run the client, and watch it end.
 
     Three things happen at once, and they are separate on purpose: the simulated
@@ -257,6 +357,12 @@ async def drive(port: int, args, session, media_report: dict, stop: asyncio.Even
     the stream over the WebSocket, and a polling loop watches the session record
     for its terminal status. The polling loop is what ends an unattended demo when
     the replay is over.
+
+    **Who gets the media slot** is decided before the stand-in sends anything, by
+    ``owner`` (see :func:`media_owner`) - never by which client was quicker. In
+    ``standby`` the stand-in waits for the page and, if the page takes the slot,
+    never sends a command at all: the loser here is *out*, not refused, so there
+    is no 409 for the page to turn into ``fail()`` and no silent dead player.
 
     **Two events, and the difference is the whole point.** ``stop`` is the *run's*
     shutdown signal: Ctrl-C sets it, and so does the end of the stay-open window
@@ -301,9 +407,24 @@ async def drive(port: int, args, session, media_report: dict, stop: asyncio.Even
         client.configure(state["started"]["id"], media_report["media_id"])
         client.state["prepared"] = False
         await asyncio.sleep(0)
-        # The simulated client reports from *its own* clock, so playback starts
-        # when the session does rather than when a human presses play.
-        playback = asyncio.create_task(client.play(finished))
+        # The slot is settled before the stand-in reports anything. `page` never
+        # offers to claim; `demo` claims at once, which is every run before this
+        # flag and the whole unattended path.
+        claimed, standby_outcome = await settle_media_owner(
+            owner, media, client, args.standby_seconds
+        )
+        if standby_outcome is not None:
+            state["media_owner"] = standby_outcome
+            print(
+                f"[demo] media slot: {standby_outcome['owner']} owns it "
+                f"({standby_outcome['why']})",
+                flush=True,
+            )
+        playback = None
+        if claimed:
+            # The simulated client reports from *its own* clock, so playback starts
+            # when the session does rather than when a human presses play.
+            playback = asyncio.create_task(client.play(finished))
         try:
             while not stop.is_set():
                 await asyncio.sleep(args.poll)
@@ -316,7 +437,7 @@ async def drive(port: int, args, session, media_report: dict, stop: asyncio.Even
             # `finished`, never `stop`: the page outlives the replay, and the
             # serve loop in `runner()` is waiting on exactly that distinction.
             finished.set()
-            state["media"] = (await playback).to_dict()
+            state["media"] = (await playback).to_dict() if playback is not None else None
             listener.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await listener
@@ -422,6 +543,10 @@ async def main_async(args) -> int:
     if static_dir is not None and not static_dir.is_dir():
         print(f"static dir not found: {static_dir}", file=sys.stderr)
         return 2
+    # Decided and printed before a port exists, so "who owns the slot" is on the
+    # record even for a run that never gets as far as playing anything.
+    owner, owner_reason = media_owner(args)
+    log(f"media owner: {owner} ({owner_reason})", lines)
     app = create_app(producer_factory=factory, media=media, static_dir=static_dir)
 
     port = free_port()
@@ -469,7 +594,7 @@ async def main_async(args) -> int:
         open_task = None
         if args.open_browser:
             open_task = asyncio.create_task(asyncio.to_thread(open_browser, url, lines))
-        state = await drive(port, args, None, media_report, stop)
+        state = await drive(port, args, None, media_report, stop, media, owner)
         if open_task is not None:
             await open_task
         if args.browser or args.serve_seconds > 0:
@@ -540,7 +665,8 @@ async def main_async(args) -> int:
         lines,
     )
     return finish(
-        args, trial, media_report, state, summary, metrics, evidence, lines, began, url, exit_code
+        args, trial, media_report, state, summary, metrics, evidence, lines, began, url, exit_code,
+        owner, owner_reason,
     )
 
 
@@ -743,7 +869,8 @@ def replay_metrics(trial, summary: dict, args) -> dict:
 
 
 def finish(
-    args, trial, media_report, state, summary, metrics, evidence, lines, began, url, exit_code
+    args, trial, media_report, state, summary, metrics, evidence, lines, began, url, exit_code,
+    owner: str = "demo", owner_reason: str = "stand-in",
 ) -> int:
     """Write the run record and print the numbers a reviewer needs."""
 
@@ -804,6 +931,14 @@ def finish(
         "media": media_report,
         "static_dir": args.static_dir,
         "session": summary,
+        "media_owner": {
+            "mode": owner,
+            "why": owner_reason,
+            "standby_window_seconds": (
+                float(args.standby_seconds) if owner == "standby" else None
+            ),
+            "outcome": state.get("media_owner"),
+        },
         "media_client": state.get("media"),
         "session_record": final,
         "replay_metrics": metrics,
@@ -909,6 +1044,27 @@ def main(argv=None) -> int:
     )
     parser.add_argument("--poll", type=float, default=0.5, help="seconds between status polls")
     parser.add_argument("--media-tick", type=float, default=MEDIA_TICK_SECONDS)
+    parser.add_argument(
+        "--media-owner",
+        default="auto",
+        choices=MEDIA_OWNERS,
+        help=(
+            "who may claim the transport's single media slot: auto (page if "
+            "--open-browser, else standby), standby (page first, then the "
+            "stand-in), page (never the stand-in), demo (the stand-in at once, "
+            "the unattended behaviour). The effective mode is printed and recorded."
+        ),
+    )
+    parser.add_argument(
+        "--standby-seconds",
+        type=float,
+        default=DEFAULT_STANDBY_SECONDS,
+        help=(
+            "how long --media-owner standby reserves the media slot for the page. "
+            "Only spent when nothing claims it: a run shorter than this window "
+            "gets no attenuation, because the gain gate needs a real controller."
+        ),
+    )
     parser.add_argument("--media-out", default=DEFAULT_MEDIA_OUT)
     parser.add_argument("--media-title", default="KU Leuven trial")
     parser.add_argument(

@@ -54,6 +54,7 @@ from nova2026.auditory.render import (  # noqa: E402
     PRESENTATION_MODES,
     presentation_mode,
     render_stereo,
+    truncate_to_eeg,
 )
 from nova2026.auditory.session import AttentionSession, RunPolicy  # noqa: E402
 from nova2026.auditory.sources import (  # noqa: E402
@@ -333,19 +334,32 @@ def render_media(trial: AuditoryTrial, args) -> tuple[MediaTimeline, dict]:
     "same mixture, differently weighted" route instead, and the mode is recorded
     in the report either way.
 
+    The cut is made before the mix, by section 3.3's own rule
+    (:func:`nova2026.auditory.render.truncate_to_eeg`, the same prefix
+    ``usable_audio_samples`` keeps in the conversion), and it is named in the
+    report: the rendered file's ``seconds`` alone cannot tell a 389 s trial from
+    a 394 s candidate set that was quietly shortened.
+
     Returns:
         The bound-less timeline over the rendered file, and the render report.
     """
 
     mode = presentation_mode(args.presentation)
-    report = render_stereo(
+    candidates, truncation = truncate_to_eeg(
         trial.audio,
+        eeg_samples=len(trial.timestamps),
+        eeg_rate=float(trial.sample_rate),
+        audio_rate=float(trial.audio_rate),
+    )
+    report = render_stereo(
+        candidates,
         args.media_out,
         sample_rate=round(trial.audio_rate),
         presentation=mode,
         crossmix_weight=args.crossmix_weight,
     )
-    report["candidate_seconds"] = round(float(len(trial.audio)) / trial.audio_rate, 3)
+    report["truncation"] = truncation
+    report["candidate_seconds"] = round(truncation["candidate_seconds"], 3)
     report["eeg_seconds"] = round(float(trial.timestamps[-1] - trial.timestamps[0]), 3)
     return MediaTimeline(args.media_out, args.media_title), report
 

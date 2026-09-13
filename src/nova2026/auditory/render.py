@@ -327,6 +327,135 @@ def render_stereo(
 
     }
 
+def eeg_prefix_samples(eeg_samples, eeg_rate, audio_rate) -> int:
+    """How many candidate samples lie at or before the last EEG sample.
+
+    This is the plan's rule (section 3.3), and the conversion already applies it:
+
+    the EEG spans ``[0, (eeg_samples - 1) / eeg_rate]`` on the trial clock and the
+
+    candidates start there too, so candidate sample ``i`` is inside the session
+
+    when ``i <= (eeg_samples - 1) * audio_rate / eeg_rate``. The frozen definition
+
+    is ``scripts/auditory/kuleuven_contract.py::usable_audio_samples``; it is
+
+    restated here because ``scripts/`` is not a dependency of this package, and
+
+    ``scripts/auditory/tests/test_render_truncation.py`` asserts the two agree
+
+    sample for sample, so the restatement cannot drift unnoticed.
+
+    Args:
+
+        eeg_samples: Number of EEG samples in the session.
+
+        eeg_rate: EEG sampling rate in Hz.
+
+        audio_rate: Candidate sampling rate in Hz.
+
+    Returns:
+
+        The number of leading candidate samples to keep.
+
+    Raises:
+
+        ValueError: If the counts or either rate are not finite and positive.
+
+    """
+
+    if int(eeg_samples) <= 0 or not np.isfinite(eeg_rate) or eeg_rate <= 0:
+        raise ValueError("A session needs samples at a positive rate.")
+
+    if not np.isfinite(audio_rate) or audio_rate <= 0:
+        raise ValueError("The candidate rate must be finite and positive.")
+
+    return int(np.floor((int(eeg_samples) - 1) * audio_rate / eeg_rate)) + 1
+
+def truncate_to_eeg(candidates, *, eeg_samples, eeg_rate, audio_rate):
+    """Cut the candidates to the prefix the session's own EEG can label.
+
+    A candidate sample past the last EEG sample has no label, no envelope window
+
+    and no place on the session clock, so a media file built from it is longer
+
+    than the session that is supposedly playing it - measured at 394.00 s of
+
+    audio against 389 s of EEG for ``S1/trial_004``. The browser reads
+
+    ``element.duration`` from the file it loaded, so the file has to be the
+
+    session's length, not the candidate's.
+
+    Args:
+
+        candidates: ``(samples, 2)`` array, as :func:`render_stereo` takes.
+
+        eeg_samples: Number of EEG samples in the session.
+
+        eeg_rate: EEG sampling rate in Hz.
+
+        audio_rate: Candidate sampling rate in Hz.
+
+    Returns:
+
+        ``(prefix, report)``. ``report`` is JSON-safe and names the truncation
+
+        explicitly - the rule, both durations before and after, and how many
+
+        samples were dropped - so the render report a reader sees states the cut
+
+        rather than leaving it to be inferred from a shorter ``seconds``.
+
+    Raises:
+
+        ValueError: If ``candidates`` is not a ``(samples, 2)`` array, or for any
+
+            reason :func:`eeg_prefix_samples` raises.
+
+    """
+
+    values = np.asarray(candidates)
+
+    if values.ndim != 2 or values.shape[1] != 2:
+        raise ValueError(
+            "candidates must be a (samples, 2) array of candidate A and candidate B."
+        )
+
+    keep = min(eeg_prefix_samples(eeg_samples, eeg_rate, audio_rate), len(values))
+
+    dropped = int(len(values) - keep)
+
+    rate = float(audio_rate)
+
+    return values[:keep], {
+
+        "rule": "the candidate samples at or before the last EEG sample",
+
+        "eeg_samples": int(eeg_samples),
+
+        "eeg_rate": float(eeg_rate),
+
+        "audio_rate": rate,
+
+        "eeg_seconds": (int(eeg_samples) - 1) / float(eeg_rate),
+
+        "candidate_samples": int(len(values)),
+
+        "candidate_seconds": float(len(values)) / rate,
+
+        "kept_samples": int(keep),
+
+        "kept_seconds": float(keep) / rate,
+
+        "samples_dropped": dropped,
+
+        "dropped_seconds": float(dropped) / rate,
+
+        "truncated": bool(dropped),
+
+    }
+
 __all__ = [
 
     "DEFAULT_CROSSMIX_WEIGHT",
@@ -339,6 +468,8 @@ __all__ = [
 
     "channel_sha256",
 
+    "eeg_prefix_samples",
+
     "mix_candidates",
 
     "presentation_mode",
@@ -346,5 +477,7 @@ __all__ = [
     "render_stereo",
 
     "to_int16",
+
+    "truncate_to_eeg",
 
 ]

@@ -73,7 +73,7 @@ from nova2026.auditory.data import AuditoryTrial, load_trial  # noqa: E402
 from nova2026.auditory.decoder import RidgeDecoder  # noqa: E402
 from nova2026.auditory.evaluation import inject_fault, selection_metrics  # noqa: E402
 from nova2026.auditory.producer import AttentionProducer  # noqa: E402
-from nova2026.auditory.render import render_stereo  # noqa: E402
+from nova2026.auditory.render import render_stereo, truncate_to_eeg  # noqa: E402
 from nova2026.auditory.session import (  # noqa: E402
     AttentionSession,
     RunPolicy,
@@ -1038,12 +1038,39 @@ def run_node(script: str, argv: list[str], *, timeout: float = 180.0) -> dict:
 # ----------------------------------------------------------------- case workers
 
 
+def render_trial_stereo(trial, out, **kwargs) -> dict:
+    """Render one trial's candidates to the stereo file a case plays.
+
+    Every case in the matrix plays the same trial it decodes, so every case has
+    the same obligation: the file may not outlast the EEG. The candidates carry a
+    tail past the last EEG sample - the conversion drops it, ``trial.audio`` does
+    not - and rendering that tail gives the browser a ``duration`` longer than the
+    session, which is exactly the mismatch the frontend's window check refuses.
+    The cut is section 3.3's rule, taken once here so no case can forget it, and
+    recorded in the render report.
+    """
+
+    candidates, truncation = truncate_to_eeg(
+        trial.audio,
+        eeg_samples=len(trial.timestamps),
+        eeg_rate=float(trial.sample_rate),
+        audio_rate=float(trial.audio_rate),
+    )
+    report = render_stereo(
+        candidates, out, sample_rate=round(trial.audio_rate), **kwargs
+    )
+    report["truncation"] = truncation
+    report["candidate_seconds"] = round(truncation["candidate_seconds"], 3)
+    report["eeg_seconds"] = round(float(trial.timestamps[-1] - trial.timestamps[0]), 3)
+    return report
+
+
 def case_c1(ctx: Ctx) -> dict:
     """C1: the clean run - the only case with no fault in it."""
 
     trial, model, envelopes = ctx.load(seconds=ctx.args.clean_seconds)
     out = scratch_dir(ctx.args, "C1") / "stereo.wav"
-    render_report = render_stereo(trial.audio, out, sample_rate=round(trial.audio_rate))
+    render_report = render_trial_stereo(trial, out)
     duration = float(render_report["seconds"])
     media = MediaTimeline(out, "KU Leuven trial (demorun C1)")
 
@@ -1257,7 +1284,7 @@ def case_c8(ctx: Ctx) -> dict:
 
     trial, model, envelopes = ctx.load(seconds=ctx.args.media_seconds)
     out = scratch_dir(ctx.args, "C8") / "stereo.wav"
-    render_report = render_stereo(trial.audio, out, sample_rate=round(trial.audio_rate))
+    render_report = render_trial_stereo(trial, out)
     duration = float(render_report["seconds"])
     media = MediaTimeline(out, "KU Leuven trial (demorun C8)")
 
@@ -1473,7 +1500,7 @@ def case_c11(ctx: Ctx) -> dict:
 
     trial, model, envelopes = ctx.load(seconds=ctx.args.media_seconds)
     out = scratch_dir(ctx.args, "C11") / "stereo.wav"
-    render_report = render_stereo(trial.audio, out, sample_rate=round(trial.audio_rate))
+    render_report = render_trial_stereo(trial, out)
     duration = float(render_report["seconds"])
     media = MediaTimeline(out, "KU Leuven trial (demorun C11)")
 
@@ -1535,7 +1562,7 @@ def case_c12(ctx: Ctx) -> dict:
 
     trial, model, envelopes = ctx.load(seconds=ctx.args.media_seconds)
     out = scratch_dir(ctx.args, "C12") / "stereo.wav"
-    render_report = render_stereo(trial.audio, out, sample_rate=round(trial.audio_rate))
+    render_report = render_trial_stereo(trial, out)
     duration = float(render_report["seconds"])
     media = MediaTimeline(out, "KU Leuven trial (demorun C12)")
     holder_client: dict = {}

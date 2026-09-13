@@ -49,6 +49,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -63,7 +64,11 @@ from nova2026.auditory.config import (  # noqa: E402
     MIN_MARGIN,
     AuditoryConfig,
 )
-from nova2026.auditory.decoder import RidgeDecoder  # noqa: E402
+from nova2026.auditory.decoder import (  # noqa: E402
+    GATE_KEYS as CONTRACT_GATE_KEYS,
+    PROVENANCE_KEYS as CONTRACT_PROVENANCE_KEYS,
+    RidgeDecoder,
+)
 from nova2026.auditory.producer import AttentionProducer  # noqa: E402
 from nova2026.auditory.render import (  # noqa: E402
     DEFAULT_CROSSMIX_WEIGHT,
@@ -71,9 +76,11 @@ from nova2026.auditory.render import (  # noqa: E402
     PRESENTATION_MODES,
     presentation_mode,
     render_stereo,
+    truncate_to_eeg,
 )
 from nova2026.auditory.session import AttentionSession, RunPolicy  # noqa: E402
 from nova2026.auditory.sources import ReferenceEnvelopes  # noqa: E402
+from nova2026.auditory.streaming import AuditoryProcessor  # noqa: E402
 from nova2026.streaming.preflight import validate_source  # noqa: E402
 from nova2026.streaming.preprocess import Resampler  # noqa: E402
 from nova2026.transport.media import MediaTimeline  # noqa: E402
@@ -742,6 +749,85 @@ def coverage_against_markers(labels: np.ndarray, decided: list, rate: float) -> 
     return result
 
 
+def contract_split(split: dict | None, model, processor) -> dict:
+    """The contract split as the run record carries it.
+
+    ``split`` is the assessment taken before the run; the decoder's own record is
+    preferred when the scoring path refreshed it, because that is the comparison
+    that actually ran on every window. Both are the same shape, and the fallback
+    matters: a run whose every window was refused by the contract check never
+    reaches the end of ``validate``, so without the pre-run assessment the record
+    would carry no explanation of the refusal at all.
+    """
+
+    measured = dict(model.contract_provenance() or {}) if model is not None else {}
+    record = dict(measured or split or {})
+    if not record:
+        return {}
+    record["gate_keys"] = list(CONTRACT_GATE_KEYS)
+    record["provenance_keys"] = list(CONTRACT_PROVENANCE_KEYS)
+    record["effective_chain_contract"] = (
+        None if processor is None else dict(processor.contract)
+    )
+    record["model_contract"] = None if model is None else dict(model.contract or {})
+    record["what_this_means"] = (
+        "the gated keys decide processing, so a difference in one refuses every "
+        "window; the provenance keys describe the source recording and are recorded "
+        "rather than gated, because no honest run on another rig can equalise them "
+        "and copying the model's text across would be a false statement about this "
+        "recording. Nothing was equalised and nothing was dropped from the "
+        "comparison: a key present on one side only is listed in only_in_model / "
+        "only_in_source"
+    )
+    return record
+
+
+def contract_split_lines(record: dict) -> list[str]:
+    """The markdown block naming what the contract check gated on, and what it only
+    recorded.
+
+    A cross-rig run is allowed to differ in the two provenance keys, so the record
+    has to say so in the same breath as it says which keys matched - otherwise a
+    reader of a number cannot tell a legitimate rig difference from a silent one.
+    """
+
+    split = record.get("contract_split") or {}
+    if not split:
+        return []
+    reported = split.get("provenance") or {}
+    gated = split.get("gated") or {}
+    lines = [
+        "## What the model contract gated on, and what it only recorded",
+        "",
+        f"- gated keys ({len(split.get('gate_keys') or [])}): "
+        + ", ".join(split.get("gate_keys") or [])
+        + " - a difference in any of these still refuses every window",
+        "- gate keys that differ on this run: "
+        + (", ".join(sorted(gated)) if gated else "none"),
+        "- recorded, not gated: " + ", ".join(split.get("provenance_keys") or []),
+    ]
+    for key, values in sorted(reported.items()):
+        source = str(values.get("source"))
+        model = str(values.get("model"))
+        lines.append(
+            f"- `{key}` differs and was recorded rather than gated. This rig "
+            f"declares: {source[:400]}{'...' if len(source) > 400 else ''}"
+        )
+        lines.append(
+            f"  The model records: {model[:400]}{'...' if len(model) > 400 else ''}"
+        )
+    if not reported:
+        lines.append("- nothing differed: the model and this chain agreed on every key")
+    lines += [
+        "- what this does NOT mean: the two provenance values are not equalised and "
+        "were not copied across. The decoder was trained on a different rig with a "
+        "different reference, so a number this run produces measures that mismatch "
+        "as much as it measures the model.",
+        "",
+    ]
+    return lines
+
+
 def markdown(record: dict) -> str:
     """Render the run record as the report a reviewer reads first."""
 
@@ -843,6 +929,14 @@ def markdown(record: dict) -> str:
         f"- status `{(record.get('session_record') or {}).get('status')!r}`, decisions "
         f"{json.dumps(record['session'].get('decisions') or {})}",
         f"- session failure {json.dumps(record['session'].get('failure'))}",
+        f"- scoring failures: {record['session'].get('failed') or 0} window(s), "
+        + (
+            "; ".join(
+                f"{entry['count']}x {entry['reason']}"
+                for entry in record["session"].get("scoring_failures") or []
+            )
+            or "no scoring failure was recorded"
+        ),
         f"- decision census: {census.get('decided')} decided "
         f"(A {census.get('A')}, B {census.get('B')}), "
         f"{census.get('uncertain')} uncertain, {census.get('unavailable')} "
@@ -868,6 +962,7 @@ def markdown(record: dict) -> str:
         f"switch {labels.get('true_selection_changes_between_decided_pairs')} times "
         "between the same pairs",
         "",
+        *contract_split_lines(record),
         "## Transport diagnostics (the live path's own counters)",
         "",
         f"- `max_lag` {transport['max_lag_seconds']} s over "
@@ -957,7 +1052,19 @@ async def drive(port: int, args, media_report: dict, client, stop: asyncio.Event
             raise RuntimeError("the transport never became ready on loopback")
 
         listener = asyncio.create_task(capture(port, packets, stop, client, arrivals))
-        state["started"] = (await http.post("/api/session/start")).json()
+        started = await http.post("/api/session/start")
+        if started.status_code != 200:
+            # Name the transport's own refusal here: a bare `KeyError: 'id'` from
+            # the line below says only that a key was absent, never which HTTP
+            # status or which body the server answered with - measured while
+            # adding the contract split, where the factory's own exception was
+            # reported as `503 producer could not start` and the cause was three
+            # tracebacks away.
+            raise RuntimeError(
+                f"POST /api/session/start answered {started.status_code}: "
+                f"{started.text.strip()!r}"
+            )
+        state["started"] = started.json()
         client.configure(state["started"]["id"], media_report["media_id"])
         client.state["prepared"] = False
         await asyncio.sleep(0)
@@ -1181,6 +1288,17 @@ def run(args, lines: list[str]) -> tuple[dict, int]:
         rate=int(args.audio_rate),
     )
     media_out = Path(args.media_out)
+    # The slice is already window-shaped, but "shaped like the window" is not the
+    # same as "inside it": the count above is the window's *sample* count at the
+    # audio rate, one EEG sample longer than the span the window reports. Cut it
+    # by the same rule the offline path uses, so the served file cannot outlast
+    # the session the decoder is scoring. The report says what was cut.
+    candidates, truncation = truncate_to_eeg(
+        candidates,
+        eeg_samples=len(window.timestamps),
+        eeg_rate=float(trial.sample_rate),
+        audio_rate=float(args.audio_rate),
+    )
     media_report = render_stereo(
         candidates,
         media_out,
@@ -1189,6 +1307,8 @@ def run(args, lines: list[str]) -> tuple[dict, int]:
         crossmix_weight=args.crossmix_weight,
     )
     media_report["audio_slice"] = audio_report
+    media_report["truncation"] = truncation
+    media_report["candidate_seconds"] = round(truncation["candidate_seconds"], 3)
     media_report["eeg_seconds"] = round(window.seconds, 3)
     timeline = MediaTimeline(media_out, args.media_title)
     # The transport's media descriptor and the duration the client reports are
@@ -1281,6 +1401,35 @@ def run(args, lines: list[str]) -> tuple[dict, int]:
     return record, exit_code
 
 
+def describe_contract_split(record: dict, lines: list[str]) -> None:
+    """Print the contract assessment, and never let its own words stop a run.
+
+    The assessment is a record, not a gate: if formatting it fails, the run still
+    has to start, because the split it describes is already computed and will be
+    written into the run record either way.
+    """
+
+    try:
+        log(
+            f"model contract check: {len(record['gate_keys'])} key(s) gate "
+            f"({', '.join(record['gate_keys'])}); gate differences "
+            f"{sorted(record['gated']) or 'none'}; "
+            f"{len(record['provenance_keys'])} provenance key(s) are recorded rather "
+            f"than gated ({', '.join(record['provenance_keys'])}), and "
+            f"{sorted(record['provenance']) or 'none'} of them differ on this rig",
+            lines,
+        )
+        for key in sorted(record["provenance"]):
+            values = record["provenance"][key]
+            log(
+                f"  {key}: this rig declares {str(values.get('source'))[:160]} / the "
+                f"model records {str(values.get('model'))[:160]}",
+                lines,
+            )
+    except Exception as error:  # noqa: BLE001 - a record must not stop the run
+        log(f"the contract assessment could not be printed: {error!r}", lines)
+
+
 def stream_session(
     args, lines, source, references, model, timeline, media_report, began,
     probe_report, window, trial, first_index, audio_offset, profile, excluded,
@@ -1301,9 +1450,38 @@ def stream_session(
     }
 
     def factory():
-        session, producer = build(app_state, args)
+        try:
+            session, producer = build(app_state, args)
+        except BaseException as error:  # noqa: BLE001 - recorded, then re-raised
+            # The REST boundary turns any factory exception into a bare `503
+            # producer could not start` (the transport deliberately does not copy
+            # exception text into a record), so the cause is named here or it is
+            # lost three frames deep in a traceback - measured while adding the
+            # contract split, where an exception raised inside this factory
+            # surfaced only as that 503.
+            log(
+                f"the session could not be built: {type(error).__name__}: {error}",
+                lines,
+            )
+            traceback.print_exc()
+            raise
         app_state["holder"]["producer"] = producer
         app_state["holder"]["session"] = session
+        # The contract assessment, taken as early as it can be: `build` has just
+        # constructed the chain, so the keys the chain declares and the keys the
+        # model records are both known before a single window is scored. The
+        # decoder's own record is refreshed by `validate` on every window (and is
+        # what a refused window reports); this first pass is what a run whose every
+        # window is refused still has. This is a *record*, not a gate: a difference
+        # in the two provenance keys must not stop a session from starting, which
+        # is the whole point of the split.
+        record = model.record_contract_difference(
+            AuditoryProcessor(
+                session.settings, source_channels=session.source_channels
+            ).contract
+        )
+        app_state["holder"]["contract_split"] = record
+        describe_contract_split(record, lines)
         # The transport deliberately keeps a failing producer's exception out of
         # the session record (it is not a log sink). The runner is its own run's
         # log sink, so it wraps run() to keep the one line that says why a
@@ -1524,6 +1702,14 @@ def stream_session(
             ),
         },
         "session_summary": summary,
+        # What the decoder's contract check gated on, and what it only recorded.
+        # Recorded even when every window was refused, because the split is what
+        # makes a cross-rig run explicit rather than silent.
+        "contract_split": contract_split(
+            app_state.get("holder", {}).get("contract_split"),
+            model,
+            getattr(session, "processor", None),
+        ),
         "session_record": state.get("final"),
         "decision_census": decision_census(
             summary, summary.get("decision_stream") or []

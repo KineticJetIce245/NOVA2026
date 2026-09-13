@@ -34,6 +34,12 @@ UNITTEST_RAN = re.compile(r"^Ran (\d+) tests?", re.MULTILINE)
 UNITTEST_SUMMARY = re.compile(r"^(OK|FAILED)(?: \(([^)]*)\))?", re.MULTILINE)
 SUMMARY_COUNT = re.compile(r"(\w+)=(\d+)")
 FUNCTION_RAN = re.compile(r"(\d+) passed, (\d+) failed")
+# One ``unittest`` failure or error header. The names of the failures are here,
+# and nowhere else: the summary's tail is whatever test happened to run last.
+UNITTEST_FAILURE = re.compile(r"^(?:FAIL|ERROR): .*$", re.MULTILINE)
+
+FAILURE_CONTEXT = 8
+"""Lines printed under each failure header: the frames and the message under it."""
 
 
 @dataclass(frozen=True)
@@ -159,6 +165,29 @@ def parse(suite: Suite, output: str) -> tuple[int, int, int]:
     return total, failed, 0
 
 
+def failure_report(output: str, context: int = FAILURE_CONTEXT, tail: int = 10) -> list[str]:
+    """The lines that name a failing suite's failures, for the summary.
+
+    ``unittest`` writes one ``FAIL:``/``ERROR:`` header per problem with the
+    traceback under it. The last ten lines of a suite that ran for eight minutes
+    are the tail of whichever test happened to run last, so they name nothing -
+    and naming the failure is the one thing a red run has to do. Every header is
+    printed instead, with the first frames and the message beneath it. Output with
+    no header at all - an import error, a collection error, a timeout - keeps the
+    tail, which is where those put their one useful line. Only what is *printed*
+    changes: the commands, the parsing and the exit code are untouched.
+    """
+
+    lines = output.splitlines()
+    headers = [index for index, line in enumerate(lines) if UNITTEST_FAILURE.match(line)]
+    if not headers:
+        return lines[-tail:]
+    picked: list[str] = []
+    for index in headers:
+        picked.extend(lines[index : index + context + 1])
+    return picked
+
+
 def run(suite: Suite, verbose: bool, timeout: float) -> Result:
     """Run one suite and collect what it reported."""
 
@@ -230,8 +259,12 @@ def main(argv: list[str] | None = None) -> int:
             f"{verdict:<10}  {result.seconds:.1f}s"
         )
         if not result.ok and not args.verbose and result.output:
-            print("    last lines:")
-            for line in result.output.strip().splitlines()[-10:]:
+            # Names, not a tail: ten lines of an eight-minute suite are the last
+            # test's output, and a red run that cannot say what failed costs
+            # another eight minutes to ask again.
+            named = UNITTEST_FAILURE.search(result.output) is not None
+            print("    failing tests:" if named else "    last lines:")
+            for line in failure_report(result.output):
                 print(f"      {line}")
 
     total = sum(result.ran for result in results)
