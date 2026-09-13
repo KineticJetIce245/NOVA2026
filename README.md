@@ -52,6 +52,32 @@ NOVA2026/
 
 Requires Python >= 3.12. The `.venv/` folder is git-ignored, so it never gets committed.
 
+## Tests
+
+Four suites, one command, from the repository root:
+
+```
+.venv/bin/python -B scripts/run_tests.py
+```
+
+| Suite | Covers |
+| --- | --- |
+| `tests/streaming` | the real-time streaming package and the `getlive` hardware path |
+| `tests/tooling` | the test runner itself |
+| `tests/visual_detect` | post-stimulus visual detection (COG-BCI PVT) |
+| `scripts/auditory/tests` | auditory attention |
+| `scripts/dataproc/streaming/tests` | the legacy live implementation |
+
+`--suite <name>` runs one of them; `-v` streams its output. The runner exits
+non-zero if a suite fails **or reports no tests at all**.
+
+That last rule is not decoration. `tests/visual_detect` holds plain `test_*`
+functions with their own runners rather than `unittest.TestCase` classes, so
+`unittest discover -s tests/visual_detect` prints `Ran 0 tests ... OK` - green,
+and empty. It ran that way, unnoticed, until the runner was added, which now
+reports its tests like any other suite. A suite whose tests are all skipped
+counts as not green for the same reason.
+
 ## Where to write code
 
 - Put reusable Python modules under `src/` (e.g. `src/nova2026/data/`, `src/nova2026/architecture/`).

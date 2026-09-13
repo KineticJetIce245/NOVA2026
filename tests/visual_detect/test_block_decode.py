@@ -1,9 +1,14 @@
 """Tests for trial averaging: block formation, block labels and the two modes.
 
-Run either with pytest or directly:
+These are plain test functions with the runner at the bottom of the file, not
+``unittest`` cases, so ``unittest discover`` collects nothing here and used to
+report the directory green and empty. Run every suite in the repository with:
 
-    .venv\\Scripts\\python.exe -m pytest tests/visual_detect -q
-    .venv\\Scripts\\python.exe tests\\visual_detect\\test_block_decode.py
+    .venv/bin/python -B scripts/run_tests.py
+
+or this file on its own, from the repository root:
+
+    PYTHONPATH=. .venv/bin/python -B tests/visual_detect/test_block_decode.py
 """
 
 from __future__ import annotations
