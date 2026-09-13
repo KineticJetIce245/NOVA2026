@@ -32,15 +32,32 @@ scikit-learn 1.9.0 / pandas 3.0.5 / matplotlib 3.11.1；Node v26.7.0；
 缺 `fastapi`/`uvicorn`/`websockets`/`httpx`；`sounddevice` 不装。
 **基线测试**：5 suites / 523 tests / 0 skipped / 92.1s，exit 0，全绿。
 
-### 已实测的四条硬事实
+### 已实测的硬事实
 
 1. `S1.mat` 的 `trials` 是 20 个 struct，EEG `49792×64 @128Hz`；`stimuli` 字段是 **hrtf** 文件名，
    而官方 `preprocess_data.m` 取包络用的是 **dry** 文件。
-2. 现有 `load_kuleuven` 的 `rglob(name)` 要求唯一匹配 —— 同 part 重复试次会让同一文件名出现 2~3 次
-   （`rep_part1_track1_hrtf.wav` 出现 3 次），朴素转换会抛错。
-3. 数据集**不含通道位置文件**；`mne.channels.make_standard_montage('biosemi64')` 第 48 个（1-based）正是
-   `Cz`，与官方 `rereference='Cz'` 一致 → 通道命名口径据此钉死，并在 `metadata.json` 写明依据。
+   **→ 步骤 2 修正**：其中一半 trial 的 `stimuli` 本身就是 `_dry.wav`（part3/part4），所以映射必须**幂等**；
+   `attended_track` 是 **int**（1/2）不是字符串。
+2. ~~现有 `load_kuleuven` 的 `rglob(name)` 要求唯一匹配 → 同 part 重复试次会让同一文件名出现 2~3 次，朴素转换会抛错。~~
+   **→ 步骤 2 证伪（主 agent 的原始判断是错的）**：`stimuli/` 是扁平目录、每个文件只出现一次，
+   `rglob` 又是**按 trial 独立调用**的，所以旧代码**不会抛错**（实测 S1：`OK n = 20`，exit 0，5.4 s）。
+   真正的缺陷是**静默的**：旧代码用 **hrtf** 渲染版算参考包络，与数据集作者 recipe（dry）矛盾——
+   hrtf 里的头相关滤波正是解码要解释的东西，却混进了参考包络。这比崩溃更危险。
+3. 数据集**不含通道位置文件**；`biosemi64` 第 48 个（1-based）正是 `Cz`，与官方 `rereference='Cz'` 一致
+   → 通道命名口径据此钉死，并在 `metadata.json` 写明依据（已落地）。
 4. attune-ui 是团队成员在另一仓库的子模块，**无需许可**；只读克隆在 `C:\Files\git\_research\attune-ui`。
+5. **音频素材实测**：**44 100 Hz / 单声道 / int16**；完整段约 **394.0–395.3 s**，`rep_` 段 **125.0 s**；
+   peak 约 3297–4886（int16 满量程的 10–15%，归一化后 ≈0.10–0.15）。包络体积可忽略（单个 ≈100 KB）。
+6. **素材比 EEG 长**：每个 trial 都如此，差 **+1.0 s 到 +72.9 s**。必须按 EEG 长度截断音频
+   （数据集 README 与 `preprocess_data.m` 都这么做）。**步骤 4 需冻结此口径**。
+7. **`rep_part{N}` 与 `part{N}` 是同一段音频**（主 agent 实测）：`rep_part1_track1_dry.wav` 与
+   `part1_track1_dry.wav` 的**前 125.00 s 逐样本完全相同**（max abs diff = 0；两者 SHA1 不同是因为长度不同）。
+   → **故事泄漏风险确认存在**：留出故事/受试者的划分必须把 `rep_*` 与其本体视为**同一组**，
+   否则同一段语音会同时出现在训练与验证里，准确率会虚高。这是步骤 5 的硬约束。
+8. **回放加速**：完整 trial 6.5 分钟，1× 回放对开发迭代太慢 → `demorun` 需要 `--clip <秒>`。
+9. EEG 侧 128 Hz、模型侧 64 Hz，链内重采样比正好为 2。
+10. **KU Leuven 的物理单位是 µV**（峰值 ≈325.6），而现场 ANT 数据是**伏特**（峰值 ≈0.0833 V）。
+    两者的 `source_unit_exponent` 必须参数化（见 §3.11 第 6 条）。
 5. **音频素材实测**（主 agent 侦察，`datasets/AAD-KULeuven/stimuli/*_dry.wav`）：
    **44 100 Hz / 单声道 / int16**；完整段约 **394.0–395.3 s**，`rep_` 段 **125.0 s**；
    peak 约 3297–4886（int16 满量程的 10–15%，故归一化后幅度 ≈0.10–0.15）。
@@ -199,43 +216,99 @@ scikit-learn 1.9.0 / pandas 3.0.5 / matplotlib 3.11.1；Node v26.7.0；
 
 ---
 
-### 3.11 真人硬件的通道数与跨设备口径（用户 2026-09-13 补充，待截图确认）
+### 3.11 真人硬件的通道数与跨设备口径（2026-09-13 实测更新）
 
-**已知**：用户最终要用的实时 EEG 是 **24 + 1 通道**（24 个 EEG 电极 + 1 个参考/地，具体布局待用户提供实测截图确认）。
-**未知/待确认**：24 个电极的具体名单位置、参考落在哪、放大器采样率（`scripts/getlive/README.md` 提到过 250 Hz 与 500 Hz 两种情形）、单位与量程。
+**实测参数（读自 `tmp/antneurodata/audio/*.cnt`，用 `mne.io.read_raw_ant`）**：
 
-**这条为什么重要**：KU Leuven 是 **64 通道**，而 `AuditoryProcessor` / `prepare()` 会把「源通道」与「模型契约通道」逐一比对，
+| 项 | 值 |
+| --- | --- |
+| 采样率 | **500 Hz** |
+| 通道数 | **24 个 EEG**（无独立参考通道出现在 `.cnt` 里） |
+| 通道名（列序） | `Fp1, Fp2, F9, F7, F3, Fz, F4, F8, F10, M1, T7, C3, C4, T8, M2, Cz, P7, P3, Pz, P4, P8, Oz, O1, O2` |
+| 时长 | 会话 1 = 310.19 s；会话 2 = 328.63 s |
+| 单位 | **伏特**（MNE 语义）：5 s 内峰值 ≈ 0.0833 V = 83333 µV，正是 24 位放大器的典型饱和量级（±83.9 mV） |
+| 标记 | `.evt` 由 `read_raw_ant` 自动读入 annotations：`1004/Start`、`1001/Left side`、`1006/Custom Annotation`；会话 1 有 26 个、会话 2 有 28 个 |
+
+**跨设备公共通道**：KU Leuven(64) ∩ 现场 cap(24) = **20 个**
+`Fp1 Fp2 F7 F3 Fz F4 F8 T7 C3 C4 T8 Cz P7 P3 Pz P4 P8 Oz O1 O2`；
+现场独有 4 个：`F9 F10 M1 M2`（前颞与乳突），KU Leuven 独有 44 个。
+KU Leuven 列索引：`Fp1=0 Fp2=33 F7=6 F3=4 Fz=37 F4=39 F8=41 T7=14 C3=12 C4=49 T8=51 Cz=47 P7=22 P3=20 Pz=30 P4=57 P8=59 Oz=28 O1=26 O2=63`。
+
+**这条为什么重要**：`AuditoryProcessor` / `prepare()` 会把源通道与模型契约通道逐一比对，
 不一致就**拒绝启动**（`scripts/auditory/live.py:66-69`，`src/nova2026/streaming/preflight.py` 的 `ChannelContract`）。
-所以「用 KU Leuven 训练的解码器」直接接 25 通道硬件**跑不起来**，必须在计划里显式处理。
+用 64 通道训练的解码器**无法**直接接这台 24 通道设备。
 
-**候选方案（步骤 11 前必须定，现在只登记不选）**：
+**选定口径：公共通道子集（方案 A），外加保底的 64 通道路径**
 
-| 方案 | 做法 | 代价 |
-| --- | --- | --- |
-| A. 公共通道子集 | 训练时就只用 24+1 硬件与 KU Leuven 的**公共电极**（按 BioSemi64 命名取子集），契约按该子集训练 | 需要确认硬件 24 个电极的确切名称；解码器输入维度变小，性能需重新评估 |
-| B. 空间投影 | 用 `src/nova2026/streaming/spatial.py` 现有的空间算子把手头布点投到训练布点 | 需要电极坐标（`datasets/CAP-POS/` 有 CA-208 等电极位置 PDF），且投影会引入近似误差 |
-| C. 双契约 | 演示仍用 KU Leuven 64 通道（无设备 demorun），真人模式另训一个 24+1 契约的解码器 | 两套权重、两份评估；诚实但工作量翻倍 |
+1. **主口径**：解码器在 **20 个公共通道**上训练与评估（两个数据集都能提供），现场契约即这 20 个通道；现场多出的 `F9 F10 M1 M2` 不参与解码（`ChannelContract` 支持按名选择，多出的列被忽略）。
+2. **为什么不用 KU Leuven 独有的 44 个**：现场拿不到这些电极，用它们训练等于在演示时喂常数。
+3. **为什么不做空间投影（方案 B）**：现有 `spatial.py` 的算子需要电极坐标，而现场 cap 的布点文件尚未确认；且投影会引入近似误差，20 个同名同位的公共电极不存在这个问题。
+4. **保底**：无设备 `demorun`（V1–V5）用 **64 通道**，保证与数据集原论文口径可比；真人模式用 20 通道契约。
+5. **评估必须两种契约都报**：20 通道 vs 64 通道的准确率差，是"能不能上真人"的直接判据。
+6. **单位口径**：现场数据是**伏特**（需 `source_unit_exponent=-6`），KU Leuven 是 **µV**（≈325 峰值，即 `0`）。
+   两者**都不需要**在链内做数值换算，因为 `Repair` 的 `source_unit_exponent` 只用于端点安全检查、不改值
+   （`src/nova2026/streaming/preprocess/repair.py:86-88, 164-172`）；但 `AuditoryProcessor` 目前把它**硬编码为 -6**
+   （`src/nova2026/auditory/streaming.py:71`），对 KU Leuven 的 µV 数据是错的量纲假设。**步骤 5 之前必须参数化**，
+   否则安全检查会误判（325 µV 被读成 3.25e8 µV，远超 75 000 µV 的饱和线）。
 
-**暂定口径**：无设备 `demorun`（V1–V5）用完整 64 通道，**不受**此条影响；
-真人模式（步骤 11）在拿到用户截图后按上表择一，并把选择与理由写回本节，同时按 §7 登记变更。
+### 3.12 真实测试数据集（用户指定的最终 test dataset）
+
+**位置**：`tmp/antneurodata/`。**这是用户实机录制的数据，最终验证以它为准。**
+
+| 文件 | 作用 |
+| --- | --- |
+| `audio/*.cnt` + `*.evt` | 两个会话的 EEG（500 Hz / 24 通道，见 §3.11）与事件标记 |
+| `audio_files/experiment/dichotic_15min.wav` | 双声道刺激：**左声道 = 左耳候选，右声道 = 右耳候选** |
+| `audio_files/experiment/left_raw.wav` / `right_raw.wav` | 两路候选的原始单声道素材（包络来源） |
+| `audio_files/experiment/left_cut.wav` / `right_cut.wav` / `left_mono.wav` / `right_mono.wav` | 用户已做的切片/单声道版本 |
+| `audio_files/experiment/check_left.wav` / `check_right.wav` | 通道检查用 |
+| `audio_files/experiment/experiment/…` | 注意：存在同名嵌套层，导入器必须显式定位，不得靠猜 |
+
+**时间轴（用户给定，必须严格执行）**：
+
+- **会话 1**（`…19-34-06`）：音频从 **0 s** 开始播放。
+- **会话 2**（`…19-41-11`）：音频从 **4:27 = 267.0 s** 处开始播放。
+- 会话内以 `.evt` 的 `Start` 标记为对齐锚点；两个会话是同一段 15 分钟刺激的两半。
+- 两个会话合计 **638.8 s**，而刺激约 900 s，与上述起点一致（267 + 328.6 ≈ 595.7，仍在 900 s 内）。
+
+**标记语义**：`1001/Left side` = 提示注意左耳，`1006/Custom Annotation` = 注意右耳（或误触）。
+用户明确提示：**收集时误按过一些标记，必须去除**。因此：
+**未经用户确认前，不得把 `1006` 直接当作右耳标签**；导入器必须把标记表原样导出供人工核对，
+并把「哪些标记是误触」做成显式清单，而不是靠启发式规则静默丢弃。
+
+**标注口径（用户给定）**：
+
+- 每次切换后取 **0.5–1 s 作为 buffer**：该区间标 `label = -1`（unknown）。
+- 有效窗口持续到**下一次切换前 0.5 s**：该区间同样标 `-1`。
+- 用户提示「有的时候可能会有很大的干扰」：这些段落在审计里必须可见（质量指标 + 拒帧统计），不得静默剔除。
+
+**定位**：`tmp/antneurodata/` 是**测试集**（评估用），不是训练集——训练仍在 KU Leuven 上做。
+`tmp/` 已被 git-ignore，所以导入器与标签清单必须能把结果写到 `datasets/`（派生物，不入库）
+与 `results/`（评估 JSON，入库例外见 `.gitignore`）。
+
+**新增依赖**：读取 `.cnt` 需要 `antio`（已装，`0.7.1`，MNE 核心团队维护，LGPL-3.0，win_amd64 wheel）；
+`mne.io.read_raw_cnt` 是给 NeuroScan 的，读 ANT 会报 `Event table offset … larger than file size` 这类**误导性错误**，
+必须用 `mne.io.read_raw_ant`。`antio` 需要进 `pyproject.toml` 的 `eeg-ant` 可选依赖组。
 
 ---
 
 ## 4. 最终验收（本计划的完成定义）
 
 **用已有数据集、以尽可能真实模拟实机的方式，完整跑一次 demo。** 具体判据：
+**"尽可能真实模拟实机" = 用用户实机录制的 ANT 数据（§3.12）作为测试输入，走真实流式链路、真实前端、真实音频增益通路。**
 
 | # | 判据 | 证据 |
 | --- | --- | --- |
-| V1 | 无设备 `demorun` 一条命令跑通：FastAPI 起服务 + 提供 `dist/` + 1× 回放真实 KU Leuven trial | 完整运行日志（exit 0） |
+| V1 | 无设备 `demorun` 一条命令跑通：FastAPI 起服务 + 提供 `dist/` + 1× 回放一段**真实 trial**（KU Leuven 与/或 ANT） | 完整运行日志（exit 0） |
 | V2 | 前端真实渲染：`attention`/`gain`/`eeg_display`/`session` 包被解码显示，`rejected` 计数为 0 | 截图 + 诊断面板 JSON |
 | V3 | 增益真的激活：`mediaFocusReady` 全条件满足，`attune` 模式观察到每路 dB 变化 | 前端状态导出的时间序列 |
-| V4 | 决策与真值可比：窗口级准确率 + 覆盖率 + 误切换写入 `results/` | 指标 JSON |
+| V4 | 决策与真值可比：窗口级准确率 + 覆盖率 + 误切换写入 `results/`；**ANT 测试集上必须报 20 通道契约的结果** | 指标 JSON |
 | V5 | 同步质量可查：块时间误差、漂移 ppm、拟合残差 | `timing.json` / 报告 |
 | V6 | 离线回归全绿：`scripts/run_tests.py` + 前端 `npm test` | 测试输出 |
 | V7 | `VALIDATION.md` 写明声称/不声称/失败模式 | 文档 |
+| V8 | **ANT 真实数据导入可核对**：标记表原样导出 + 误触清单 + 20 通道公共子集映射被断言 | 导入报告 JSON + 用户可核对的标记表 |
 
-**注意**：V1–V5 是**无设备**路径，用真实数据 + 真实链路 + 真实前端达成；真人硬件路径（步骤 11）只交付
+**注意**：V1–V5、V8 是**无设备**路径，用真实数据 + 真实链路 + 真实前端达成；真人硬件路径（步骤 11）只交付
 「代码与校准流程就绪 + 实测记录（硬件在场时）」，硬件不在场则在 `VALIDATION.md` 标注未验证。
 
 ---
@@ -248,7 +321,7 @@ scikit-learn 1.9.0 / pandas 3.0.5 / matplotlib 3.11.1；Node v26.7.0；
 | # | 步骤 | 交付物 | 证据 | 预算（步/分钟） | 状态 |
 | --- | --- | --- | --- | --- | --- |
 | 1 | **基线固化** | `results/test_baseline_<date>.txt` + 依赖清单 | `python -B scripts/run_tests.py` 全绿 | 14 / 15 | **DONE** — `results/test_baseline_20260913-005823.txt`：523 tests 全绿，commit `21a637e` |
-| 2 | **KU Leuven 转换** | `metadata.json` + `converted/S*/trial_*.npz`；解决 hrtf/dry 与重复文件名 | 转换 exit 0；抽查形状/时长/对齐 | 45 / 50 | TODO |
+| 2 | **KU Leuven 转换** | `metadata.json` + `converted/S*/trial_*.npz`；解决 hrtf/dry 与重复文件名 | 转换 exit 0；抽查形状/时长/对齐 | 45 / 50 | **DONE** — commit `3e0ba15`；320 trials / 15.15 GB，dry 映射逐位可验证；auditory 套件 53 tests 全绿。**证伪了计划原事实 2**（见 §1） |
 | 3 | **包络预计算**（B1） | `scripts/auditory/envelopes.py` + `src` 离线入口 + `datasets/audio/*.npz` + 一致性测试 | 生成全部 16 个 KU Leuven 素材包络；分块↔整段一致 | 45 / 50 | TODO |
 | 4 | **数据体检 + 契约冻结** | `results/kuleuven_audit.md`；冻结 `AuditoryConfig` 与特征契约 | 审计脚本 + 报告 | 35 / 40 | TODO |
 | 5 | **解码器训练与评估** | `models/auditory_kuleuven.npz` + `results/aad_<date>.json`（留出故事 **+** 留一被试 + 窗长曲线） | 训练命令 + 指标 JSON | 35 / 75 | TODO |
@@ -257,17 +330,26 @@ scikit-learn 1.9.0 / pandas 3.0.5 / matplotlib 3.11.1；Node v26.7.0；
 | 7 | **前端移植** | `apps/attune-ui/`（来源 commit 记录）+ `npm ci/build/test` 通过 | 构建产物 + 测试输出 | 35 / 60 | TODO |
 | 8 | **`AttentionSession` + 生产者** | `src/nova2026/auditory/session.py` + `AttentionProducer`；合成 trial 先打通 | 端到端日志 + 前端截图 | 50 / 60 | TODO |
 | 9 | **媒体时间轴与音频** | 立体声 WAV（L=A,R=B）经 `/api/media/file`；`media/control` 握手 + 250 ms `report` | `|Δt| ≤ 0.75 s` 证据 + 增益激活证据 | 50 / 60 | TODO |
+| 9.5 | **ANT 真实数据集导入**（§3.12） | `scripts/auditory/antneuro.py`：读 `.cnt`（`read_raw_ant`）+ 会话音频起点（0 s / 267 s）+ 标记清单 + 用户标注口径（切换 ±buffer → `-1`） | 标记表导出供人工核对；每个会话的 trial 形状/时长/标签分布；误触清单显式记录 | 45 / 60 | TODO |
 | 10 | **真实 trial 全链路 + 一键入口** | `python -B -m scripts.auditory_ui.demo`：起服务 + 1× 回放 + 开浏览器 | V1–V5 全部证据 | 50 / 70 | TODO |
 | 10.5 | **无设备 demorun**（H2） | `python -B -m scripts.auditory_ui.demorun`：无人值守跑完整场并出报告 | 运行日志 + `results/` 报告 | 30 / 45 | TODO |
 | 11 | **真人实时模式** | eego/LSL 接同一 `AttentionSession`；校准流程（含回环测量） | 硬件实测记录（在场时） | 45 / 75 | TODO |
 | 12 | **评估收口 + 文档** | `VALIDATION.md`、`documents/auditory_ui_protocol.md`、根 `README.md` | 文档 + 评估命令 | 35 / 50 | TODO |
 
+### 步骤 3–5 的口径修订（2026-09-13，依据 §3.11/§3.12 实测）
+
+| 步骤 | 原口径 | 修订后 |
+| --- | --- | --- |
+| 3 | 对 KU Leuven 16 个 dry 素材算包络 | **不变**；另需对 §3.12 的 `left_raw.wav`/`right_raw.wav` 也算（测试集需要参考包络） |
+| 4 | 审计 KU Leuven + 冻结契约 | **增加**：①参数化 `Repair` 的 `source_unit_exponent`（µV vs V，见 §3.11 第 6 条）；②审计必须验「trial 内标签恒定」；③`rep_*` 与本体同组（事实 7） |
+| 5 | 训练 64 通道解码器 | **双契约**：64 通道（保底，与论文可比）**和** 20 公共通道（真人模式用）各训一个；留出故事与留一被试两种口径都要跑；`group` 必须把 `rep_*` 与本体合并 |
+
 ### 依赖关系
 
 ```text
 1 → 2 → 3 → 4 → 5 → 5.5 ─┐
-                         ├→ 8 → 9 → 10 → 10.5 → 12
-        6 → 7 ───────────┘              └→ 11（硬件在场）
+                         ├→ 8 → 9 → 9.5 → 10 → 10.5 → 12
+        6 → 7 ───────────┘               └→ 11（硬件在场；用 20 公共通道契约）
 ```
 
 ---
@@ -290,7 +372,7 @@ scikit-learn 1.9.0 / pandas 3.0.5 / matplotlib 3.11.1；Node v26.7.0；
 | 步骤 | 必须加载 | 原因 |
 | --- | --- | --- |
 | 1 | — | 纯执行 |
-| 2, 3, 4, 5, 5.5 | `structure-dev`（阶段完成时） | 代码/测试/审查规范 |
+| 2, 3, 4, 5, 5.5, 9.5 | `structure-dev`（阶段完成时） | 代码/测试/审查规范 |
 | 6, 8, 9, 10, 10.5, 11 | **`secure-web-dev`** + `structure-dev` | 涉及 HTTP 服务、WebSocket、LSL/网络通信 |
 | 7 | `secure-import` + `structure-dev` | 会执行 `npm ci` 安装第三方依赖 |
 | 任何 `pip install` / `uv add` | **`secure-import`**（装之前） | 依赖安装审批流程 |
@@ -371,4 +453,6 @@ scikit-learn 1.9.0 / pandas 3.0.5 / matplotlib 3.11.1；Node v26.7.0；
 | 2026-09-12 | v1.1：新增 §6.1 强制 skill 加载表、§6.2 子 agent 预算与防死循环（熔断、新 agent 接手、限额升级）、§6.3 预登记命令表；步骤表加入每步预算 | 主 agent |
 | 2026-09-13 | v1.2：步骤 1 **DONE**（523 tests 全绿，commit `21a637e`）；按 §6.2 规则 4 将全部步骤预算重校准（步骤 1 实测 14 步，名义 6 步属于预算设定错误，非 agent 失控）；§6.2 增补 `git check-ignore` 的验收陷阱与替代判据 | 主 agent |
 | 2026-09-13 | v1.3（commit `0e9b7fa`）：§1 新增音频素材实测（44.1 kHz 单声道 int16、394.0–395.3 s、`rep_` 段 125.0 s、包络约 100 KB）；素材比 EEG 长故必须按 EEG 长度截断；demorun 需 `--clip`；链内重采样比 2 | 主 agent |
-| 2026-09-13 | v1.4：新增 §3.11 真人硬件 24+1 通道与跨设备契约口径（含 A/B/C 三个候选方案与暂定口径）；新增 §8「主 agent 变更登记规则」 | 主 agent |
+| 2026-09-13 | v1.4：新增 §3.11 真人硬件 24+1 通道与跨设备契约口径（含 A/B/C 三个候选方案与暂定口径）；新增 §7「主 agent 变更登记规则」 | 主 agent |
+| 2026-09-13 | v1.5：**求真而非求顺**——§1 事实 2 被步骤 2 证伪（旧 loader 不抛错，真正缺陷是静默用 hrtf 当参考包络），新增事实 7（`rep_*` 与本体育**逐样本相同** → 故事泄漏是真实风险）、事实 10（µV vs V）；步骤 2 标 DONE（commit `3e0ba15`） | 主 agent |
+| 2026-09-13 | v1.6：新增 §3.12 真实测试数据集（`tmp/antneurodata/`，含两会话音频起点 0 s / 267 s、标记语义与误触警告、用户给定的 ±buffer 标注口径）；§3.11 由实测替换为确定参数（500 Hz / 24 通道 / 伏特 / 20 个公共通道）；新增步骤 9.5（ANT 导入器）、步骤 3–5 口径修订表、验收 V8；依赖图更新 | 主 agent |
