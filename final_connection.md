@@ -295,6 +295,21 @@ KU Leuven 列索引：`Fp1=0 Fp2=33 F7=6 F3=4 Fz=37 F4=39 F8=41 T7=14 C3=12 C4=4
 **暂定推进顺序（不阻塞当前步骤）**：先按现有形态把整条链路跑通（V1–V9），
 再在步骤 11 之后加一步"同混合呈现"的改造与重新评估。**代价与风险已登记为 D-20。**
 
+### 3.17 步骤 5 暴露的三条跨步硬约束（必须传给 5.5 / 8 / 10 / 11）
+
+1. **默认质量策略会让 demorun 中途停机。** 在 `check_channels=True, max_bad_channels=0` 下，
+   KU Leuven 里幅度超 500 µV 的 fault 很常见；`S1/trial_003` 直接抛
+   `EEG quality faults persisted beyond the allowed duration (122s)`（恢复上限 = `max(15, 2*history+2)`）。
+   步骤 5 的缓存因此显式使用 `check_channels=False`（这是文档化的 run policy：**信号不变，只改判决**）。
+   **步骤 10 的 demorun 若沿用默认策略会在中途停下，V1 直接跑不通** → demorun 必须显式选择放宽策略，
+   并且这个选择要写进运行记录与 `VALIDATION.md`，而不是悄悄改默认值。
+2. **链条会丢掉每个 trial 最后约 1 s。** 重采样器的 reserve 使 64 Hz 流提前结束
+   （124 s trial → 7872 而非 7936 点）。缓存按**实测窗口长度**而非公式推导，实现里有注释。
+   任何"用公式算窗数"的代码都会错一格。
+3. **`evaluation.assert_held_out` 会拒绝 LOSO。** 它按 story token 比对，而每个被试都有同样 4 个故事，
+   留一被试的训练侧必然包含验证侧的故事。步骤 5 只对"留出故事"口径调用该守卫，LOSO 改用自有 trial 级检查。
+   这是既有库语义，不是 bug——但步骤 8/10 若复用该守卫必须先看清这一点。
+
 ### 3.16 扰动用例矩阵（用户 2026-09-14 要求：**只有一项是"正常"，其余都必须带故障**）
 
 最终演示验证必须跑**一整组**用例：1 项正常路径 + N 项注入故障。每一项都要有明确的
@@ -446,7 +461,7 @@ KU Leuven 列索引：`Fp1=0 Fp2=33 F7=6 F3=4 Fz=37 F4=39 F8=41 T7=14 C3=12 C4=4
 | 2 | **KU Leuven 转换** | `metadata.json` + `converted/S*/trial_*.npz`；解决 hrtf/dry 与重复文件名 | 转换 exit 0；抽查形状/时长/对齐 | 45 / 50 | **DONE** — commit `3e0ba15`；320 trials / 15.15 GB，dry 映射逐位可验证；auditory 套件 53 tests 全绿。**证伪了计划原事实 2**（见 §1） |
 | 3 | **包络预计算**（B1） | `scripts/auditory/envelopes.py` + `src` 离线入口 + `datasets/audio/*.npz` + 一致性测试 | 生成全部 16 个 KU Leuven 素材包络；分块↔整段一致 | 45 / 50 | **DONE** — commit `ab63ede`；离线=运行时用**精确相等**断言，分块↔整段 max diff = 0.0；18 个包络 `--verify` 通过。主 agent 修正了测试集包络来源（`*_mono` 而非 `*_raw`，见 §3.12）。**例外**：`src/nova2026/auditory/envelopes.py` 365 行，超 structure-dev 的 300 行建议，经主 agent 知情批准（拆分会把「离线=运行时」契约分散到两个文件） |
 | 4 | **数据体检 + 契约冻结** | `results/kuleuven_audit.md`；冻结 `AuditoryConfig` 与特征契约 | 审计脚本 + 报告 | 35 / 40 | **DONE** — commit `48c412d`；585 行报告 + 19264 行逐 trial JSON；`source_unit_exponent` 已参数化（`DEFAULT_SOURCE_UNIT_EXPONENT = -6` 带白名单校验，且**默认行为未变**）；分组键已折 `rep_`；契约冻结列出 7 项不可变内容。**并纠正了主 agent 关于单位的一处错误判断**（见 §3.11 第 6 条） |
-| 5 | **解码器训练与评估** | `models/auditory_kuleuven.npz` + `results/aad_<date>.json`（留出故事 **+** 留一被试 + 窗长曲线） | 训练命令 + 指标 JSON | 35 / 75 | TODO |
+| 5 | **解码器训练与评估** | `models/auditory_kuleuven.npz` + `results/aad_<date>.json`（留出故事 **+** 留一被试 + 窗长曲线） | 训练命令 + 指标 JSON | 35 / 75 | **DONE** — commit `1a6bc3c`；320 trials、双契约、两口径、窗长曲线。**关键结论：原始准确率（0.617/0.609/0.594/0.586）低于多数类率 0.6586，只有平衡准确率可信**（64ch 0.6195/0.6115，20ch 0.5974/0.5891）。**20 通道比 64 通道低约 2.2 个百分点 → 上真人的代价已量化**。窗长曲线单调上升：64ch 平衡 0.637(5s)→0.698(10s)→0.796(30s)→0.875(60s)，**步骤 5.5 与 demo 应偏向 30–60 s 窗**（60 s 点仅 288 窗/4 被试）。**例外**：`feature_cache.py` 530 行 / `train_kuleuven.py` 584 行超 300 行建议，理由同步骤 3。**预算超支 2.4×**（85 步 vs 35） |
 | 5.5 | **偏移扫描实验** | `results/aad_shift_sweep_<date>.json`：包络滑 ±300 ms 的相关衰减曲线 | 扫描脚本 + 曲线 | 30 / 40 | TODO |
 | 6 | **传输层移植**（须读 `secure-web-dev`） | `src/nova2026/transport/{protocol,publisher,sessions,server}.py` + 契约测试 | 单测全绿：包校验/快照/1013/生命周期 | 50 / 60 | **DONE** — commit `7f2ab43`；63 个契约测试全绿；`tests/transport` 已加入 `scripts/run_tests.py`（全仓 628 tests）；依赖 5 个 pin 经 `secure-import` 逐个核验。**例外**：`server.py` 364 行 / `create_app` ~170 行，经批准作为已记录例外。**预算超支约 2 倍**（103 步 / 90 分钟），未触发重试闸 |
 | 7 | **前端移植** | `apps/attune-ui/`（来源 commit 记录）+ `npm ci/build/test` 通过 | 构建产物 + 测试输出 | 35 / 60 | **DONE** — commit `61ca57c`（来源 `4a523956`，逐文件 SHA256 记录在 `PROVENANCE.md`）；`npm ci` / `build` 通过；测试 **53/53**（配合 `apps/backend/` 测试替身与 `ATTUNE_PYTHON`，见 D-12/D-16） |
