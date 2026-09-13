@@ -6,6 +6,18 @@ import math
 # Short-window null probes exceeded the report's suggested 0.22 starting value.
 MIN_MARGIN = 0.5
 
+# The value above was never measured until ``scripts/auditory/margin_calibration``
+# swept 0.05..0.60 across window lengths on step 5's held-out story folds
+# (``results/aad_margin_calibration_*.md``): at the window length the saved model
+# runs (5 s) it covers 0.0015 of the published frames, and margin 0.05 covers
+# 0.524 of them at balanced accuracy 0.688 on the decided frames, above chance in
+# all four held-out stories. MIN_MARGIN is deliberately **not** moved -- a
+# calibrated margin is a run-policy choice, and a session must state it rather
+# than inherit it. These constants name the recommended point; nothing defaults
+# to them.
+CALIBRATED_MARGIN = 0.05
+CALIBRATED_HISTORY_SECONDS = 5.0
+
 
 class AuditoryConfig:
     """Keep feature settings explicit and independent of thread ownership."""
