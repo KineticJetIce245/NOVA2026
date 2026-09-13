@@ -127,7 +127,7 @@ def abbreviate(names: tuple[str, ...], limit: int = 12) -> str:
 # "repaired". It moved to the default after the rig stopped being available, on
 # that measurement plus the tests showing it is a near-no-op on a clean source and
 # also regularises a chunk-stamped one; "stamps" stays as the escape hatch. See
-# documents/TIMEBASE_DESIGN.md.
+# documents/timebase_design.md.
 TIME_BASE_MODES = ("stamps", "grid")
 
 

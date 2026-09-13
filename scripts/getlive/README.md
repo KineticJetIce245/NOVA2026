@@ -157,7 +157,7 @@ the limit does not depend on how long the run happened to be. The 2-9 samples pe
   project measured fails without the grid (the 0.48% above), while grid mode is a
   near-no-op on a clean source and also regularises a chunk-stamped one. The
   failure and the fix are reproduced against synthetic timelines in
-  `documents/streaming_explained.md` §11.15. `--timebase stamps` is the escape
+  `documents/streaming_guide_from_zero.md` §11.15. `--timebase stamps` is the escape
   hatch for a source whose grid is sound and whose timestamps you want untouched.
 
 ### Which cap contract is used

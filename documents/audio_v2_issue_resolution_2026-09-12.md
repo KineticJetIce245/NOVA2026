@@ -1,7 +1,7 @@
 # Audio v2 issue resolution - 12 September 2026
 
 A follow-up audit of this branch, the fixes it produced, and the items left open
-are in `documents/AUDIO_V2_AUDIT.md`.
+are in `documents/audio_v2_audit_2026-09-12.md`.
 
 Scope: the existing `audio_v2` branch only. Work is in a separate checkout so the
 user's `stream` checkout and its uncommitted work are preserved. No other branch

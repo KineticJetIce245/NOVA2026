@@ -2,7 +2,8 @@
 
 Predicts, from the posterior EEG after stimulus onset, whether the subject
 registered the stimulus. Standalone: it shares no code or preprocessing with the
-pre-stimulus attention pipeline in ``scripts/dataproc/``.
+pre-stimulus attention pipeline that used to live in ``scripts/dataproc/``
+(removed in the D-22 cleanup, ``final_connection.md``).
 
 Modules
 -------

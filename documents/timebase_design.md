@@ -5,7 +5,7 @@ Scope: Phase 1 of the streaming refactor — the time base only. The channel
 policy, the recording reader, the offload wiring and the legacy
 `scripts/dataproc/streaming` tree are deliberately out of scope.
 
-Related: `documents/streaming_explained.md` §11 (the bring-up post-mortem),
+Related: `documents/streaming_guide_from_zero.md` §11 (the bring-up post-mortem),
 `scripts/getlive/compare_cnt.py` (the ground-truth tool),
 `tests/streaming/test_rig_bringup.py` (the frozen regression tests).
 
@@ -26,7 +26,7 @@ grid implies and the source did not send, interpolates it, and flags every windo
 that overlaps the repair as `interpolated` - 14 of 58 windows in the 30 s run.
 (The `unsafe_endpoints` faults seen that day were a separate symptom: they came
 from the wrong unit assertion, not from the electrode offset. Corrected in
-`streaming_explained.md` 11.8.)
+`streaming_guide_from_zero.md` 11.8.)
 
 ## 2. Two explanations were tried and both are wrong
 
@@ -283,7 +283,7 @@ written.
 contrast it asks for was reproduced against the repository's own fixture publisher
 instead - 24 channels, 500 Hz, 0.3 ms of per-sample jitter: `stamps` died in 300
 samples with six recoveries, `grid` ran 11 850 samples with none
-(`streaming_explained.md` §11.15). That settles what the grid does with a stepping
+(`streaming_guide_from_zero.md` §11.15). That settles what the grid does with a stepping
 timeline. It cannot settle whether the amplifier's own steps survive a relay,
 because the relay is no longer in the path.
 

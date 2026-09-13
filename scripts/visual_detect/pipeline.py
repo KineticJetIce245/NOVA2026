@@ -1,7 +1,8 @@
 """Preprocessing pipeline for the post-stimulus visual-detection task.
 
 This pipeline is written for *this* task only and shares no code with the
-pre-stimulus attention pipeline in ``scripts/dataproc/``. Two of its defaults
+pre-stimulus attention pipeline that used to live in ``scripts/dataproc/``
+(removed in the D-22 cleanup, ``final_connection.md``). Two of its defaults
 are the opposite of what a slow-wave task would want, because this task reads a
 short evoked response rather than a spectral index:
 

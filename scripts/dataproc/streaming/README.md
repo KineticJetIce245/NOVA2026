@@ -8,8 +8,8 @@
 > package) or `scripts/getlive/` (the hardware path). Its recording format is not
 > the one the package writes.
 >
-> Successors: `documents/streaming_explained.md` for the package,
-> `documents/TIMEBASE_DESIGN.md` for the timeline, `scripts/run_tests.py` for the
+> Successors: `documents/streaming_guide_from_zero.md` for the package,
+> `documents/timebase_design.md` for the timeline, `scripts/run_tests.py` for the
 > suites.
 
 The live implementation keeps the two-thread runner and adds recording,

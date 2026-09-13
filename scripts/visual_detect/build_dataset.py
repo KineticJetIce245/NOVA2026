@@ -3,8 +3,9 @@
 Task
 ----
 Classify, from the occipital EEG **100-300 ms after the stimulus**, whether the
-subject registered the stimulus. This complements ``cogbci_pvt.py``, which
-predicts a lapse from the 2 s of signal *before* the stimulus.
+subject registered the stimulus. This complements the pre-stimulus lapse route
+in ``scripts/dataproc/``, which predicted a lapse from the 2 s of signal
+*before* the stimulus and was removed in the D-22 cleanup.
 
 Trial identity comes from the trial structure, not from the raw marker codes:
 
@@ -15,7 +16,7 @@ Trial identity comes from the trial structure, not from the raw marker codes:
 ``premature`` (12)
     28 trials in the whole dataset. In this log a code-12 marks a premature or
     invalid response, not a new stimulus, so it invalidates the pairing instead
-    of opening a trial (``cogbci_pvt.py`` turns it into a trial with RT -1).
+    of opening a trial (that removed route turned it into a trial with RT -1).
 
 Two label schemes are stored side by side. Labels are conditioned only on trial
 order and behavioural timestamps, never on the EEG, so the test subject's signal

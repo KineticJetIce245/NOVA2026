@@ -6,7 +6,7 @@ passes 181 tests on Windows, including LSL transport and recording. The 45 audit
 tests and 32 legacy streaming tests also pass (258 total). Added auditory
 regressions cover the report's latency, faults, confidence, timing, model contracts,
 metrics, held-out grouping, worker error and shutdown findings, plus the audit
-follow-ups listed in `documents/AUDIO_V2_AUDIT.md`. A real LSL test
+follow-ups listed in `documents/audio_v2_audit_2026-09-12.md`. A real LSL test
 publishes EEG with timestamps anchored to paced audio and verifies correct
 synthetic candidate scores and fresh evidence.
 
@@ -30,7 +30,7 @@ loopback or human calibration was performed. Device playback requires a measured
 calibration-matched timing profile with residual offset <=30 ms; the software
 cannot certify that the supplied measurement was actually performed.
 
-See `documents/AUDIO_V2_ISSUE_RESOLUTION.md` for all 26 report issues and D1-D11.
+See `documents/audio_v2_issue_resolution_2026-09-12.md` for all 26 report issues and D1-D11.
 
 ## Historical audio-branch baseline (superseded)
 

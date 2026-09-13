@@ -1790,7 +1790,7 @@ both were wrong the same way: arithmetic that was never done.
 (~0.14%), and UDP multicast made packet loss the natural explanation. The CNT
 comparison disproved it: 88 500 sample pairs, every run aligned at
 r = 1.000000, nothing differing by more than one LSB - no sample was ever missing.
-What the relay was counting were *timestamp* steps. `TIMEBASE_DESIGN.md` sections
+What the relay was counting were *timestamp* steps. `timebase_design.md` sections
 3 and 4 trace them to the stamping itself, and the run reports stopped calling
 them gaps when the counted grid replaced the block-spreading one.
 
@@ -1988,7 +1988,7 @@ Run them with:
 
 ### 11.15 The §9 contrast, reproduced without the cap
 
-The experiment in `TIMEBASE_DESIGN.md` §9 asks whether the source's own stamps
+The experiment in `timebase_design.md` §9 asks whether the source's own stamps
 step or the relay invented the steps. The cap has been offline since the
 bring-up, so the contrast was reproduced against the repository's own fixture
 publisher instead: `scripts.getlive.publish_raw --channels 24 --sfreq 500

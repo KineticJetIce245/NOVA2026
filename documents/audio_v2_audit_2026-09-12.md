@@ -56,7 +56,7 @@ behaviour change, so it is left for a separate change.
 ## How the audit was run
 
 1. Recon of the existing record first, so resolved items were not re-reported:
-   `documents/AUDIO_V2_ISSUE_RESOLUTION.md` (ISS-01..26, D1..D11),
+   `documents/audio_v2_issue_resolution_2026-09-12.md` (ISS-01..26, D1..D11),
    `output/pdf/NOVA2026_Auditory_Independent_Review.txt` (gaps A-D),
    `scripts/auditory/README.md`, `scripts/auditory/VALIDATION.md`.
 2. Five parallel read-only reviews: auditory core, auditory runners and CLIs, the
@@ -203,7 +203,7 @@ and builds no recorder. Three consequences:
 
 ### A7 — LOW/MEDIUM — the claimed "strict auto-quality test" does not exist; the production choice is the anti-aliasing-free preset
 
-`documents/AUDIO_V2_ISSUE_RESOLUTION.md:79-81` states that the old
+`documents/audio_v2_issue_resolution_2026-09-12.md:79-81` states that the old
 `StreamingResampler(quality="LQ")` test is superseded by "the supported auditory
 processor's strict auto-quality test". A grep for `resampl|quality|QQ|strict`
 over `scripts/auditory/tests` returns zero matches: no auditory test asserts
@@ -281,7 +281,7 @@ No shipped caller hits it, because `live.py:128` sets `available_at` first.
   `Ran 15 tests ... FAILED (errors=15)`, exit 1, because bare `python` has no
   `mne`. `scripts/auditory/README.md:218-220` uses `.venv/Scripts/python.exe`
   and works. The two documents disagree.
-- `documents/AUDIO_V2_ISSUE_RESOLUTION.md:97` claims "All 251 tests pass on
+- `documents/audio_v2_issue_resolution_2026-09-12.md:97` claims "All 251 tests pass on
   Windows/Python 3.14". The count 251 is reproducible; the version is not — the
   venv is 3.13.15 and no 3.14 interpreter exists here.
 
