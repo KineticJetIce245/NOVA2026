@@ -186,6 +186,13 @@ __MACOSX/
 # antneuro_live_run_packets (838 KB) and antneuro_live_split_20260914_packets
 # (787 KB). Decision D-50 records the removal.
 !results/antneuro_mutations_live.json
+# Exception: the contract split's mutation record. It is that change's section 6.4
+# obligation and the reason the split could be kept at all: the disputed tests were
+# re-run against the pre-split decoder in a copied tree and were green there, which
+# is how "the split introduced them" was established rather than assumed. One small
+# JSON file holding three mutations, the test each one must redden, and whether it
+# did. The packet streams and live run records beside it stay out of git.
+!results/antneuro_contract_split_mutations.json
 # Exception: the declared-amplitude-limit run and its mutation record. The run
 # record is the evidence that the recording's own excursion was measured before a
 # limit was declared, that the declared value reached both stages that judge an

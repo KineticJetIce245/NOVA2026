@@ -1,0 +1,33 @@
+{
+  "kind": "mutation check for the contract split and the failure cause",
+  "results": [
+    {
+      "mutation": "the-gate-stops-refusing-a-processing-difference",
+      "caught_by": "GatedKeysTests.test_a_different_band_still_refuses",
+      "caught": true,
+      "returncode": 1,
+      "detail": [
+        "FAILED (errors=1)"
+      ]
+    },
+    {
+      "mutation": "the-provenance-difference-is-not-recorded",
+      "caught_by": "RecordedProvenanceTests.test_a_provenance_only_difference_is_accepted_and_recorded",
+      "caught": true,
+      "returncode": 1,
+      "detail": [
+        "FAILED (errors=1)"
+      ]
+    },
+    {
+      "mutation": "a-scoring-failure-loses-its-cause",
+      "caught_by": "FailureCauseTests.test_a_scoring_failure_records_its_cause_in_the_summary",
+      "caught": true,
+      "returncode": 1,
+      "detail": [
+        "FAILED (errors=1)"
+      ]
+    }
+  ],
+  "survivors": []
+}
