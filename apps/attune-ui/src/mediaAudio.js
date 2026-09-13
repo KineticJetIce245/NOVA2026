@@ -29,7 +29,19 @@ export function positionAccepted(mediaTime, playbackTime,
   const difference = mediaTime - playbackTime;
   return difference <= ahead && difference >= -lag;
 }
-export function mediaFocusReady(state, playback) {
+// Is this page playing the media under a live session, with the transport
+// agreeing? Everything `mediaFocusReady` asks EXCEPT whether the newest frame
+// committed to a source.
+//
+// The two questions are different and were conflated. `mediaFocusReady` is the
+// GAIN gate, so it must demand a decision -- there is nothing to attenuate when
+// the system abstains. But the page's "Playback is not live" state was built from
+// the same answer, so an abstention was rendered as "No data · Playback is not
+// live" on a run whose playback was perfectly live. Measured on the synthetic-ANT
+// demo, whose source is uncorrelated with the speech envelopes and therefore
+// abstains almost every window: the card read "No data" continuously and the
+// honest answer -- the system is abstaining -- never appeared.
+export function mediaLinked(state, playback) {
   const latest = type => state.streams.findLast(s => s.type === type);
   const attention = latest('attention');
   const media = latest('media');
@@ -43,7 +55,13 @@ export function mediaFocusReady(state, playback) {
     !['desynchronized', 'invalid'].includes(sync?.values.status) &&
     attention?.sessionId === state.sessionId && attention.values.mediaId === playback.mediaId &&
     attention.values.mediaRevision === playback.revision &&
-    positionAccepted(attention.values.mediaTime, playback.time) &&
+    positionAccepted(attention.values.mediaTime, playback.time);
+}
+
+/** The gain gate: playback is live AND the newest frame committed to a source. */
+export function mediaFocusReady(state, playback) {
+  const attention = state.streams.findLast(s => s.type === 'attention');
+  return mediaLinked(state, playback) &&
     ['A', 'B'].includes(Object.hasOwn(attention.values, 'decision') ? attention.values.decision : attention.values.attended);
 }
 export function playbackGains(state, playback, mode) {

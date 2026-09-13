@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createMediaController } from './mediaController.js';
-import { formatMediaTime, mediaProgress, mediaFocusReady } from './mediaAudio.js';
+import { formatMediaTime, mediaProgress, mediaLinked } from './mediaAudio.js';
 const h = React.createElement;
 export function MediaPlayback({ config, rest, state, stopSignal = 0, children }) {
   const element = useRef(null), controller = useRef(null);
@@ -14,7 +14,9 @@ export function MediaPlayback({ config, rest, state, stopSignal = 0, children })
   }, [config, rest]);
   useEffect(() => { controller.current?.update(state); }, [state]);
   useEffect(() => { if (stopSignal) void controller.current?.stop(); }, [stopSignal]);
-  const inactive = !mediaFocusReady(state, playback);
+  // Live-or-not is about playback, not about whether the newest window committed:
+  // an abstention is a result the page must show, not a dead player.
+  const inactive = !mediaLinked(state, playback);
   return h('section', { className: 'media-area', 'aria-label': 'Media playback' },
     h('div', { className: 'main-media-card' },
     h('div', { className: 'media-heading' }, h('h2', null, config.title || 'Demo Audio'),

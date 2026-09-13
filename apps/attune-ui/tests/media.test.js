@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { formatMediaTime, mediaProgress, dbToLinear, playbackGains, mediaFocusReady, createStereoAudio } from '../src/mediaAudio.js';
+import { formatMediaTime, mediaProgress, dbToLinear, playbackGains, mediaFocusReady, mediaLinked, createStereoAudio } from '../src/mediaAudio.js';
 import { createMediaController } from '../src/mediaController.js';
 import { decodePacket } from '../src/decoders.js';
 import { MediaPlayback } from '../src/MediaPlayback.js';
@@ -146,4 +146,34 @@ test('MEDIA-F10 a sampled copy that lags behind is held, not shown as no data', 
   edge.streams[2].values.mediaTime = playback.time - 8;
   edge.streams[3].values.mediaTime = playback.time - 8;
   assert.equal(mediaFocusReady(edge, playback), true);
+});
+
+test('MEDIA-F11 an abstention is a live page with no decision, not a dead player', () => {
+  // The two questions are different. `mediaFocusReady` is the GAIN gate and must
+  // demand a decision -- there is nothing to attenuate while the system abstains.
+  // The page's own liveness must not: conflating them rendered an abstention as
+  // "No data · Playback is not live" on a run whose playback was perfectly live,
+  // which is what the synthetic-ANT demo showed almost continuously.
+  const abstaining = state();
+  abstaining.streams[2].values.decision = 'uncertain';
+  assert.equal(mediaFocusReady(abstaining, playback), false, 'no decision, no gain');
+  assert.deepEqual(playbackGains(abstaining, playback, 'attune'), [1, 1]);
+  assert.equal(mediaLinked(abstaining, playback), true, 'but the page is live');
+
+  for (const decision of ['unavailable', null]) {
+    const s = state();
+    s.streams[2].values.decision = decision;
+    assert.equal(mediaLinked(s, playback), true, `${decision} is still a live page`);
+    assert.equal(mediaFocusReady(s, playback), false);
+  }
+
+  // Everything that really does mean "not live" still says so.
+  for (const change of [{ stale: true }, { connection: 'disconnected' }, { error: 'Invalid packet' }])
+    assert.equal(mediaLinked({ ...abstaining, ...change }, playback), false, JSON.stringify(change));
+  for (const change of [{ ready: false }, { error: 'desynchronized' }, { playbackState: 'stopped' },
+    { revision: 3 }, { mediaId: 'other' }, { time: 60 }])
+    assert.equal(mediaLinked(abstaining, { ...playback, ...change }), false, JSON.stringify(change));
+  const stopped = state();
+  stopped.streams[0].values.status = 'stopped';
+  assert.equal(mediaLinked(stopped, playback), false, 'a stopped session is not live');
 });
