@@ -169,12 +169,15 @@ Rules that follow from this:
    ~13 GB) which are also absent. The demo never reads it. Symptom:
    `FileNotFoundError`/empty feature set from `train_kuleuven`, not a demo failure.
 6. **Line endings** — symptom on macOS: `bad interpreter: /bin/sh^M`. Measured: the repository has
-   **no `.gitattributes`**, and its only `.sh` file in the tracked tree
-   (`scripts/getlive/live_demo.sh`) currently has **0 CRLF lines**, so nothing is broken today. If
-   you add a `.sh`, or edit one on Windows with `core.autocrlf=true`, make it LF; the durable,
-   narrow fix is a repo-root `.gitattributes` containing exactly
-   `*.sh text eol=lf`. *(Deliberately not added here: it is outside the files this change was
-   allowed to touch.)*
+   **no `.gitattributes`**; its only `.sh` file in the tracked tree (`scripts/getlive/live_demo.sh`)
+   currently has **0 CRLF lines**; and this checkout's Git prints
+   `warning: LF will be replaced by CRLF the next time Git touches it` for every file it writes —
+   i.e. line-ending translation is **switched on** on this machine. Git still stores LF in every
+   blob, so a Mac checkout gets LF (which is what you want), but anything that reaches the Mac
+   *outside* Git — a `.sh` copied through the drive, a script written with CRLF — will fail there.
+   If you add a `.sh`, make it LF; the durable, narrow fix is a repo-root `.gitattributes`
+   containing exactly `*.sh text eol=lf`. *(Deliberately not added here: it is outside the files
+   this change was allowed to touch.)*
 7. **`._*` AppleDouble sidecars and `.DS_Store`** — measured: **833 `._*` files already on the
    drive**, 0 `.DS_Store`. macOS on exFAT writes one beside every file it touches. Symptom: any
    glob, count or copy silently includes them — `*_dry.wav` counts, `du` totals, `for f in *`
