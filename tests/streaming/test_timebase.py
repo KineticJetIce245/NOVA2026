@@ -63,6 +63,30 @@ def measured_timeline(
     return stamps
 
 
+def chunk_stamped(
+    blocks: int = 50,
+    per_block: int = 8,
+    within: float = 12e-6,
+    *,
+    rate: float = RATE,
+    start: float = 1000.0,
+) -> np.ndarray:
+    """The shape ``relay.py --regrid`` existed for: one stamp per block.
+
+    A recorder that passes ``push_chunk`` a scalar leaves every sample of a block
+    sharing one timestamp - microseconds apart at most - and hands ``Repair`` a
+    grid it can only refuse.
+    """
+
+    out = []
+    for block in range(blocks):
+        anchor = start + block * (per_block / rate)
+        out.extend(
+            anchor + (offset - per_block + 1) * within for offset in range(per_block)
+        )
+    return np.asarray(out)
+
+
 def expected_drift_samples(stamps: np.ndarray, rate: float = RATE) -> float:
     """The total disagreement the anchors carry, in samples."""
 
@@ -220,6 +244,46 @@ class TimeBaseRigTimelineTests(unittest.TestCase):
         stamps = measured_timeline(count=2000, drift_ppm=0.0, jumps=())
         _, state = feed(TimeBase(GridPolicy.for_rate(RATE)), stamps, chunk=50)
         self.assertEqual(state.large_steps, ())
+
+    def test_a_chunk_stamped_source_becomes_a_usable_grid(self) -> None:
+        # The relay's --regrid job: a source that stamps a whole block once leaves
+        # near-zero steps inside a block and one real step at each seam. Counting
+        # samples instead of trusting stamps fixes it, and the seams are reported
+        # rather than hidden - they are the source's stamping shape, not damage.
+        stamps = chunk_stamped()
+        time_base = TimeBase(GridPolicy.for_rate(RATE))
+        times, state = time_base.place(stamps)
+
+        self.assertEqual(times.size, stamps.size, "one slot per received sample")
+        np.testing.assert_allclose(
+            np.diff(times) * RATE, 1.0, atol=1e-9, err_msg="a flat per-sample grid"
+        )
+        repair = repair_stage(time_base.policy)
+        repair(np.zeros((times.size, 1), dtype="float32"), times)
+        self.assertEqual(repair.repaired_samples, 0, "nothing to fabricate")
+        self.assertEqual(len(state.large_steps), 49, "one suspicious step per seam")
+
+    def test_a_lost_block_is_reported_and_not_smoothed_over(self) -> None:
+        # A block the source never sent is data nobody can invent: the grid stays
+        # usable, and the hole is reported as a long step instead of being closed
+        # silently. Repair must still have nothing to repair - if the grid carried
+        # the gap as a grid step, it would synthesise the missing row.
+        stamps = chunk_stamped(blocks=20)
+        stamps[10 * 8 :] += 8 / RATE
+        # One block per call, the way a chunk-stamped source actually arrives: a
+        # residual is measured at each seam, which is where the hole is.
+        time_base = TimeBase(GridPolicy.for_rate(RATE))
+        times, state = feed(time_base, stamps, chunk=8)
+
+        self.assertEqual(times.size, stamps.size, "the missing block is not invented")
+        self.assertTrue(
+            [event for event in state.large_steps if event.size_samples > 8],
+            "the hole has to be reported, not smoothed away",
+        )
+        self.assertTrue(state.relocks, "and absorbed, on the record")
+        repair = repair_stage(time_base.policy)
+        repair(np.zeros((times.size, 1), dtype="float32"), times)
+        self.assertEqual(repair.repaired_samples, 0)
 
     def test_the_anchor_rate_exposes_the_clock_error(self) -> None:
         stamps = measured_timeline()
