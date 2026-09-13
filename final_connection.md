@@ -56,8 +56,11 @@ scikit-learn 1.9.0 / pandas 3.0.5 / matplotlib 3.11.1；Node v26.7.0；
    否则同一段语音会同时出现在训练与验证里，准确率会虚高。这是步骤 5 的硬约束。
 8. **回放加速**：完整 trial 6.5 分钟，1× 回放对开发迭代太慢 → `demorun` 需要 `--clip <秒>`。
 9. EEG 侧 128 Hz、模型侧 64 Hz，链内重采样比正好为 2。
-10. **KU Leuven 的物理单位是 µV**（峰值 ≈325.6），而现场 ANT 数据是**伏特**（峰值 ≈0.0833 V）。
-    两者的 `source_unit_exponent` 必须参数化（见 §3.11 第 6 条）。
+10. **KU Leuven 的物理单位是 µV**（峰值 ≈325.6），而现场 ANT 数据是**伏特**（峰值 ≈0.0833 V），
+    经 `unit_scaler` 后进入链的同样是 µV。
+    两者的 `source_unit_exponent` 已参数化（见 §3.11 第 6 条）。
+    **修正**：主 agent 原判断"`AuditoryProcessor` 的 `-6` 默认值是错的、应为 `0`"**是错的**；
+    按 `_to_uv = 10 ** (exponent + 6)`，µV 源正确值就是 `-6`。上游默认值一直是对的。
 11. **KU Leuven 素材是 44 100 Hz**，而现场实验音频是 **48 000 Hz**（实测）。包络生成按每个文件的真实采样率处理，
     元数据记录 `source_rate`，因此两类素材不会互相污染；但任何假设"素材都是 44.1 kHz"的代码都会错。
 12. **步骤 3 的规模**：`datasets/audio/` 现有 **18 个包络**（16 个 KU Leuven dry + `left_mono` + `right_mono`），
@@ -254,11 +257,16 @@ KU Leuven 列索引：`Fp1=0 Fp2=33 F7=6 F3=4 Fz=37 F4=39 F8=41 T7=14 C3=12 C4=4
 3. **为什么不做空间投影（方案 B）**：现有 `spatial.py` 的算子需要电极坐标，而现场 cap 的布点文件尚未确认；且投影会引入近似误差，20 个同名同位的公共电极不存在这个问题。
 4. **保底**：无设备 `demorun`（V1–V5）用 **64 通道**，保证与数据集原论文口径可比；真人模式用 20 通道契约。
 5. **评估必须两种契约都报**：20 通道 vs 64 通道的准确率差，是"能不能上真人"的直接判据。
-6. **单位口径**：现场数据是**伏特**（需 `source_unit_exponent=-6`），KU Leuven 是 **µV**（≈325 峰值，即 `0`）。
-   两者**都不需要**在链内做数值换算，因为 `Repair` 的 `source_unit_exponent` 只用于端点安全检查、不改值
-   （`src/nova2026/streaming/preprocess/repair.py:86-88, 164-172`）；但 `AuditoryProcessor` 目前把它**硬编码为 -6**
-   （`src/nova2026/auditory/streaming.py:71`），对 KU Leuven 的 µV 数据是错的量纲假设。**步骤 5 之前必须参数化**，
-   否则安全检查会误判（325 µV 被读成 3.25e8 µV，远超 75 000 µV 的饱和线）。
+6. **单位口径**：现场数据是**伏特**（`source_unit_exponent=0`），KU Leuven 是 **µV**。
+   两者都**不需要**在链内做数值换算，因为 `Repair` 的 exponent 只用于端点安全检查、不改值
+   （`src/nova2026/streaming/preprocess/repair.py:86-88, 164-172`）。
+   **修正（步骤 4 实测推翻主 agent 原判断）**：`_to_uv = 10 ** (exponent + 6)`，所以
+   **µV 源的正确 exponent 是 `-6`**（`_to_uv = 1.0`，325 µV 被当作 325 µV 比较，正确）；
+   若误用 `0`，325 µV 会被当成 3.25e8 µV，越过 75 000 µV 饱和线。
+   即**上游默认值 `-6` 本来就是对的**，主 agent 原先"默认值错了"的判断是错的。
+   真正需要的是**让调用点能显式声明**：现场 ANT 数据经 `unit_scaler` 后喂进链的已是 µV，
+   因此其调用点的语义与 KU Leuven 相同（都是 µV 链输入），参数化的意义在于**可声明、可校验**，
+   而不是修正默认值。
 
 ### 3.13 扰动用例矩阵（用户 2026-09-14 要求：**只有一项是"正常"，其余都必须带故障**）
 
@@ -410,7 +418,7 @@ KU Leuven 列索引：`Fp1=0 Fp2=33 F7=6 F3=4 Fz=37 F4=39 F8=41 T7=14 C3=12 C4=4
 | 1 | **基线固化** | `results/test_baseline_<date>.txt` + 依赖清单 | `python -B scripts/run_tests.py` 全绿 | 14 / 15 | **DONE** — `results/test_baseline_20260913-005823.txt`：523 tests 全绿，commit `21a637e` |
 | 2 | **KU Leuven 转换** | `metadata.json` + `converted/S*/trial_*.npz`；解决 hrtf/dry 与重复文件名 | 转换 exit 0；抽查形状/时长/对齐 | 45 / 50 | **DONE** — commit `3e0ba15`；320 trials / 15.15 GB，dry 映射逐位可验证；auditory 套件 53 tests 全绿。**证伪了计划原事实 2**（见 §1） |
 | 3 | **包络预计算**（B1） | `scripts/auditory/envelopes.py` + `src` 离线入口 + `datasets/audio/*.npz` + 一致性测试 | 生成全部 16 个 KU Leuven 素材包络；分块↔整段一致 | 45 / 50 | **DONE** — commit `ab63ede`；离线=运行时用**精确相等**断言，分块↔整段 max diff = 0.0；18 个包络 `--verify` 通过。主 agent 修正了测试集包络来源（`*_mono` 而非 `*_raw`，见 §3.12）。**例外**：`src/nova2026/auditory/envelopes.py` 365 行，超 structure-dev 的 300 行建议，经主 agent 知情批准（拆分会把「离线=运行时」契约分散到两个文件） |
-| 4 | **数据体检 + 契约冻结** | `results/kuleuven_audit.md`；冻结 `AuditoryConfig` 与特征契约 | 审计脚本 + 报告 | 35 / 40 | TODO |
+| 4 | **数据体检 + 契约冻结** | `results/kuleuven_audit.md`；冻结 `AuditoryConfig` 与特征契约 | 审计脚本 + 报告 | 35 / 40 | **DONE** — commit `48c412d`；585 行报告 + 19264 行逐 trial JSON；`source_unit_exponent` 已参数化（`DEFAULT_SOURCE_UNIT_EXPONENT = -6` 带白名单校验，且**默认行为未变**）；分组键已折 `rep_`；契约冻结列出 7 项不可变内容。**并纠正了主 agent 关于单位的一处错误判断**（见 §3.11 第 6 条） |
 | 5 | **解码器训练与评估** | `models/auditory_kuleuven.npz` + `results/aad_<date>.json`（留出故事 **+** 留一被试 + 窗长曲线） | 训练命令 + 指标 JSON | 35 / 75 | TODO |
 | 5.5 | **偏移扫描实验** | `results/aad_shift_sweep_<date>.json`：包络滑 ±300 ms 的相关衰减曲线 | 扫描脚本 + 曲线 | 30 / 40 | TODO |
 | 6 | **传输层移植**（须读 `secure-web-dev`） | `src/nova2026/transport/{protocol,publisher,sessions,server}.py` + 契约测试 | 单测全绿：包校验/快照/1013/生命周期 | 50 / 60 | TODO |
@@ -599,3 +607,4 @@ KU Leuven 列索引：`Fp1=0 Fp2=33 F7=6 F3=4 Fz=37 F4=39 F8=41 T7=14 C3=12 C4=4
 | 2026-09-13 | v1.5：**求真而非求顺**——§1 事实 2 被步骤 2 证伪（旧 loader 不抛错，真正缺陷是静默用 hrtf 当参考包络），新增事实 7（`rep_*` 与本体育**逐样本相同** → 故事泄漏是真实风险）、事实 10（µV vs V）；步骤 2 标 DONE（commit `3e0ba15`） | 主 agent |
 | 2026-09-13 | v1.6：新增 §3.12 真实测试数据集（`tmp/antneurodata/`，含两会话音频起点 0 s / 267 s、标记语义与误触警告、用户给定的 ±buffer 标注口径）；§3.11 由实测替换为确定参数（500 Hz / 24 通道 / 伏特 / 20 个公共通道）；新增步骤 9.5（ANT 导入器）、步骤 3–5 口径修订表、验收 V8；依赖图更新 | 主 agent |
 | 2026-09-13 | v1.7：步骤 3 **DONE**（commit `ab63ede`）；用户确认标记语义（1001=左、1006=右）与误触清单；实测音频文件关系并**修正测试集包络来源**（`*_mono` 逐位等于实际播出声道，`*_raw` 未播过）；§1 新增事实 11（44.1 k vs 48 k）与事实 12（18 个包络）；登记 `envelopes.py` 365 行的结构例外 | 主 agent |
+| 2026-09-14 | v1.8：步骤 4 **DONE**（commit `48c412d`）；新增 §3.13 扰动用例矩阵（1 项正常 + 15 项注入故障）与 §3.14 传入 EEG 的对抗性用例，并写入验收 V9；新增 §8 决策记录（D-01…D-15，含主 agent 自己的错误判断与被否方案）与 §9 主 agent 纪律（不写代码/不写测试、可读报告但纠错须派子 agent、同一问题最多 3 个子 agent）；**修正主 agent 关于 `source_unit_exponent` 的错误判断**（µV 的正确值就是上游默认的 `-6`，不是 `0`） | 主 agent |
