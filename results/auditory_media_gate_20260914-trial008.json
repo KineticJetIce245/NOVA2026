@@ -1,0 +1,234 @@
+{
+  "packet_count": 1533,
+  "sequence": 1533,
+  "validator_rejects": 0,
+  "client_state_rejected": 0,
+  "gate_open": true,
+  "gate_opened_at_seconds": 40,
+  "gate_opened_on": "attention",
+  "observations": 722,
+  "sampled_gain_packets": 361,
+  "delta_seconds": {
+    "count": 361,
+    "max": 0.3003012000117451,
+    "mean": 0.14917581412727413,
+    "min": 0
+  },
+  "clauses": [
+    {
+      "name": "connection.isConnected",
+      "ok": true,
+      "detail": "connection=connected stale=false error=none"
+    },
+    {
+      "name": "session.statusRunning",
+      "ok": true,
+      "detail": "status=running"
+    },
+    {
+      "name": "playback.ready",
+      "ok": true,
+      "detail": "ready=true error=none"
+    },
+    {
+      "name": "playback.stateIsPlayingOrPaused",
+      "ok": true,
+      "detail": "playbackState=playing"
+    },
+    {
+      "name": "media.syncStatusObserved",
+      "ok": true,
+      "detail": "syncStatus=observed (time=39.6488851000031 revision=2 state=playing)"
+    },
+    {
+      "name": "media.playbackStateMatches",
+      "ok": true,
+      "detail": "media=playing playback=playing"
+    },
+    {
+      "name": "media.revisionMatches",
+      "ok": true,
+      "detail": "media=2 playback=2"
+    },
+    {
+      "name": "media.mediaIdMatches",
+      "ok": true,
+      "detail": "media=c6d4a10b61964aa3bedd9f68b4cf3f13 playback=c6d4a10b61964aa3bedd9f68b4cf3f13"
+    },
+    {
+      "name": "sync.statusIsUsable",
+      "ok": true,
+      "detail": "status=unobserved"
+    },
+    {
+      "name": "attention.sessionIdMatches",
+      "ok": true,
+      "detail": "attention=7af4b558-aac1-4f67-90be-753228efdcce state=7af4b558-aac1-4f67-90be-753228efdcce"
+    },
+    {
+      "name": "attention.mediaIdMatches",
+      "ok": true,
+      "detail": "attention=c6d4a10b61964aa3bedd9f68b4cf3f13 playback=c6d4a10b61964aa3bedd9f68b4cf3f13"
+    },
+    {
+      "name": "attention.mediaRevisionMatches",
+      "ok": true,
+      "detail": "attention=2 playback=2"
+    },
+    {
+      "name": "attention.timeWithin750ms",
+      "ok": true,
+      "detail": "|Δt|=0.1106s"
+    },
+    {
+      "name": "attention.decisionIsAOrB",
+      "ok": true,
+      "detail": "decision=A"
+    }
+  ],
+  "playback_gains_at_first_open": {
+    "at_seconds": 0,
+    "a_db": 0,
+    "b_db": 0,
+    "linear": [
+      1,
+      1
+    ],
+    "linear_db": [
+      0,
+      0
+    ],
+    "expected_linear": [
+      1,
+      1
+    ]
+  },
+  "playback_gains_applied": 12,
+  "playback_gains_samples": [
+    {
+      "at_seconds": 40,
+      "a_db": 0,
+      "b_db": -6,
+      "linear": [
+        1,
+        0.5011872336272722
+      ],
+      "linear_db": [
+        0,
+        -6.000000000000001
+      ],
+      "expected_linear": [
+        1,
+        0.5011872336272722
+      ]
+    },
+    {
+      "at_seconds": 40.25,
+      "a_db": 0,
+      "b_db": -6,
+      "linear": [
+        1,
+        0.5011872336272722
+      ],
+      "linear_db": [
+        0,
+        -6.000000000000001
+      ],
+      "expected_linear": [
+        1,
+        0.5011872336272722
+      ]
+    },
+    {
+      "at_seconds": 40.5,
+      "a_db": 0,
+      "b_db": -6,
+      "linear": [
+        1,
+        0.5011872336272722
+      ],
+      "linear_db": [
+        0,
+        -6.000000000000001
+      ],
+      "expected_linear": [
+        1,
+        0.5011872336272722
+      ]
+    },
+    {
+      "at_seconds": 40.75,
+      "a_db": 0,
+      "b_db": -6,
+      "linear": [
+        1,
+        0.5011872336272722
+      ],
+      "linear_db": [
+        0,
+        -6.000000000000001
+      ],
+      "expected_linear": [
+        1,
+        0.5011872336272722
+      ]
+    },
+    {
+      "at_seconds": 41,
+      "a_db": 0,
+      "b_db": -6,
+      "linear": [
+        1,
+        0.5011872336272722
+      ],
+      "linear_db": [
+        0,
+        -6.000000000000001
+      ],
+      "expected_linear": [
+        1,
+        0.5011872336272722
+      ]
+    }
+  ],
+  "first_applied_gain": {
+    "at_seconds": 40,
+    "a_db": 0,
+    "b_db": -6,
+    "linear": [
+      1,
+      0.5011872336272722
+    ],
+    "linear_db": [
+      0,
+      -6.000000000000001
+    ],
+    "expected_linear": [
+      1,
+      0.5011872336272722
+    ]
+  },
+  "conditions_at_first_open": {
+    "mode_is_attune": true,
+    "playback_is_playing": true,
+    "focus_ready": true,
+    "gain_media_time": 39.379946699977154,
+    "attention_media_time": 39.6488851000031,
+    "times_equal": false,
+    "gain_session_matches": true,
+    "gain_media_id_matches": true,
+    "gain_revision_matches": true,
+    "gain_time_within_750ms": true,
+    "gains_in_range": true
+  },
+  "media_packet_sample": {
+    "mediaId": "c6d4a10b61964aa3bedd9f68b4cf3f13",
+    "title": "S1 trial_008",
+    "mediaTime": 39.6488851000031,
+    "duration": 90,
+    "playbackState": "playing",
+    "revision": 2,
+    "serverReference": 193590.2631821,
+    "syncStatus": "observed"
+  }
+}

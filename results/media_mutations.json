@@ -1,0 +1,94 @@
+{
+  "kind": "step-9 mutation record; every named mutation must be caught",
+  "ran_at": "2026-09-13T08:56:05.381963+00:00",
+  "suite": "scripts.auditory.tests.test_media_timeline",
+  "baseline_green": true,
+  "mutations": [
+    {
+      "mutation": "swap the two output channels",
+      "module": "src/nova2026/auditory/render.py",
+      "test": "RenderTests.test_dichotic_puts_candidate_a_on_the_left_and_b_on_the_right",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.000s | FAILED (errors=1)"
+    },
+    {
+      "mutation": "scale to the array's peak instead of the file's own level",
+      "module": "src/nova2026/auditory/render.py",
+      "test": "RenderTests.test_dichotic_puts_candidate_a_on_the_left_and_b_on_the_right",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.000s | FAILED (errors=1)"
+    },
+    {
+      "mutation": "accept an unknown presentation mode as the default",
+      "module": "src/nova2026/auditory/render.py",
+      "test": "RenderTests.test_the_two_modes_are_selectable_and_an_unknown_mode_is_refused",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.000s | FAILED (errors=1)"
+    },
+    {
+      "mutation": "return a zeroed reference before any controller prepared",
+      "module": "src/nova2026/transport/media.py",
+      "test": "ReferenceTests.test_no_reference_before_a_controller_prepares_the_timeline",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.000s | FAILED (errors=1)"
+    },
+    {
+      "mutation": "drop the freshness test, so a dead tab stays synchronized",
+      "module": "src/nova2026/transport/media.py",
+      "test": "ReferenceTests.test_a_stale_report_withdraws_the_reference",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.000s | FAILED (errors=1)"
+    },
+    {
+      "mutation": "repair an invalidated timeline on the next accepted command",
+      "module": "src/nova2026/transport/media.py",
+      "test": "TimelineRefusalTests.test_a_jump_beyond_the_elapsed_time_is_refused_and_is_sticky",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.000s | FAILED (errors=1)"
+    },
+    {
+      "mutation": "allow a full second of jump while playing",
+      "module": "src/nova2026/transport/media.py",
+      "test": "TimelineRefusalTests.test_just_over_half_a_second_ahead_is_refused_while_playing",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.000s | FAILED (errors=1)"
+    },
+    {
+      "mutation": "keep the revision unchanged when playback stops",
+      "module": "src/nova2026/transport/media.py",
+      "test": "TimelineRefusalTests.test_stopping_is_terminal_for_that_revision",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.000s | FAILED (errors=1)"
+    },
+    {
+      "mutation": "read the timeline twice per frame",
+      "module": "src/nova2026/auditory/producer.py",
+      "test": "ProducerEchoTests.test_one_frame_reads_the_timeline_once_and_stamps_both_packets",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.000s | FAILED (errors=1)"
+    },
+    {
+      "mutation": "publish a frame's requested gain without the attenuation ceiling",
+      "module": "src/nova2026/auditory/producer.py",
+      "test": "ProducerEchoTests.test_gain_never_exceeds_zero_db_even_if_a_frame_asks_for_amplification",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.000s | FAILED (errors=1)"
+    },
+    {
+      "mutation": "publish the media packet regardless of the session's status",
+      "module": "src/nova2026/transport/media.py",
+      "test": "BroadcasterTests.test_no_packet_is_published_without_a_running_session",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.000s | FAILED (errors=1)"
+    },
+    {
+      "mutation": "publish the raw clock as the media packet's timestamp",
+      "module": "src/nova2026/transport/media.py",
+      "test": "BroadcasterTests.test_timestamps_do_not_regress_within_the_stream",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.000s | FAILED (errors=1)"
+    }
+  ],
+  "caught": 12,
+  "total": 12
+}

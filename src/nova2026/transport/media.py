@@ -28,12 +28,22 @@ from __future__ import annotations
 import math
 from collections.abc import Callable
 from pathlib import Path
-from threading import RLock
+from threading import Event, RLock, Thread
 from time import monotonic
-from typing import Any
+from typing import Any, Protocol
 from uuid import uuid4
 
 from .protocol import MAX_SAFE_INTEGER
+from .publisher import Publisher
+
+MEDIA_PACKET_TYPE = "media"
+"""Packet type the frontend's decoder maps to the media timeline card."""
+
+RESERVED_SOURCE = "server"
+"""Source the transport owns; the media timeline is transport state, not a measurement."""
+
+DEFAULT_INTERVAL = 0.25
+"""Seconds between media packets: the controller's own tick, so no position is skipped."""
 
 SUPPORTED_SUFFIXES = (".wav", ".mp3", ".m4a", ".mp4", ".webm")
 """Media containers the controller may point at."""
@@ -59,7 +69,6 @@ PAUSED_ADVANCE_ALLOWANCE = 0.1
 BACKWARD_TOLERANCE = 0.02
 """Position regression tolerated as rounding while playing."""
 
-
 def seconds(value: Any, field: str) -> float:
     """Validate one reported time value and return it as ``float``.
 
@@ -83,7 +92,6 @@ def seconds(value: Any, field: str) -> float:
     ):
         raise ValueError(f"{field} must be a finite number of seconds in [0, {MAX_MEDIA_SECONDS}].")
     return float(value)
-
 
 class MediaTimeline:
     """One media asset plus the controller timeline observed for it.
@@ -186,6 +194,35 @@ class MediaTimeline:
                 sync_status="observed" if self.valid and fresh else "desynchronized",
             )
 
+    def media_reference(self) -> dict[str, Any] | None:
+        """The media reference packets may carry, or ``None`` and no invention.
+
+        Decision D-02 gives this process transcription rights over the playback
+        position, not authorship: the values returned here are the ones the
+        controller last reported, together with the revision this process
+        acknowledged. ``None`` means there is nothing honest to copy - no
+        controller has prepared the timeline, a contradictory command invalidated
+        it, or the last report is older than :data:`FRESH_SECONDS` - and the
+        attention path must then publish no media fields at all, which is what
+        makes the frontend hold neutral gain instead of trusting a stale number.
+
+        The freshness rule is exactly the one :meth:`snapshot` uses for
+        ``sync_status == "observed"``, so a producer that only stamps packets when
+        this returns a mapping cannot disagree with the ``media`` stream the
+        browser is reading.
+        """
+
+        with self.lock:
+            if not self.valid or self.last_received is None:
+                return None
+            if self.clock() - self.last_received > FRESH_SECONDS:
+                return None
+            return {
+                "media_id": self.media_id,
+                "media_revision": self.revision,
+                "media_time_s": self.position,
+            }
+
     def control(self, data: dict[str, Any]) -> dict[str, Any]:
         """Apply one controller command and return the resulting snapshot.
 
@@ -268,3 +305,154 @@ class MediaTimeline:
             if action == "stopped":
                 self.stop()
             return self.snapshot()
+
+class SessionLookup(Protocol):
+    """What the broadcaster needs from the session registry, and nothing more."""
+
+    def list(self) -> list[dict[str, Any]]:
+        """Session summaries, oldest first; the last one is the current session."""
+
+        ...
+
+class MediaBroadcaster:
+    """Publish the observed media timeline as ``media`` packets while a session runs.
+
+    The controller learns the timeline from the acknowledgement of its own
+    ``POST /api/media/control``, but the *dashboard* has no such channel: it reads
+    the ``media`` packet that the frontend's decoder turns into ``syncStatus``,
+    ``playbackState``, ``revision`` and ``mediaId``, and its gain gate refuses to
+    activate - correctly - when that packet is missing. This thread is that
+    channel, and it is deliberately a transcriber: every field comes from
+    :meth:`MediaTimeline.snapshot` and the position is the one the controller
+    reported.
+
+    Two properties keep it from becoming a source of invented time:
+
+    * It publishes only while the newest session is ``running``, so a stopped or
+      failed session stops being described rather than freezing on screen.
+    * A ``media`` packet never carries a position this process computed. When the
+      controller stops reporting, ``sync_status`` falls to ``desynchronized``
+      through the timeline's own freshness rule and the frontend's gate closes.
+
+    Args:
+        publisher: Publisher the packets go through; the same one the producer and
+            the transport's lifecycle packets use, so sequence numbers stay in one
+            space.
+        media: Timeline to transcribe.
+        sessions: Registry consulted for the running session id.
+        interval: Seconds between packets. The default matches the controller's
+            250 ms tick, which is the rate at which the browser's position
+            actually changes.
+        clock: Monotonic clock, injectable so a test can drive the cadence.
+
+    Raises:
+        ValueError: If ``interval`` is not finite and positive.
+    """
+
+    def __init__(
+        self,
+        publisher: Publisher,
+        media: MediaTimeline,
+        sessions: SessionLookup,
+        *,
+        interval: float = DEFAULT_INTERVAL,
+        clock: Callable[[], float] = monotonic,
+    ) -> None:
+        if (
+            isinstance(interval, bool)
+            or not isinstance(interval, (int, float))
+            or not math.isfinite(interval)
+            or interval <= 0
+        ):
+            raise ValueError("interval must be a finite positive number of seconds.")
+        self.publisher = publisher
+        self.media = media
+        self.sessions = sessions
+        self.interval = float(interval)
+        self.clock = clock
+        self.published = 0
+        self.failures = 0
+        self._thread: Thread | None = None
+        self._stop = Event()
+        self._baseline: float | None = None
+
+    def tick(self) -> dict[str, Any] | None:
+        """Publish one packet if a session is running. Returns it, or ``None``.
+
+        Returns:
+            The published packet, or ``None`` when there is no running session or
+            the publisher refused it. A refusal is counted, never raised: a
+            transcriber that has lost its session has nothing to say and must not
+            be able to end that session by raising on a background thread.
+        """
+
+        records = self.sessions.list()
+        session_id = (
+            records[-1]["id"]
+            if records and records[-1]["status"] == "running"
+            else None
+        )
+        if session_id is None:
+            return None
+        payload = self.media.snapshot()
+        try:
+            packet = self.publisher.publish(
+                MEDIA_PACKET_TYPE,
+                self._timestamp(),
+                RESERVED_SOURCE,
+                session_id,
+                payload,
+            )
+        except ValueError:
+            self.failures += 1
+            return None
+        self.published += 1
+        return packet
+
+    def start(self) -> None:
+        """Start the loop on a daemon thread; a second call is a no-op."""
+
+        if self._thread is not None:
+            return
+        self._stop.clear()
+        self._thread = Thread(target=self._loop, name="media-broadcaster", daemon=True)
+        self._thread.start()
+
+    def stop(self, timeout: float = 2.0) -> None:
+        """Ask the loop to finish, join it, and forget the stream's time base."""
+
+        self._stop.set()
+        thread, self._thread = self._thread, None
+        if thread is not None:
+            thread.join(timeout)
+        self._baseline = None
+
+    def _loop(self) -> None:
+        while not self._stop.wait(self.interval):
+            self.tick()
+
+    def _timestamp(self) -> float:
+        """Session-relative seconds, nondecreasing within the ``media`` stream."""
+
+        now = self.clock()
+        if self._baseline is None or now < self._baseline:
+            self._baseline = now
+        return max(0.0, now - self._baseline)
+
+__all__ = [
+    "BACKWARD_TOLERANCE",
+    "DEFAULT_INTERVAL",
+    "FRESH_SECONDS",
+    "IDLE_ADVANCE_ALLOWANCE",
+    "MEDIA_PACKET_TYPE",
+    "MAX_MEDIA_SECONDS",
+    "PAUSED_ADVANCE_ALLOWANCE",
+    "PLAYING_ADVANCE_ALLOWANCE",
+    "RESERVED_SOURCE",
+    "SUPPORTED_SUFFIXES",
+    "VIDEO_SUFFIXES",
+    "MediaBroadcaster",
+    "MediaTimeline",
+    "SessionLookup",
+    "seconds",
+]

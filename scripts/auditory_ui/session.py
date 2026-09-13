@@ -27,6 +27,7 @@ import argparse
 import asyncio
 import json
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -44,17 +45,27 @@ from nova2026.auditory.controller import AttentionController  # noqa: E402
 from nova2026.auditory.data import AuditoryTrial, load_trial  # noqa: E402
 from nova2026.auditory.decoder import RidgeDecoder  # noqa: E402
 from nova2026.auditory.producer import AttentionProducer  # noqa: E402
+from nova2026.auditory.render import (  # noqa: E402
+    DEFAULT_CROSSMIX_WEIGHT,
+    DEFAULT_PRESENTATION,
+    PRESENTATION_MODES,
+    presentation_mode,
+    render_stereo,
+)
 from nova2026.auditory.session import AttentionSession, RunPolicy  # noqa: E402
 from nova2026.auditory.sources import (  # noqa: E402
     ReferenceEnvelopes,
     ReplaySource,
     trial_envelope_paths,
 )
+from nova2026.auditory.timing import TimestampedAudio  # noqa: E402
+from nova2026.transport.media import MediaTimeline  # noqa: E402
 from nova2026.transport.protocol import validate_packet  # noqa: E402
 from nova2026.transport.server import LOOPBACK_HOSTS, create_app  # noqa: E402
 from scripts.auditory.envelopes import convert_audio, save_envelope  # noqa: E402
 from scripts.auditory.synthetic import synthetic_trial  # noqa: E402
 from scripts.auditory.train import train  # noqa: E402
+from scripts.auditory_ui.media import MEDIA_TICK_SECONDS, SimulatedMediaClient  # noqa: E402
 
 DECISIONS = ("A", "B", "uncertain", "unavailable")
 REQUIRED_TYPES = (
@@ -160,13 +171,22 @@ def build_session(args, trial, model, envelope_paths):
     return session
 
 
-async def collect(app, port: int, args, packets: list) -> dict:
-    """Drive the running server: REST snapshot, start, WebSocket, stop."""
+async def collect(app, port: int, args, packets: list, media_client=None) -> dict:
+    """Drive the running server: REST snapshot, start, WebSocket, stop.
+
+    With a ``media_client`` the media path is driven too, and by a **separate
+    concurrent client** rather than inline: the browser is not the EEG, so its
+    control requests must interleave with the packet stream instead of being
+    inserted between two packets by the driver's own scheduling. The collector
+    sets ``media_stop`` when the terminal lifecycle packet arrives, which is what
+    ends playback and any pending report.
+    """
 
     import httpx
     import websockets
 
     base = f"http://127.0.0.1:{port}"
+    media_stop = asyncio.Event()
     async with httpx.AsyncClient(base_url=base, timeout=10.0) as client:
         for _ in range(200):
             try:
@@ -191,32 +211,80 @@ async def collect(app, port: int, args, packets: list) -> dict:
         # delivery loop promises: snapshot first, then only newer events.
         snapshot = (await client.get("/api/state")).json()
 
-        terminal = None
-        async with websockets.connect(
-            f"ws://127.0.0.1:{port}/ws/live", max_size=None, open_timeout=10
-        ) as socket:
-            while True:
-                try:
-                    raw = await asyncio.wait_for(socket.recv(), timeout=args.idle_timeout)
-                except asyncio.TimeoutError:
-                    break
-                packet = json.loads(raw)
-                packets.append(packet)
-                if is_terminal(packet):
-                    terminal = packet
-                    break
+        media_task = None
+        media_state: dict = {}
+        lifecycle = {
+            "health": health,
+            "static": static,
+            "started": started,
+            "snapshot": snapshot,
+            "terminal": None,
+            "stopped": None,
+            "sessions": None,
+            "media_stop": media_stop,
+            "media_state": media_state,
+        }
+
+        async def watch() -> None:
+            """Drain the socket until the session's terminal packet arrives.
+
+            Two orderings are recorded per packet besides the packet itself: the
+            receive order (so a later step can line the stream up with the packet
+            file byte for byte) and the *client's* playback clock at that instant.
+            The latter is the only honest source for the gate's ``|Δt|``: the
+            browser measures its own position, so a report that arrives while the
+            packet is in flight must not be compared against the position the
+            packet carried as if they were simultaneous.
+            """
+
+            terminal = None
+            order = 0
+            async with websockets.connect(
+                f"ws://127.0.0.1:{port}/ws/live", max_size=None, open_timeout=10
+            ) as socket:
+                while True:
+                    try:
+                        raw = await asyncio.wait_for(socket.recv(), timeout=args.idle_timeout)
+                    except asyncio.TimeoutError:
+                        break
+                    packet = json.loads(raw)
+                    packets.append(packet)
+                    order += 1
+                    if packet.get("type") == "gain" and media_client is not None:
+                        snapshot = media_state.get("snapshot")
+                        media_state.setdefault("at_gain_packet", []).append(
+                            {
+                                "order": order,
+                                "timestamp": packet.get("timestamp"),
+                                "payload": packet.get("payload", {}),
+                                "client": snapshot() if callable(snapshot) else {},
+                            }
+                        )
+                    if is_terminal(packet):
+                        terminal = packet
+                        break
+            lifecycle["terminal"] = terminal
+
+        tasks = [asyncio.create_task(watch())]
+        if media_client is not None:
+            media_task = asyncio.create_task(media_client(port, lifecycle))
+            tasks.append(media_task)
+        try:
+            await tasks[0]
+        finally:
+            media_stop.set()
+            if media_task is not None:
+                media_state.update(await media_task)
+            for task in tasks[1:]:
+                task.cancel()
+            await asyncio.gather(*tasks[1:], return_exceptions=True)
+
         stopped = (await client.post("/api/session/stop")).json()
         sessions = (await client.get("/api/sessions")).json()
 
-    return {
-        "health": health,
-        "static": static,
-        "started": started,
-        "snapshot": snapshot,
-        "terminal": terminal,
-        "stopped": stopped,
-        "sessions": sessions,
-    }
+    lifecycle["stopped"] = stopped
+    lifecycle["sessions"] = sessions
+    return lifecycle
 
 
 def is_terminal(packet: dict) -> bool:
@@ -233,6 +301,224 @@ def check(name: str, ok: bool, detail: str = "") -> dict:
     """One assertion record; the exit code is derived from these."""
 
     return {"name": name, "ok": bool(ok), "detail": detail}
+
+
+def render_media(trial: AuditoryTrial, args) -> tuple[MediaTimeline, dict]:
+    """Render the trial's two candidates as the stereo file the browser plays.
+
+    The file is the trial's own two channels, cut to the EEG's length - the
+    recording is what the session replays, and the browser's ``currentTime`` is
+    session position, so a longer asset would drift out of the window the
+    frontend enforces. Per section 3.3/3.15 the left channel is candidate A and
+    the right is candidate B; ``--presentation crossmix`` renders the interim
+    "same mixture, differently weighted" route instead, and the mode is recorded
+    in the report either way.
+
+    Returns:
+        The bound-less timeline over the rendered file, and the render report.
+    """
+
+    mode = presentation_mode(args.presentation)
+    report = render_stereo(
+        trial.audio,
+        args.media_out,
+        sample_rate=round(trial.audio_rate),
+        presentation=mode,
+        crossmix_weight=args.crossmix_weight,
+    )
+    report["candidate_seconds"] = round(float(len(trial.audio)) / trial.audio_rate, 3)
+    report["eeg_seconds"] = round(float(trial.timestamps[-1] - trial.timestamps[0]), 3)
+    return MediaTimeline(args.media_out, args.media_title), report
+
+
+async def run_media_client(port: int, args, media: MediaTimeline, lifecycle: dict, media_report: dict) -> dict:
+    """Play the rendered timeline over REST from a client that behaves like the browser.
+
+    The duration is the *rendered file's* own length, not the source recording's:
+    the browser reads ``element.duration`` from the element it loaded, and the
+    transport refuses a command whose position exceeds the duration it was told,
+    so the two must be the same number.
+    """
+
+    descriptor = media.descriptor()
+    client = SimulatedMediaClient(
+        f"http://127.0.0.1:{port}",
+        client_id="simulated-browser",
+        duration_s=media_report["seconds"],
+        clip_seconds=args.seconds,
+        tick_seconds=args.media_tick,
+    )
+    client.configure(lifecycle["started"]["id"], descriptor["media_id"])
+    # The playback clock has to be readable by the packet watcher at every
+    # instant, because a gain packet is judged against the position the browser
+    # held when that packet arrived - not against the position it carries. This
+    # is the same construction `mediaController.js` exports as its snapshot.
+    lifecycle["media_state"]["snapshot"] = client.playback_snapshot
+    result = await client.play(lifecycle["media_stop"])
+    return {
+        "descriptor": descriptor,
+        "duration_s": client.duration_s,
+        "client": result.to_dict(),
+    }
+
+
+def timing_evidence(packets: list, media_state: dict, exchange_log: list) -> dict:
+    """The `|Δt|` and drift numbers this step is asked to record.
+
+    ``|Δt|`` is measured per gain packet between the media position the packet
+    carries and the position the client would have reported when that packet
+    arrived - the browser's own clock, sampled live, which is the quantity the
+    frontend's 0.75 s clause compares. Sampling it at arrival rather than pairing
+    frame *k* with report *k* afterwards is what keeps the number honest: the
+    client's report cadence and the producer's frame cadence are independent, and
+    their phase offset can reach a full step.
+    """
+
+    gains = [packet for packet in packets if packet.get("type") == "gain"]
+    frames = [packet for packet in packets if packet.get("type") == "attention"]
+    acknowledged = [entry for entry in exchange_log if entry.get("status") == 200]
+    arrivals = media_state.get("at_gain_packet") or []
+    deltas = []
+    for index, packet in enumerate(gains):
+        arrival = arrivals[index] if index < len(arrivals) else None
+        client_time = ((arrival or {}).get("client") or {}).get("time")
+        value = packet.get("payload", {}).get("media_time_s")
+        if isinstance(value, (int, float)) and isinstance(client_time, (int, float)):
+            deltas.append(abs(float(value) - float(client_time)))
+    positions = [
+        packet["payload"]["media_time_s"]
+        for packet in frames
+        if isinstance(packet.get("payload", {}).get("media_time_s"), (int, float))
+    ]
+    steps = np.diff(positions) if len(positions) > 1 else np.zeros(0)
+    latest = frames[-1]["payload"] if frames else {}
+    return {
+        "gain_packets": len(gains),
+        "attention_packets": len(frames),
+        "gain_packets_carrying_a_media_reference": sum(
+            1 for packet in gains if "media_time_s" in packet.get("payload", {})
+        ),
+        "delta_seconds": {
+            "count": len(deltas),
+            "max": max(deltas) if deltas else None,
+            "mean": float(np.mean(deltas)) if deltas else None,
+            "min": min(deltas) if deltas else None,
+            "within_075": all(value <= 0.75 for value in deltas) if deltas else None,
+        },
+        "media_time_step_seconds": {
+            "count": int(steps.size),
+            "max": float(steps.max()) if steps.size else None,
+            "mean": float(steps.mean()) if steps.size else None,
+        },
+        "frame_positions_first_last": (
+            [positions[0], positions[-1]] if positions else None
+        ),
+        "last_frame": {
+            "decision": latest.get("decision"),
+            "media_id": latest.get("media_id"),
+            "media_revision": latest.get("media_revision"),
+            "media_time_s": latest.get("media_time_s"),
+            "a_db": (packets[-1].get("payload", {}).get("a_db") if packets else None),
+        },
+        "transport_timeline": media_state.get("timeline"),
+        "round_trip_seconds": {
+            "count": len(acknowledged),
+            "max": max((entry["round_trip_seconds"] for entry in acknowledged), default=None),
+            "mean": (
+                float(np.mean([entry["round_trip_seconds"] for entry in acknowledged]))
+                if acknowledged
+                else None
+            ),
+        },
+        "envelope_coverage_seconds": media_state.get("envelope_coverage_seconds"),
+        "audio_anchor_seconds": media_state.get("audio_anchor_seconds"),
+        "block_timing": {
+            "available": False,
+            "why": (
+                "TimestampedAudio.diagnostics() describes DAC block timestamps from a real "
+                "audio device; it is not on this replay path, which is fed from the "
+                "converted trial, so reporting drift here would be an invention. "
+                "It belongs to the live/device path (steps 11 and 12)."
+            ),
+        },
+        "replay_clock": media_state.get("replay_clock"),
+    }
+
+
+def media_assertions(media_state: dict, timing: dict) -> list:
+    """The media-specific assertions, alongside the session's own checks."""
+
+    exchanges = media_state.get("client", {}).get("exchanges", [])
+    actions = [entry["action"] for entry in exchanges]
+    acknowledged = [entry for entry in exchanges if entry.get("status") == 200]
+    descriptor = media_state.get("descriptor") or {}
+    revisions = {entry.get("acknowledged_revision") for entry in acknowledged}
+    return [
+        check(
+            "the media descriptor names an id, a kind and the file route",
+            bool(descriptor.get("media_id"))
+            and descriptor.get("kind") == "audio"
+            and descriptor.get("url") == "/api/media/file",
+            json.dumps(descriptor),
+        ),
+        check(
+            "the handshake ran prepare then playing before any report",
+            actions[:2] == ["prepare", "playing"],
+            ", ".join(actions[:4]),
+        ),
+        check(
+            "every acknowledgement carried the observed sync status and an integer revision",
+            all(
+                entry.get("sync_status") == "observed"
+                and isinstance(entry.get("acknowledged_revision"), int)
+                for entry in acknowledged
+            )
+            and all(entry.get("status") == 200 for entry in exchanges),
+            f"{len(acknowledged)}/{len(exchanges)} acknowledged, revisions={sorted(revisions)}",
+        ),
+        check(
+            "prepare bumped the revision and every later command kept it",
+            len(revisions) == 1 and acknowledged and acknowledged[0]["action"] == "prepare",
+            f"revision={sorted(revisions)}",
+        ),
+        check(
+            "reports advanced the timeline monotonically",
+            all(
+                later["media_time_s"] >= earlier["media_time_s"]
+                for earlier, later in zip(acknowledged, acknowledged[1:])
+            ),
+            f"{len(acknowledged)} commands",
+        ),
+        check(
+            "the attention and gain packets carried a media reference",
+            timing["gain_packets_carrying_a_media_reference"] == timing["gain_packets"]
+            and timing["gain_packets"] > 0,
+            f"{timing['gain_packets_carrying_a_media_reference']}/{timing['gain_packets']} gain packets",
+        ),
+        check(
+            "|Δt| between the echoed position and the client's own time stayed under 0.75 s",
+            bool(timing["delta_seconds"]["within_075"]),
+            json.dumps(timing["delta_seconds"]),
+        ),
+        check(
+            "the media packet stream reached the client with the observed timeline",
+            media_state.get("media_packets", 0) > 0
+            and media_state.get("timeline", {}).get("sync_status") in ("observed", "desynchronized"),
+            f"{media_state.get('media_packets', 0)} media packets, "
+            f"last sync_status={media_state.get('timeline', {}).get('sync_status')}",
+        ),
+        check(
+            "the reference envelopes cover the played range and the anchor is a real number",
+            bool(media_state.get("envelope_coverage_seconds"))
+            and isinstance(media_state.get("audio_anchor_seconds"), (int, float)),
+            json.dumps(
+                {
+                    "coverage": media_state.get("envelope_coverage_seconds"),
+                    "anchor": media_state.get("audio_anchor_seconds"),
+                }
+            ),
+        ),
+    ]
 
 
 def inspect(packets: list, lifecycle: dict, summary: dict) -> list:
@@ -375,6 +661,46 @@ def inspect(packets: list, lifecycle: dict, summary: dict) -> list:
     return checks
 
 
+def evaluate_gate(packets: list, media_state: dict, record_path: Path, args):
+    """Run the frontend's own ``mediaFocusReady`` over this run, in Node.
+
+    The gate is a JavaScript function over a client state object, so the only
+    faithful evaluation is to execute it: :mod:`scripts.auditory_ui.gate_evidence`
+    replays the recorded packets through the vendored frontend's validator and
+    state machine and calls the function from ``mediaAudio.js``. A writer's
+    absence is not a failure of this run - it is reported as "not evaluated"
+    rather than as a pass - but a falsified gate is, and it is what the caller's
+    exit code then reflects.
+    """
+
+    script = Path(args.gate_script)
+    if not script.is_file():
+        return None
+    stream_path = Path(args.stream_out)
+    try:
+        completed = subprocess.run(
+            [
+                "node",
+                str(script),
+                str(stream_path),
+                str(record_path),
+                str(args.gate_out),
+            ],
+            cwd=str(REPO),
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        print(f"gate evidence could not run: {error}")
+        return {"gate_open": False, "clauses": [], "error": str(error)}
+    if completed.returncode != 0 and not Path(args.gate_out).is_file():
+        print(f"gate evidence exited {completed.returncode}: {completed.stderr.strip()[:400]}")
+        return {"gate_open": False, "clauses": [], "error": completed.stderr.strip()[:400]}
+    return json.loads(Path(args.gate_out).read_text())
+
+
 def plumbing(packets: list, trial: AuditoryTrial) -> dict:
     """Post-hoc comparison of published decisions with the trial's own label.
 
@@ -454,7 +780,27 @@ async def main_async(args) -> int:
 
     session = build_session(args, trial, model, envelope_paths)
     producer = AttentionProducer(session)
-    app = create_app(producer_factory=lambda: producer, static_dir=args.static_dir)
+
+    # The media path is opt-in: without ``--media-out`` this run is exactly the
+    # step-8 evidence command, with no audio file, no timeline and no media
+    # reference in any packet (the frontend then holds neutral gain, correctly).
+    media_report: dict | None = None
+    media = None
+    if args.media_out:
+        media, media_report = render_media(trial, args)
+        producer.media_reference = media.media_reference
+        media_report["title"] = args.media_title
+        media_report["media_id"] = media.media_id
+        media_report["descriptor"] = media.descriptor()
+
+    app = create_app(
+        producer_factory=lambda: producer, media=media, static_dir=args.static_dir
+    )
+
+    def media_client(port: int, lifecycle: dict):
+        """Bind this run's media objects to the generic client coroutine."""
+
+        return run_media_client(port, args, media, lifecycle, media_report)
 
     port = free_port()
     if args.host not in LOOPBACK_HOSTS:
@@ -477,13 +823,39 @@ async def main_async(args) -> int:
     packets: list = []
     begun = time.time()
     try:
-        lifecycle = await collect(app, port, args, packets)
+        lifecycle = await collect(
+            app, port, args, packets, media_client if media is not None else None
+        )
     finally:
         server.should_exit = True
         thread.join(timeout=10)
 
     summary = producer.summary.to_dict() if producer.summary else {}
     checks = inspect(packets, lifecycle, summary)
+    media_state = lifecycle.get("media_state") or {}
+    timing = None
+    gate = None
+    if media is not None:
+        timeline = media.snapshot()
+        # The watcher's live playback-clock getter is not evidence and not
+        # JSON-serialisable; what it produced is already in `at_gain_packet`.
+        media_state.pop("snapshot", None)
+        media_state.update(
+            {
+                "timeline": timeline,
+                "media_packets": sum(1 for packet in packets if packet["type"] == "media"),
+                "envelope_coverage_seconds": session.references.coverage(),
+                "audio_anchor_seconds": float(getattr(session.source, "audio_start", 0.0)),
+                "replay_clock": {
+                    "kind": "deterministic_virtual",
+                    "speed": float(getattr(session.source, "speed", 1.0)),
+                },
+            }
+        )
+        timing = timing_evidence(
+            packets, media_state, media_state.get("client", {}).get("exchanges", [])
+        )
+        checks.extend(media_assertions(media_state, timing))
     report = {
         "kind": "auditory session run record; plumbing evidence, not an accuracy claim",
         "started_at": datetime.fromtimestamp(begun, timezone.utc).isoformat(),
@@ -522,6 +894,22 @@ async def main_async(args) -> int:
         "assertions": checks,
         "plumbing": plumbing(packets, trial),
     }
+    media_record = None
+    if media is not None:
+        report["media"] = media_report
+        report["timing"] = timing
+        media_record = {
+            "kind": "step-9 media timeline run record; the browser's own handshake, replayed",
+            "started_at": report["started_at"],
+            "command": sys.argv,
+            "seconds": report["seconds"],
+            "render": media_report,
+            "media": media_state,
+            "timing": timing,
+            "session": summary,
+            "assertions": checks,
+            "packet_types": report["packets"]["by_type"],
+        }
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -529,11 +917,54 @@ async def main_async(args) -> int:
     stream_path = Path(args.stream_out)
     stream_path.parent.mkdir(parents=True, exist_ok=True)
     stream_path.write_text("\n".join(json.dumps(packet) for packet in packets))
+    if media_record is not None:
+        media_path = Path(args.media_record)
+        media_path.parent.mkdir(parents=True, exist_ok=True)
+        media_path.write_text(json.dumps(media_record, indent=2, sort_keys=False))
+        print(f"media record: {media_path}")
+        gate = evaluate_gate(packets, media_state, media_path, args)
+        if gate is not None:
+            failed = [item for item in checks if not item["ok"]]
+            gate_failed = [clause for clause in gate["clauses"] if not clause["ok"]]
+            checks.append(
+                check(
+                    "the frontend's own gain gate reported itself satisfiable",
+                    bool(gate["gate_open"]) and not gate_failed,
+                    f"gate_open={gate['gate_open']} at {gate['gate_opened_at_seconds']}s; "
+                    f"{len(gate_failed)} clause(s) false",
+                )
+            )
+            report["assertions"] = checks
+            out.write_text(json.dumps(report, indent=2, sort_keys=False))
+            print(f"gate evidence: {args.gate_out}")
 
     print(f"session summary: {json.dumps(summary)}")
     print(f"packets: {json.dumps(report['packets']['by_type'])}")
     for item in checks:
         print(f"  [{'PASS' if item['ok'] else 'FAIL'}] {item['name']} -- {item['detail']}")
+    if timing is not None:
+        print(f"timing: {json.dumps(timing['delta_seconds'])}")
+        print(
+            "handshake: "
+            + json.dumps(
+                [
+                    {
+                        "action": entry["action"],
+                        "media_time_s": entry["media_time_s"],
+                        "revision": entry["acknowledged_revision"],
+                        "sync_status": entry["sync_status"],
+                    }
+                    for entry in media_state.get("client", {}).get("exchanges", [])[:4]
+                ]
+            )
+        )
+    if gate is not None:
+        for clause in gate["clauses"]:
+            print(f"  [{'PASS' if clause['ok'] else 'FAIL'}] gate: {clause['name']} -- {clause['detail']}")
+        print(f"gate open: {gate['gate_open']}; attune gains that differ from neutral: "
+              f"{gate.get('playback_gains_applied')} of {gate.get('sampled_gain_packets')}")
+        if gate.get("first_applied_gain"):
+            print(f"first applied gain: {json.dumps(gate['first_applied_gain'])}")
     print(f"plumbing: {json.dumps(report['plumbing'])}")
     print(f"report: {out}")
     print(f"packet stream: {stream_path}")
@@ -564,6 +995,43 @@ def main(argv=None) -> int:
     )
     parser.add_argument("--out", default="results/auditory_session.json")
     parser.add_argument("--stream-out", default="output/auditory_ui/packets.jsonl")
+    parser.add_argument(
+        "--media-out",
+        default=None,
+        help="render this trial's two candidates to a stereo WAV and serve it",
+    )
+    parser.add_argument(
+        "--media-title", default="KU Leuven trial", help="title in the media descriptor"
+    )
+    parser.add_argument(
+        "--presentation",
+        default=DEFAULT_PRESENTATION,
+        choices=PRESENTATION_MODES,
+        help="presentation route; dichotic is L=A, R=B (plan sections 3.3/3.15)",
+    )
+    parser.add_argument(
+        "--crossmix-weight",
+        type=float,
+        default=DEFAULT_CROSSMIX_WEIGHT,
+        help="level of the other candidate per ear in --presentation crossmix",
+    )
+    parser.add_argument(
+        "--media-tick",
+        type=float,
+        default=MEDIA_TICK_SECONDS,
+        help="seconds between media reports, as MediaPlayback.js ticks",
+    )
+    parser.add_argument(
+        "--media-record",
+        default="results/auditory_media.json",
+        help="where the media evidence record goes",
+    )
+    parser.add_argument(
+        "--gate-script", default="scripts/auditory_ui/gate_evidence.mjs"
+    )
+    parser.add_argument(
+        "--gate-out", default="output/auditory_ui/gate_evidence.json"
+    )
     args = parser.parse_args(argv)
     if bool(args.trial) == bool(args.synthetic):
         parser.error("choose exactly one of --trial or --synthetic")

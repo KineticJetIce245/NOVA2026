@@ -96,6 +96,18 @@ results/*
 # session published. It is the closest thing to the screenshot this repository's
 # test path can produce, and it is 8 KB.
 !results/auditory_frontend_*.html
+# Exception: step 9's media run records. They are the evidence that the browser's
+# own handshake was answered field by field, that the position in the attention
+# and gain packets is the one the controller reported rather than one this process
+# invented (decision D-02), and that the vendored frontend's gain gate actually
+# opened. They contain the exchange log (action, reported position, acknowledged
+# revision, round trip), the |dt| distribution and the gate's clause verdicts -
+# measurements and protocol fields, no audio and no participant data. The rendered
+# WAV, the packet streams and the gate output stay out of git under
+# output/auditory_ui/. The mutation record is here for the same reason: it is this
+# step's section 6.4 obligation and it is one JSON file.
+!results/auditory_media_*.json
+!results/media_mutations.json
 
 # macOS metadata. On exFAT (this repository lives on one) macOS cannot store
 # extended attributes, so it writes an AppleDouble sidecar next to every file it

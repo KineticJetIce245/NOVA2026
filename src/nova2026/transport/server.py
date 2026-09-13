@@ -45,7 +45,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .media import MediaTimeline
+from .media import MediaBroadcaster, MediaTimeline
 from .protocol import VERSION
 from .publisher import LaggedSubscriber, Publisher
 from .sessions import Producer, Sessions
@@ -178,15 +178,24 @@ def create_app(
 
     publisher = publisher if publisher is not None else Publisher()
     sessions = Sessions(publisher, producer_factory=producer_factory)
+    # The media timeline reaches the dashboard as a `media` packet; without this
+    # thread the controller would be acknowledged but the gain gate never opens.
+    broadcaster = (
+        MediaBroadcaster(publisher, media, sessions) if media is not None else None
+    )
     sockets: set[WebSocket] = set()
     stopping = asyncio.Event()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         try:
+            if broadcaster is not None:
+                broadcaster.start()
             yield
         finally:
             stopping.set()
+            if broadcaster is not None:
+                broadcaster.stop()
             await asyncio.gather(
                 *(socket.close(code=1001) for socket in list(sockets)),
                 return_exceptions=True,
@@ -200,6 +209,7 @@ def create_app(
     app.state.sessions = sessions
     app.state.sockets = sockets
     app.state.media = media
+    app.state.media_broadcaster = broadcaster
     app.state.static_dir = static_root
 
     @app.get("/api/health")

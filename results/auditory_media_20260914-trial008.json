@@ -1,0 +1,1051 @@
+{
+  "kind": "step-9 media timeline run record; the browser's own handshake, replayed",
+  "started_at": "2026-09-13T08:59:20.462124+00:00",
+  "command": [
+    "C:\\Files\\git\\NOVA2026\\scripts\\auditory_ui\\session.py",
+    "--trial",
+    "datasets/AAD-KULeuven/converted/S1/trial_008.npz",
+    "--model",
+    "models/auditory_kuleuven.npz",
+    "--seconds",
+    "90",
+    "--speed",
+    "1",
+    "--media-out",
+    "output/auditory_ui/media/S1_trial_008_stereo.wav",
+    "--presentation",
+    "dichotic",
+    "--media-title",
+    "S1 trial_008",
+    "--out",
+    "output/auditory_ui/session_trial008_media.json",
+    "--stream-out",
+    "output/auditory_ui/packets_trial008_media.jsonl",
+    "--media-record",
+    "results/auditory_media_20260914-trial008.json",
+    "--gate-out",
+    "results/auditory_media_gate_20260914-trial008.json"
+  ],
+  "seconds": 90.51,
+  "render": {
+    "path": "output\\auditory_ui\\media\\S1_trial_008_stereo.wav",
+    "file": "S1_trial_008_stereo.wav",
+    "presentation": "dichotic",
+    "crossmix_weight": null,
+    "sample_rate": 44100,
+    "samples": 3969000,
+    "seconds": 90.0,
+    "channels": [
+      "A",
+      "B"
+    ],
+    "peak_int16": {
+      "left": 3398,
+      "right": 3790
+    },
+    "bytes": 15876044,
+    "sha256": {
+      "left": "f6dac1446fbbeda14fd5dda99c25b134a92b09e4f397868feb45a5017c2b666c",
+      "right": "f373de5cce90c9ebd30584ea7097bcb74aca66eab2d8383cc94476dbdb7070ae"
+    },
+    "candidate_seconds": 90.0,
+    "eeg_seconds": 90.0,
+    "title": "S1 trial_008",
+    "media_id": "c6d4a10b61964aa3bedd9f68b4cf3f13",
+    "descriptor": {
+      "media_id": "c6d4a10b61964aa3bedd9f68b4cf3f13",
+      "title": "S1 trial_008",
+      "kind": "audio",
+      "url": "/api/media/file"
+    }
+  },
+  "media": {
+    "descriptor": {
+      "media_id": "c6d4a10b61964aa3bedd9f68b4cf3f13",
+      "title": "S1 trial_008",
+      "kind": "audio",
+      "url": "/api/media/file"
+    },
+    "duration_s": 90.0,
+    "timeline": {
+      "media_id": "c6d4a10b61964aa3bedd9f68b4cf3f13",
+      "title": "S1 trial_008",
+      "kind": "audio",
+      "url": "/api/media/file",
+      "session_id": "7af4b558-aac1-4f67-90be-753228efdcce",
+      "media_time_s": 0.0,
+      "duration_s": 90.0,
+      "playback_state": "stopped",
+      "revision": 3,
+      "server_reference_s": 193590.2631821,
+      "server_received_s": 193679.8531319,
+      "sync_status": "desynchronized"
+    },
+    "media_packets": 355,
+    "envelope_coverage_seconds": [
+      [
+        0.0,
+        124.984375
+      ],
+      [
+        0.0,
+        124.984375
+      ]
+    ],
+    "audio_anchor_seconds": 0.0,
+    "replay_clock": {
+      "kind": "deterministic_virtual",
+      "speed": 1.0
+    },
+    "client": {
+      "client_id": "simulated-browser",
+      "duration_s": 90.0,
+      "started_playback": true,
+      "prepared": true,
+      "failures": [],
+      "exchange_count": 339,
+      "exchanges_note": "every handshake command, then every tenth report",
+      "exchanges": [
+        {
+          "index": 0,
+          "action": "prepare",
+          "request_id": 1,
+          "media_time_s": 0.0,
+          "duration_s": 90.0,
+          "wall_seconds": 0.002643,
+          "round_trip_seconds": 0.002639,
+          "status": 200,
+          "acknowledged_revision": 2,
+          "acknowledged_time_s": 0.0,
+          "sync_status": "observed",
+          "playback_state": "paused"
+        },
+        {
+          "index": 1,
+          "action": "playing",
+          "request_id": 2,
+          "media_time_s": 0.0,
+          "duration_s": 90.0,
+          "wall_seconds": 0.264491,
+          "round_trip_seconds": 0.002818,
+          "status": 200,
+          "acknowledged_revision": 2,
+          "acknowledged_time_s": 0.0,
+          "sync_status": "observed",
+          "playback_state": "playing"
+        },
+        {
+          "index": 1,
+          "action": "report",
+          "request_id": 3,
+          "media_time_s": 2e-06,
+          "duration_s": 90.0,
+          "wall_seconds": 0.26715,
+          "round_trip_seconds": 0.002635,
+          "status": 200,
+          "acknowledged_revision": 2,
+          "acknowledged_time_s": 1.7999846022576094e-06,
+          "sync_status": "observed",
+          "playback_state": "playing"
+        },
+        {
+          "index": 11,
+          "action": "report",
+          "request_id": 13,
+          "media_time_s": 2.65622,
+          "duration_s": 90.0,
+          "wall_seconds": 2.924419,
+          "round_trip_seconds": 0.003683,
+          "status": 200,
+          "acknowledged_revision": 2,
+          "acknowledged_time_s": 2.6562197000021115,
+          "sync_status": "observed",
+          "playback_state": "playing"
+        },
+        {
+          "index": 21,
+          "action": "report",
+          "request_id": 23,
+          "media_time_s": 5.321086,
+          "duration_s": 90.0,
+          "wall_seconds": 5.589269,
+          "round_trip_seconds": 0.003667,
+          "status": 200,
+          "acknowledged_revision": 2,
+          "acknowledged_time_s": 5.321086399984779,
+          "sync_status": "observed",
+          "playback_state": "playing"
+        },
+        {
+          "index": 31,
+          "action": "report",
+          "request_id": 33,
+          "media_time_s": 7.9836,
+          "duration_s": 90.0,
+          "wall_seconds": 8.251763,
+          "round_trip_seconds": 0.003647,
+          "status": 200,
+          "acknowledged_revision": 2,
+          "acknowledged_time_s": 7.983599600003799,
+          "sync_status": "observed",
+          "playback_state": "playing"
+        },
+        {
+          "index": 41,
+          "action": "report",
+          "request_id": 43,
+          "media_time_s": 10.651156,
+          "duration_s": 90.0,
+          "wall_seconds": 10.919468,
+          "round_trip_seconds": 0.003795,
+          "status": 200,
+          "acknowledged_revision": 2,
+          "acknowledged_time_s": 10.65115649998188,
+          "sync_status": "observed",
+          "playback_state": "playing"
+        },
+        {
+          "index": 51,
+          "action": "report",
+          "request_id": 53,
+          "media_time_s": 13.313923,
+          "duration_s": 90.0,
+          "wall_seconds": 13.581703,
+          "round_trip_seconds": 0.003264,
+          "status": 200,
+          "acknowledged_revision": 2,
+          "acknowledged_time_s": 13.31392329998198,
+          "sync_status": "observed",
+          "playback_state": "playing"
+        },
+        {
+          "index": 61,
+          "action": "report",
+          "request_id": 63,
+          "media_time_s": 15.982065,
+          "duration_s": 90.0,
+          "wall_seconds": 16.250577,
+          "round_trip_seconds": 0.003995,
+          "status": 200,
+          "acknowledged_revision": 2,
+          "acknowledged_time_s": 15.982065299991518,
+          "sync_status": "observed",
+          "playback_state": "playing"
+        },
+        {
+          "index": 71,
+          "action": "report",
+          "request_id": 73,
+          "media_time_s": 18.634382,
+          "duration_s": 90.0,
+          "wall_seconds": 18.901998,
+          "round_trip_seconds": 0.003102,
+          "status": 200,
+          "acknowledged_revision": 2,
+          "acknowledged_time_s": 18.63438189998851,
+          "sync_status": "observed",
+          "playback_state": "playing"
+        },
+        {
+          "index": 81,
+          "action": "report",
+          "request_id": 83,
+          "media_time_s": 21.309893,
+          "duration_s": 90.0,
+          "wall_seconds": 21.577008,
+          "round_trip_seconds": 0.002602,
+          "status": 200,
+          "acknowledged_revision": 2,
+          "acknowledged_time_s": 21.309892799996305,
+          "sync_status": "observed",
+          "playback_state": "playing"
+        },
+        {
+          "index": 91,
+          "action": "report",
+          "request_id": 93,
+          "media_time_s": 23.979431,
+          "duration_s": 90.0,
+          "wall_seconds": 24.247166,
+          "round_trip_seconds": 0.003221,
+          "status": 200,
+          "acknowledged_revision": 2,
+          "acknowledged_time_s": 23.979430899984436,
+          "sync_status": "observed",
+          "playback_state": "playing"
+        },
+        {
+          "index": 101,
+          "action": "report",
+          "request_id": 103,
+          "media_time_s": 26.630264,
+          "duration_s": 90.0,
+          "wall_seconds": 26.897666,
+          "round_trip_seconds": 0.002888,
+          "status": 200,
+          "acknowledged_revision": 2,
+          "acknowledged_time_s": 26.63026439998066,
+          "sync_status": "observed",
+          "playback_state": "playing"
+        },
+        {
+          "index": 111,
+          "action": "report",
+          "request_id": 113,
+          "media_time_s": 29.304486,
+          "duration_s": 90.0,
+          "wall_seconds": 29.571935,
+          "round_trip_seconds": 0.002935,
+          "status": 200,
+          "acknowledged_revision": 2,
+          "acknowledged_time_s": 29.304486499982886,
+          "sync_status": "observed",
+          "playback_state": "playing"
+        },
+        {
+          "index": 121,
+          "action": "report",
+          "request_id": 123,
+          "media_time_s": 31.930966,
+          "duration_s": 90.0,
+          "wall_seconds": 32.198468,
+          "round_trip_seconds": 0.002988,
+          "status": 200,
+          "acknowledged_revision": 2,
+          "acknowledged_time_s": 31.930965699983062,
+          "sync_status": "observed",
+          "playback_state": "playing"
+        },
+        {
+          "index": 131,
+          "action": "report",
+          "request_id": 133,
+          "media_time_s": 34.595813,
+          "duration_s": 90.0,
+          "wall_seconds": 34.863344,
+          "round_trip_seconds": 0.003016,
+          "status": 200,
+          "acknowledged_revision": 2,
+          "acknowledged_time_s": 34.59581309999339,
+          "sync_status": "observed",
+          "playback_state": "playing"
+        },
+        {
+          "index": 141,
+          "action": "report",
+          "request_id": 143,
+          "media_time_s": 37.259918,
+          "duration_s": 90.0,
+          "wall_seconds": 37.527283,
+          "round_trip_seconds": 0.002845,
+          "status": 200,
+          "acknowledged_revision": 2,
+          "acknowledged_time_s": 37.25991829999839,
+          "sync_status": "observed",
+          "playback_state": "playing"
+        },
+        {
+          "index": 151,
+          "action": "report",
+          "request_id": 153,
+          "media_time_s": 39.915291,
+          "duration_s": 90.0,
+          "wall_seconds": 40.182889,
+          "round_trip_seconds": 0.003083,
+          "status": 200,
+          "acknowledged_revision": 2,
+          "acknowledged_time_s": 39.915291199984495,
+          "sync_status": "observed",
+          "playback_state": "playing"
+        },
+        {
+          "index": 161,
+          "action": "report",
+          "request_id": 163,
+          "media_time_s": 42.559465,
+          "duration_s": 90.0,
+          "wall_seconds": 42.827632,
+          "round_trip_seconds": 0.003653,
+          "status": 200,
+          "acknowledged_revision": 2,
+          "acknowledged_time_s": 42.559464999998454,
+          "sync_status": "observed",
+          "playback_state": "playing"
+        },
+        {
+          "index": 171,
+          "action": "report",
+          "request_id": 173,
+          "media_time_s": 45.201765,
+          "duration_s": 90.0,
+          "wall_seconds": 45.468568,
+          "round_trip_seconds": 0.00229,
+          "status": 200,
+          "acknowledged_revision": 2,
+          "acknowledged_time_s": 45.20176460000221,
+          "sync_status": "observed",
+          "playback_state": "playing"
+        },
+        {
+          "index": 181,
+          "action": "report",
+          "request_id": 183,
+          "media_time_s": 47.873116,
+          "duration_s": 90.0,
+          "wall_seconds": 48.140591,
+          "round_trip_seconds": 0.002961,
+          "status": 200,
+          "acknowledged_revision": 2,
+          "acknowledged_time_s": 47.8731157000002,
+          "sync_status": "observed",
+          "playback_state": "playing"
+        },
+        {
+          "index": 191,
+          "action": "report",
+          "request_id": 193,
+          "media_time_s": 50.524404,
+          "duration_s": 90.0,
+          "wall_seconds": 50.791705,
+          "round_trip_seconds": 0.002787,
+          "status": 200,
+          "acknowledged_revision": 2,
+          "acknowledged_time_s": 50.524403799994616,
+          "sync_status": "observed",
+          "playback_state": "playing"
+        },
+        {
+          "index": 201,
+          "action": "report",
+          "request_id": 203,
+          "media_time_s": 53.16116,
+          "duration_s": 90.0,
+          "wall_seconds": 53.429103,
+          "round_trip_seconds": 0.003429,
+          "status": 200,
+          "acknowledged_revision": 2,
+          "acknowledged_time_s": 53.16116019999026,
+          "sync_status": "observed",
+          "playback_state": "playing"
+        },
+        {
+          "index": 211,
+          "action": "report",
+          "request_id": 213,
+          "media_time_s": 55.817579,
+          "duration_s": 90.0,
+          "wall_seconds": 56.085019,
+          "round_trip_seconds": 0.002926,
+          "status": 200,
+          "acknowledged_revision": 2,
+          "acknowledged_time_s": 55.817579199996544,
+          "sync_status": "observed",
+          "playback_state": "playing"
+        },
+        {
+          "index": 221,
+          "action": "report",
+          "request_id": 223,
+          "media_time_s": 58.477141,
+          "duration_s": 90.0,
+          "wall_seconds": 58.744605,
+          "round_trip_seconds": 0.002949,
+          "status": 200,
+          "acknowledged_revision": 2,
+          "acknowledged_time_s": 58.477141199982725,
+          "sync_status": "observed",
+          "playback_state": "playing"
+        },
+        {
+          "index": 231,
+          "action": "report",
+          "request_id": 233,
+          "media_time_s": 61.133099,
+          "duration_s": 90.0,
+          "wall_seconds": 61.400963,
+          "round_trip_seconds": 0.003349,
+          "status": 200,
+          "acknowledged_revision": 2,
+          "acknowledged_time_s": 61.133098999998765,
+          "sync_status": "observed",
+          "playback_state": "playing"
+        },
+        {
+          "index": 241,
+          "action": "report",
+          "request_id": 243,
+          "media_time_s": 63.787292,
+          "duration_s": 90.0,
+          "wall_seconds": 64.055086,
+          "round_trip_seconds": 0.003281,
+          "status": 200,
+          "acknowledged_revision": 2,
+          "acknowledged_time_s": 63.787292099994374,
+          "sync_status": "observed",
+          "playback_state": "playing"
+        },
+        {
+          "index": 251,
+          "action": "report",
+          "request_id": 253,
+          "media_time_s": 66.450193,
+          "duration_s": 90.0,
+          "wall_seconds": 66.717871,
+          "round_trip_seconds": 0.003163,
+          "status": 200,
+          "acknowledged_revision": 2,
+          "acknowledged_time_s": 66.45019289999618,
+          "sync_status": "observed",
+          "playback_state": "playing"
+        },
+        {
+          "index": 261,
+          "action": "report",
+          "request_id": 263,
+          "media_time_s": 69.120188,
+          "duration_s": 90.0,
+          "wall_seconds": 69.387209,
+          "round_trip_seconds": 0.002507,
+          "status": 200,
+          "acknowledged_revision": 2,
+          "acknowledged_time_s": 69.12018759999773,
+          "sync_status": "observed",
+          "playback_state": "playing"
+        },
+        {
+          "index": 271,
+          "action": "report",
+          "request_id": 273,
+          "media_time_s": 71.776635,
+          "duration_s": 90.0,
+          "wall_seconds": 72.04475,
+          "round_trip_seconds": 0.003601,
+          "status": 200,
+          "acknowledged_revision": 2,
+          "acknowledged_time_s": 71.77663539999048,
+          "sync_status": "observed",
+          "playback_state": "playing"
+        },
+        {
+          "index": 281,
+          "action": "report",
+          "request_id": 283,
+          "media_time_s": 74.431257,
+          "duration_s": 90.0,
+          "wall_seconds": 74.69905,
+          "round_trip_seconds": 0.003278,
+          "status": 200,
+          "acknowledged_revision": 2,
+          "acknowledged_time_s": 74.43125739999232,
+          "sync_status": "observed",
+          "playback_state": "playing"
+        },
+        {
+          "index": 291,
+          "action": "report",
+          "request_id": 293,
+          "media_time_s": 77.085809,
+          "duration_s": 90.0,
+          "wall_seconds": 77.353503,
+          "round_trip_seconds": 0.00318,
+          "status": 200,
+          "acknowledged_revision": 2,
+          "acknowledged_time_s": 77.08580879998044,
+          "sync_status": "observed",
+          "playback_state": "playing"
+        },
+        {
+          "index": 301,
+          "action": "report",
+          "request_id": 303,
+          "media_time_s": 79.74163,
+          "duration_s": 90.0,
+          "wall_seconds": 80.009077,
+          "round_trip_seconds": 0.002931,
+          "status": 200,
+          "acknowledged_revision": 2,
+          "acknowledged_time_s": 79.7416301999765,
+          "sync_status": "observed",
+          "playback_state": "playing"
+        },
+        {
+          "index": 311,
+          "action": "report",
+          "request_id": 313,
+          "media_time_s": 82.412138,
+          "duration_s": 90.0,
+          "wall_seconds": 82.679965,
+          "round_trip_seconds": 0.003312,
+          "status": 200,
+          "acknowledged_revision": 2,
+          "acknowledged_time_s": 82.41213829998742,
+          "sync_status": "observed",
+          "playback_state": "playing"
+        },
+        {
+          "index": 321,
+          "action": "report",
+          "request_id": 323,
+          "media_time_s": 85.083412,
+          "duration_s": 90.0,
+          "wall_seconds": 85.351205,
+          "round_trip_seconds": 0.00328,
+          "status": 200,
+          "acknowledged_revision": 2,
+          "acknowledged_time_s": 85.08341160000418,
+          "sync_status": "observed",
+          "playback_state": "playing"
+        },
+        {
+          "index": 331,
+          "action": "report",
+          "request_id": 333,
+          "media_time_s": 87.723873,
+          "duration_s": 90.0,
+          "wall_seconds": 87.991363,
+          "round_trip_seconds": 0.002976,
+          "status": 200,
+          "acknowledged_revision": 2,
+          "acknowledged_time_s": 87.72387289998005,
+          "sync_status": "observed",
+          "playback_state": "playing"
+        }
+      ]
+    }
+  },
+  "timing": {
+    "gain_packets": 361,
+    "attention_packets": 361,
+    "gain_packets_carrying_a_media_reference": 361,
+    "delta_seconds": {
+      "count": 361,
+      "max": 0.3003012000117451,
+      "mean": 0.14917581412727413,
+      "min": 0.0,
+      "within_075": true
+    },
+    "media_time_step_seconds": {
+      "count": 360,
+      "max": 0.2696327999874484,
+      "mean": 0.24812509055554982
+    },
+    "frame_positions_first_last": [
+      0.0,
+      89.32503259999794
+    ],
+    "last_frame": {
+      "decision": "uncertain",
+      "media_id": "c6d4a10b61964aa3bedd9f68b4cf3f13",
+      "media_revision": 2,
+      "media_time_s": 89.32503259999794,
+      "a_db": null
+    },
+    "transport_timeline": {
+      "media_id": "c6d4a10b61964aa3bedd9f68b4cf3f13",
+      "title": "S1 trial_008",
+      "kind": "audio",
+      "url": "/api/media/file",
+      "session_id": "7af4b558-aac1-4f67-90be-753228efdcce",
+      "media_time_s": 0.0,
+      "duration_s": 90.0,
+      "playback_state": "stopped",
+      "revision": 3,
+      "server_reference_s": 193590.2631821,
+      "server_received_s": 193679.8531319,
+      "sync_status": "desynchronized"
+    },
+    "round_trip_seconds": {
+      "count": 339,
+      "max": 0.005772,
+      "mean": 0.00310817994100295
+    },
+    "envelope_coverage_seconds": [
+      [
+        0.0,
+        124.984375
+      ],
+      [
+        0.0,
+        124.984375
+      ]
+    ],
+    "audio_anchor_seconds": 0.0,
+    "block_timing": {
+      "available": false,
+      "why": "TimestampedAudio.diagnostics() describes DAC block timestamps from a real audio device; it is not on this replay path, which is fed from the converted trial, so reporting drift here would be an invention. It belongs to the live/device path (steps 11 and 12)."
+    },
+    "replay_clock": {
+      "kind": "deterministic_virtual",
+      "speed": 1.0
+    }
+  },
+  "session": {
+    "kind": "kuleuven_replay",
+    "simulated": false,
+    "policy": {
+      "check_channels": false,
+      "max_bad_channels": 0,
+      "exclude_channels": [],
+      "source_unit_exponent": -6,
+      "warmup_seconds": 2.0,
+      "frame_seconds": 0.25
+    },
+    "channel_count": 64,
+    "window_seconds": 5.0,
+    "step_seconds": 1.0,
+    "started": 0.0,
+    "ended": 90.0,
+    "wall_seconds": 90.00082670000847,
+    "windows": 86,
+    "submitted": 84,
+    "scored": 84,
+    "invalid": 2,
+    "evidence_gaps": 0,
+    "failed": 0,
+    "frames": 361,
+    "decisions": {
+      "unavailable": 19,
+      "uncertain": 330,
+      "A": 12
+    },
+    "failure": null
+  },
+  "assertions": [
+    {
+      "name": "every packet passes the version-1 validator",
+      "ok": true
+    },
+    {
+      "name": "all packet types the frontend decodes are present",
+      "ok": true
+    },
+    {
+      "name": "the snapshot is delivered before newer events",
+      "ok": true
+    },
+    {
+      "name": "the snapshot's streams all arrive",
+      "ok": true
+    },
+    {
+      "name": "sequence is strictly increasing across the stream",
+      "ok": true
+    },
+    {
+      "name": "decision is one of the four allowed words",
+      "ok": true
+    },
+    {
+      "name": "gains are attenuation only (never above 0 dB)",
+      "ok": true
+    },
+    {
+      "name": "audio_sources carries exactly the two candidates A and B",
+      "ok": true
+    },
+    {
+      "name": "the session lifecycle is published by the transport, not duplicated",
+      "ok": true
+    },
+    {
+      "name": "the stream ends with the terminal session packet",
+      "ok": true
+    },
+    {
+      "name": "the producer stopped and the session record agrees",
+      "ok": true
+    },
+    {
+      "name": "no packet was published after the stop record",
+      "ok": true
+    },
+    {
+      "name": "the run policy is recorded with the run",
+      "ok": true
+    },
+    {
+      "name": "the enabled chain judged windows",
+      "ok": true
+    },
+    {
+      "name": "the media descriptor names an id, a kind and the file route",
+      "ok": true
+    },
+    {
+      "name": "the handshake ran prepare then playing before any report",
+      "ok": true
+    },
+    {
+      "name": "every acknowledgement carried the observed sync status and an integer revision",
+      "ok": true
+    },
+    {
+      "name": "prepare bumped the revision and every later command kept it",
+      "ok": true
+    },
+    {
+      "name": "reports advanced the timeline monotonically",
+      "ok": true
+    },
+    {
+      "name": "the attention and gain packets carried a media reference",
+      "ok": true
+    },
+    {
+      "name": "|\u0394t| between the echoed position and the client's own time stayed under 0.75 s",
+      "ok": true
+    },
+    {
+      "name": "the media packet stream reached the client with the observed timeline",
+      "ok": true
+    },
+    {
+      "name": "the reference envelopes cover the played range and the anchor is a real number",
+      "ok": true
+    }
+  ],
+  "packet_types": {
+    "session": 2,
+    "audio_sources": 1,
+    "sync": 6,
+    "media": 355,
+    "attention": 361,
+    "gain": 361,
+    "signal_quality": 361,
+    "prediction": 86
+  },
+  "gate": {
+    "packet_count": 1533,
+    "sequence": 1533,
+    "validator_rejects": 0,
+    "client_state_rejected": 0,
+    "gate_open": true,
+    "gate_opened_at_seconds": 40,
+    "gate_opened_on": "attention",
+    "observations": 722,
+    "sampled_gain_packets": 361,
+    "delta_seconds": {
+      "count": 361,
+      "max": 0.3003012000117451,
+      "mean": 0.14917581412727413,
+      "min": 0
+    },
+    "clauses": [
+      {
+        "name": "connection.isConnected",
+        "ok": true,
+        "detail": "connection=connected stale=false error=none"
+      },
+      {
+        "name": "session.statusRunning",
+        "ok": true,
+        "detail": "status=running"
+      },
+      {
+        "name": "playback.ready",
+        "ok": true,
+        "detail": "ready=true error=none"
+      },
+      {
+        "name": "playback.stateIsPlayingOrPaused",
+        "ok": true,
+        "detail": "playbackState=playing"
+      },
+      {
+        "name": "media.syncStatusObserved",
+        "ok": true,
+        "detail": "syncStatus=observed (time=39.6488851000031 revision=2 state=playing)"
+      },
+      {
+        "name": "media.playbackStateMatches",
+        "ok": true,
+        "detail": "media=playing playback=playing"
+      },
+      {
+        "name": "media.revisionMatches",
+        "ok": true,
+        "detail": "media=2 playback=2"
+      },
+      {
+        "name": "media.mediaIdMatches",
+        "ok": true,
+        "detail": "media=c6d4a10b61964aa3bedd9f68b4cf3f13 playback=c6d4a10b61964aa3bedd9f68b4cf3f13"
+      },
+      {
+        "name": "sync.statusIsUsable",
+        "ok": true,
+        "detail": "status=unobserved"
+      },
+      {
+        "name": "attention.sessionIdMatches",
+        "ok": true,
+        "detail": "attention=7af4b558-aac1-4f67-90be-753228efdcce state=7af4b558-aac1-4f67-90be-753228efdcce"
+      },
+      {
+        "name": "attention.mediaIdMatches",
+        "ok": true,
+        "detail": "attention=c6d4a10b61964aa3bedd9f68b4cf3f13 playback=c6d4a10b61964aa3bedd9f68b4cf3f13"
+      },
+      {
+        "name": "attention.mediaRevisionMatches",
+        "ok": true,
+        "detail": "attention=2 playback=2"
+      },
+      {
+        "name": "attention.timeWithin750ms",
+        "ok": true,
+        "detail": "|\u0394t|=0.1106s"
+      },
+      {
+        "name": "attention.decisionIsAOrB",
+        "ok": true,
+        "detail": "decision=A"
+      }
+    ],
+    "playback_gains_at_first_open": {
+      "at_seconds": 0,
+      "a_db": 0,
+      "b_db": 0,
+      "linear": [
+        1,
+        1
+      ],
+      "linear_db": [
+        0,
+        0
+      ],
+      "expected_linear": [
+        1,
+        1
+      ]
+    },
+    "playback_gains_applied": 12,
+    "playback_gains_samples": [
+      {
+        "at_seconds": 40,
+        "a_db": 0,
+        "b_db": -6,
+        "linear": [
+          1,
+          0.5011872336272722
+        ],
+        "linear_db": [
+          0,
+          -6.000000000000001
+        ],
+        "expected_linear": [
+          1,
+          0.5011872336272722
+        ]
+      },
+      {
+        "at_seconds": 40.25,
+        "a_db": 0,
+        "b_db": -6,
+        "linear": [
+          1,
+          0.5011872336272722
+        ],
+        "linear_db": [
+          0,
+          -6.000000000000001
+        ],
+        "expected_linear": [
+          1,
+          0.5011872336272722
+        ]
+      },
+      {
+        "at_seconds": 40.5,
+        "a_db": 0,
+        "b_db": -6,
+        "linear": [
+          1,
+          0.5011872336272722
+        ],
+        "linear_db": [
+          0,
+          -6.000000000000001
+        ],
+        "expected_linear": [
+          1,
+          0.5011872336272722
+        ]
+      },
+      {
+        "at_seconds": 40.75,
+        "a_db": 0,
+        "b_db": -6,
+        "linear": [
+          1,
+          0.5011872336272722
+        ],
+        "linear_db": [
+          0,
+          -6.000000000000001
+        ],
+        "expected_linear": [
+          1,
+          0.5011872336272722
+        ]
+      },
+      {
+        "at_seconds": 41,
+        "a_db": 0,
+        "b_db": -6,
+        "linear": [
+          1,
+          0.5011872336272722
+        ],
+        "linear_db": [
+          0,
+          -6.000000000000001
+        ],
+        "expected_linear": [
+          1,
+          0.5011872336272722
+        ]
+      }
+    ],
+    "first_applied_gain": {
+      "at_seconds": 40,
+      "a_db": 0,
+      "b_db": -6,
+      "linear": [
+        1,
+        0.5011872336272722
+      ],
+      "linear_db": [
+        0,
+        -6.000000000000001
+      ],
+      "expected_linear": [
+        1,
+        0.5011872336272722
+      ]
+    },
+    "conditions_at_first_open": {
+      "mode_is_attune": true,
+      "playback_is_playing": true,
+      "focus_ready": true,
+      "gain_media_time": 39.379946699977154,
+      "attention_media_time": 39.6488851000031,
+      "times_equal": false,
+      "gain_session_matches": true,
+      "gain_media_id_matches": true,
+      "gain_revision_matches": true,
+      "gain_time_within_750ms": true,
+      "gains_in_range": true
+    },
+    "media_packet_sample": {
+      "mediaId": "c6d4a10b61964aa3bedd9f68b4cf3f13",
+      "title": "S1 trial_008",
+      "mediaTime": 39.6488851000031,
+      "duration": 90,
+      "playbackState": "playing",
+      "revision": 2,
+      "serverReference": 193590.2631821,
+      "syncStatus": "observed"
+    }
+  }
+}

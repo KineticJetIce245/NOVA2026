@@ -55,7 +55,6 @@ PREDICTION_STATUS = {
 }
 """Decision word to the frontend's ``prediction.status`` vocabulary."""
 
-
 class AttentionProducer:
     """Run one session and publish its frames as version-1 packets.
 
@@ -186,19 +185,16 @@ class AttentionProducer:
             # Only a real decision gets ``attended``: the client uses it as the
             # fallback for older producers and must never see a guess there.
             payload["attended"] = frame.decision
-        payload.update(self._media())
         return payload
 
     def _gain(self, frame) -> dict[str, Any]:
         """Per-candidate attenuation; never above 0 dB."""
 
-        payload: dict[str, Any] = {
+        return {
             "a_db": min(0.0, frame.gain_a_db),
             "b_db": min(0.0, frame.gain_b_db),
             "simulated": self.simulated,
         }
-        payload.update(self._media())
-        return payload
 
     def _quality(self, frame) -> dict[str, Any]:
         """Signal quality; ``null`` until a window has been judged."""
@@ -260,10 +256,26 @@ class AttentionProducer:
         }
 
     def _emit_frame(self, publish, frame) -> None:
-        """Publish one frame: state every frame, evidence and sync when they change."""
+        """Publish one frame: state every frame, evidence and sync when they change.
 
-        self._publish(publish, "attention", frame.timestamp, self._attention(frame))
-        self._publish(publish, "gain", frame.timestamp, self._gain(frame))
+        The media reference is resolved **once** per frame and stamped onto both
+        the attention and the gain packet. That is not tidiness: the frontend's
+        ``mediaFocusReady`` compares the attention packet's position with the
+        playback clock, and ``playbackGains`` additionally demands that the gain
+        packet's position equals the attention packet's to the bit. Two separate
+        reads of a timeline the controller is still reporting into could differ by
+        one 250 ms step, and the gain path would then fall back to neutral while
+        every field still looked correct - the exact failure mode decision D-02 is
+        about.
+        """
+
+        media = self._media()
+        attention = self._attention(frame)
+        attention.update(media)
+        gain = self._gain(frame)
+        gain.update(media)
+        self._publish(publish, "attention", frame.timestamp, attention)
+        self._publish(publish, "gain", frame.timestamp, gain)
         self._publish(publish, "signal_quality", frame.timestamp, self._quality(frame))
         if frame.evidence_count != self._last_evidence:
             self._last_evidence = frame.evidence_count
@@ -278,7 +290,6 @@ class AttentionProducer:
         if frame.reasons != self._last_reasons:
             self._last_reasons = frame.reasons
             self._publish(publish, "sync", frame.timestamp, self._sync(frame.reasons))
-
 
 __all__ = [
     "PREDICTION_STATUS",
