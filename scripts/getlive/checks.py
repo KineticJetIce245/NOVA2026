@@ -210,11 +210,18 @@ def evaluate(facts: RunFacts) -> Acceptance:
     """
 
     checks: list[Check] = []
-    _check_connection(checks, facts)
-    _check_transport(checks, facts)
+    _check_run_completed(checks, facts)
+    _check_source_rate(checks, facts)
+    _check_channel_contract(checks, facts)
+    _check_data_flow(checks, facts)
+    _check_timing_gaps(checks, facts)
+    _check_input_lag(checks, facts)
     _check_timebase(checks, facts)
-    _check_windows(checks, facts)
-    _check_chain(checks, facts)
+    _check_valid_windows(checks, facts)
+    _check_window_reasons(checks, facts)
+    _check_recovery(checks, facts)
+    _check_repair(checks, facts)
+    _check_resampler(checks, facts)
     _check_channel_scope(checks, facts)
     _check_bad_channels(checks, facts)
     _check_cap(checks, facts)
@@ -224,16 +231,17 @@ def evaluate(facts: RunFacts) -> Acceptance:
     return Acceptance(tuple(checks))
 
 
-def _check_connection(checks: list[Check], facts: RunFacts) -> None:
-    """Rules 1-3: the run finished, at the declared rate, with the contract."""
+def _check_run_completed(checks: list[Check], facts: RunFacts) -> None:
+    """Rule 1: did anything fail at all?"""
 
-    # 1. Did anything fail at all?
     if facts.failure is None:
         checks.append(Check("connection", PASS, "the run completed without an error"))
     else:
         checks.append(Check("connection", FAIL, f"the run stopped: {facts.failure}"))
 
-    # 2. Source rate, as declared by the outlet.
+def _check_source_rate(checks: list[Check], facts: RunFacts) -> None:
+    """Rule 2: the source rate, as declared by the outlet."""
+
     if math.isclose(facts.source_sfreq, facts.expected_sfreq, abs_tol=1e-9):
         checks.append(
             Check("source_rate", PASS, f"{facts.source_sfreq:g} Hz as requested")
@@ -248,7 +256,9 @@ def _check_connection(checks: list[Check], facts: RunFacts) -> None:
             )
         )
 
-    # 3. Channel contract: every expected electrode present, extras dropped.
+def _check_channel_contract(checks: list[Check], facts: RunFacts) -> None:
+    """Rule 3: every expected electrode is present; extras are dropped."""
+
     if facts.source_channels < facts.expected_channels:
         checks.append(
             Check(
@@ -277,15 +287,10 @@ def _check_connection(checks: list[Check], facts: RunFacts) -> None:
         )
 
 
-def _check_transport(checks: list[Check], facts: RunFacts) -> None:
-    """Rules 4-6: samples arrived, on time, and not too late to be used."""
+def _check_data_flow(checks: list[Check], facts: RunFacts) -> None:
+    """Rule 4: did data actually flow for the requested time?"""
 
-    stats = facts.stats
-    samples = _number(stats.get("samples"))
-    gaps = _number(stats.get("gaps"))
-    max_lag = _number(stats.get("max_lag"))
-
-    # 4. Did data actually flow for the requested time?
+    samples = _number(facts.stats.get("samples"))
     wanted = facts.duration * facts.expected_sfreq
     ratio = samples / wanted if wanted > 0 else 0.0
     if ratio >= FLOW_PASS_RATIO:
@@ -313,7 +318,11 @@ def _check_transport(checks: list[Check], facts: RunFacts) -> None:
             )
         )
 
-    # 5. Transport jitter: timestamp spacings above one and a half samples.
+def _check_timing_gaps(checks: list[Check], facts: RunFacts) -> None:
+    """Rule 5: transport jitter, as timestamp spacings above 1.5 samples."""
+
+    stats = facts.stats
+    gaps = _number(stats.get("gaps"))
     if gaps == 0:
         checks.append(Check("timing_gaps", PASS, "no timestamp gap above 1.5 samples"))
     else:
@@ -325,7 +334,10 @@ def _check_transport(checks: list[Check], facts: RunFacts) -> None:
             )
         )
 
-    # 6. Age of consumed data; the package's own guard stops the run at 3 s.
+def _check_input_lag(checks: list[Check], facts: RunFacts) -> None:
+    """Rule 6: age of consumed data; the package's own guard stops the run at 3 s."""
+
+    max_lag = _number(facts.stats.get("max_lag"))
     if max_lag < LAG_PASS_SECONDS:
         checks.append(Check("input_lag", PASS, f"oldest consumed block {max_lag:.3f}s"))
     elif max_lag < LAG_WARN_SECONDS:
@@ -375,15 +387,14 @@ def _check_timebase(checks: list[Check], facts: RunFacts) -> None:
     )
 
 
-def _check_windows(checks: list[Check], facts: RunFacts) -> None:
-    """Rules 7-8: usable windows came out, and why the others did not."""
+def _check_valid_windows(checks: list[Check], facts: RunFacts) -> None:
+    """Rule 7: did the chain produce usable windows?"""
 
     stats = facts.stats
     windows = _number(stats.get("windows"))
     valid = _number(stats.get("valid"))
     rejected = _number(stats.get("rejected"))
 
-    # 7. Did the chain produce usable windows?
     if valid >= facts.min_valid_windows:
         checks.append(
             Check(
@@ -404,9 +415,14 @@ def _check_windows(checks: list[Check], facts: RunFacts) -> None:
     else:
         checks.append(Check("windows", FAIL, f"no valid window out of {windows:.0f}"))
 
-    # 8. Why windows were rejected. A first cap test normally rejects the
-    #    warm-up windows and possibly a few noisy ones, so rejections are a
-    #    warning to read, not a failure; the counts are what matters.
+def _check_window_reasons(checks: list[Check], facts: RunFacts) -> None:
+    """Rule 8: why windows were rejected.
+
+    A first cap test normally rejects the warm-up windows and possibly a few
+    noisy ones, so rejections are a warning to read, not a failure; the counts
+    are what matters.
+    """
+
     if not facts.window_reasons:
         detail = "no window was rejected by a judge"
         if facts.warmup_windows:
@@ -428,15 +444,10 @@ def _check_windows(checks: list[Check], facts: RunFacts) -> None:
         checks.append(Check("quality_reasons", WARN, f"rejections: {reasons}{extra}"))
 
 
-def _check_chain(checks: list[Check], facts: RunFacts) -> None:
-    """Rules 9-11: the chain recovered, repaired, and still buffers in time."""
+def _check_recovery(checks: list[Check], facts: RunFacts) -> None:
+    """Rule 9: the chain restarting itself means the source delivered damage."""
 
-    stats = facts.stats
-    recoveries = _number(stats.get("recoveries"))
-    repairs = _number(stats.get("repairs"))
-    dropped = _number(stats.get("dropped"))
-
-    # 9. The chain restarting itself means the source delivered damage.
+    recoveries = _number(facts.stats.get("recoveries"))
     if recoveries == 0:
         checks.append(Check("recovery", PASS, "the chain never had to restart"))
     else:
@@ -444,7 +455,12 @@ def _check_chain(checks: list[Check], facts: RunFacts) -> None:
             Check("recovery", WARN, f"{recoveries:.0f} bounded recovery restart(s)")
         )
 
-    # 10. Repaired or dropped source rows.
+def _check_repair(checks: list[Check], facts: RunFacts) -> None:
+    """Rule 10: repaired or dropped source rows."""
+
+    stats = facts.stats
+    repairs = _number(stats.get("repairs"))
+    dropped = _number(stats.get("dropped"))
     if repairs == 0 and dropped == 0:
         checks.append(Check("repair", PASS, "no damaged source row"))
     else:
@@ -456,8 +472,9 @@ def _check_chain(checks: list[Check], facts: RunFacts) -> None:
             )
         )
 
-    # 11. Resampler startup delay: how long the chain buffers before its first
-    #     output, whatever preset produced it.
+def _check_resampler(checks: list[Check], facts: RunFacts) -> None:
+    """Rule 11: how long the chain buffers before its first output."""
+
     delay = facts.resampler_delay
     if delay <= RESAMPLER_PASS_SECONDS:
         checks.append(
