@@ -2024,6 +2024,20 @@ only amplifier this project measured fails without it, grid mode is a near-no-op
 a clean source, and it also regularises a chunk-stamped one. `--timebase stamps`
 remains for a source whose grid is sound.
 
+The gap narrowed later from the other side. `scripts/getlive/replay_run.py` feeds a
+recorded run back through the live script's own chain and acceptance rules, so the
+six bring-up recordings can answer "would the current code have handled that
+session?" with no cap in the room. All six reach `USABLE` with zero recoveries and
+zero repaired rows, where the live runs of the day had 17-47 valid windows out of
+43-58 and one of them stopped on persistent quality faults; replaying the same
+recording in `--timebase stamps` reproduces the historical window counts (40 -> 40,
+39 -> 39, 47 -> 48) and, on that run, the same
+`EEG quality faults persisted beyond the allowed duration` stop. What the recordings
+cannot hold is the amplifier's per-sample stamps - a recording carries the
+recorder's rebuilt grid, so `stamps` replay tests the seams rather than the
+inside-block stamps - which leaves one combination nobody has seen: the amplifier
+itself, live, with the grid.
+
 ### 11.16 The relay no longer carries its own grid
 
 Phase 2 of the timeline work, done after the rig stopped being available.

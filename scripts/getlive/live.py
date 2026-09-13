@@ -1002,6 +1002,10 @@ def _facts(run: _Run, electrode_summary: dict, model_missing: tuple[str, ...]) -
         timebase_relocks=run.stats.timebase_relocks,
         timebase_large_steps=run.stats.timebase_large_steps,
         timebase_drift_limit=args.timebase_drift_limit,
+        # Only the replay tool sets this: it marks a run with no transport, so
+        # the two transport rules say so instead of scoring a counter that was
+        # never produced.
+        replayed=bool(getattr(args, "replay", False)),
     )
 
 

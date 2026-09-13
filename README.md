@@ -98,6 +98,9 @@ needs to know about the amplifier is an argument, because a wrong guess fails
 
 # 4. check that recording against the amplifier's own .cnt export
 .venv/bin/python -B -m scripts.getlive.compare_cnt <run-dir> <export>.cnt
+
+# 5. later, with the amplifier gone: replay a recording through the same chain
+.venv/bin/python -B -m scripts.getlive.replay_run records/nova2026/<run>
 ```
 
 On Windows the interpreter is `.venv/Scripts/python.exe`. Steps 1's output is

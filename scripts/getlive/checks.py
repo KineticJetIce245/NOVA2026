@@ -104,6 +104,10 @@ class RunFacts:
         timebase_large_steps: Suspicious single timestamp steps the source made.
         timebase_drift_limit: Samples of absorbed drift per 30 s of stream above
             which the run is rejected; ``None`` never rejects.
+        replayed: Whether this is an offline replay of a recording rather than a
+            live run. A replay has no LSL transport, so the two transport rules
+            (``input_lag`` and ``timing_gaps``) report that they cannot be
+            measured instead of scoring a counter no replay ever produced.
     """
 
     expected_sfreq: float
@@ -145,6 +149,7 @@ class RunFacts:
     timebase_relocks: int
     timebase_large_steps: int
     timebase_drift_limit: float | None
+    replayed: bool = False
 
 
 @dataclass(frozen=True)
@@ -324,6 +329,13 @@ def _check_data_flow(checks: list[Check], facts: RunFacts) -> None:
 def _check_timing_gaps(checks: list[Check], facts: RunFacts) -> None:
     """Rule 5: transport jitter, as timestamp spacings above 1.5 samples."""
 
+    if facts.replayed:
+        # A recording carries no transport. Printing the zero this replay never
+        # measured would be the same false green the rule exists to prevent.
+        checks.append(
+            Check("timing_gaps", PASS, "not measured: an offline replay has no transport")
+        )
+        return
     stats = facts.stats
     gaps = _number(stats.get("gaps"))
     if gaps == 0:
@@ -340,6 +352,11 @@ def _check_timing_gaps(checks: list[Check], facts: RunFacts) -> None:
 def _check_input_lag(checks: list[Check], facts: RunFacts) -> None:
     """Rule 6: age of consumed data; the package's own guard stops the run at 3 s."""
 
+    if facts.replayed:
+        checks.append(
+            Check("input_lag", PASS, "not measured: an offline replay has no transport")
+        )
+        return
     max_lag = _number(facts.stats.get("max_lag"))
     if max_lag < LAG_PASS_SECONDS:
         checks.append(Check("input_lag", PASS, f"oldest consumed block {max_lag:.3f}s"))

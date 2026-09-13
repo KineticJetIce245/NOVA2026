@@ -297,6 +297,58 @@ That is what the reports call "gaps", and `grid_deviation_samples` in the JSON
 report carries the number. It does not affect sample values, but it is the error
 a time-based downstream analysis inherits.
 
+## Replaying a recorded run without the cap
+
+`records/` outlives the amplifier. `replay_run.py` feeds a recorded run back
+through **the live script's own chain and its own acceptance rules** -
+`live._prepare`, `live._loop`, `live._finish`, with acquisition swapped for the
+recorded blocks - so "would the current code have handled that session?" is a
+question you can answer offline:
+
+```powershell
+.venv/Scripts/python.exe -B -m scripts.getlive.replay_run records/nova2026/bringup30/run-20260912-172216
+.venv/Scripts/python.exe -B -m scripts.getlive.replay_run <run-dir> --timebase stamps
+.venv/Scripts/python.exe -B -m scripts.getlive.replay_run <run-dir> --out replay.json --record records/replay/
+```
+
+It prints the header, per-electrode table and acceptance verdict a live run
+prints, and it says what it replayed. Measured on the six recordings that hold
+samples - a seventh run directory is an early bring-up whose chunk table is empty
+- each one replayed in both modes, with what the live run of the day produced:
+
+| Recording | live, 2026-09-12 | replay `grid` | replay `stamps` |
+| --- | --- | --- | --- |
+| `bringup/171856` | 23/38 valid, 15 `interpolated` | **37/41, 0 repairs, USABLE** | 24/41, 6 repairs |
+| `bringup30/171935` | 40/58 valid, 14 `interpolated` | **54/58, 0 repairs, USABLE** | 40/58, 5 repairs |
+| `bringup30/172216` | **failed**: persistent quality faults, 28/57 | **54/58, 0 repairs, USABLE** | **reproduces the stop**, 0/11 valid |
+| `bringup30/172323` | 17/43 valid, 2 recoveries | **50/54, 0 repairs, USABLE** | 30/54, 6 repairs |
+| `offload1/172814` | 39/58 valid, 17 `interpolated` | **54/58, 0 repairs, USABLE** | 39/58, 9 repairs |
+| `offload8/172727` | 47/58 valid, 7 `interpolated` | **54/58, 0 repairs, USABLE** | 48/58, 2 repairs |
+
+The `stamps` column is the fidelity check that matters: replaying reproduces the
+window counts of the day (40 -> 40, 39 -> 39, 47 -> 48) and, on the run that
+died, the same `EEG quality faults persisted beyond the allowed duration` stop.
+In `grid` every recording reaches the end with repairs at zero and only the four
+warm-up windows rejected - which is the claim the live grid path never got to
+make, because the rig was gone by then.
+
+What a replay cannot do, and what the tool says so about:
+
+* **No transport.** `input_lag` and `timing_gaps` report `not measured` instead of
+  scoring the zeros a replay would otherwise invent; the timeline is scored by the
+  `timebase` rule, which a replay does measure.
+* **No outlet.** A recording holds the columns the run *contracted*, so the
+  amplifier's original montage is not re-checked.
+* **No inside-block stamps.** A recording carries the recorder's rebuilt grid, so
+  `--timebase stamps` re-tests the steps at the block seams, not the source's
+  per-sample stamps. The six recordings above show that is where the rig's steps
+  landed.
+
+Options default to what the recording itself used - contract, exclusions, channel
+check, window, output rate, limits - so a replay reproduces the session;
+`--timebase` excepted, which defaults to `grid` (the live script's current
+default) and prints the mode the recording was made with.
+
 ## When something fails
 
 | Symptom | Likely cause | Action |
@@ -513,6 +565,7 @@ per-sample noise.
 | `relay.py` | republish an outlet that declares no usable channel metadata |
 | `ts_check.py` | measure a source's timestamp grid against `Repair`'s rules |
 | `compare_cnt.py` | align recorded runs against the control software's own `.cnt` and diff them sample by sample |
+| `replay_run.py` | feed a recorded run back through the live chain and score it, with no amplifier |
 | `publish_raw.py` | fixture publisher (metadata-less, optionally jittered) |
 | `__main__.py` | `python -m scripts.getlive` |
 
