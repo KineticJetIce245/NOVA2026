@@ -65,11 +65,18 @@ scikit-learn 1.9.0 / pandas 3.0.5 / matplotlib 3.11.1；Node v26.7.0；
     元数据记录 `source_rate`，因此两类素材不会互相污染；但任何假设"素材都是 44.1 kHz"的代码都会错。
 12. **步骤 3 的规模**：`datasets/audio/` 现有 **18 个包络**（16 个 KU Leuven dry + `left_mono` + `right_mono`），
     合计约 2.1 MB（其中两个 900 s 的测试集包络各 ≈278 KB）。`--verify` 全部通过。
-13. **标签在一个 trial 内恒定，且类别严重不平衡**（主 agent 实测 320 个 trial）：
+13. **标签在一个 trial 内恒定，且类别严重不平衡**（主 agent 实测 320 个 trial，步骤 4 复核）：
     标签集合只有两种——`{0}` 出现在 **256** 个 trial，`{1}` 出现在 **64** 个 trial，**没有任何 trial 混合两种标签**。
-    即 **80% / 20% 不平衡**。直接后果：
-    - 窗口级"准确率"会被多数类拉高，**必须同时报每类准确率或平衡准确率**，否则数字没有意义（数据集 README 警告的正是这类虚高）。
-    - 步骤 5 的留出划分必须**分层**：按故事分组后仍要保证验证集里有 class 1，否则报告的是一个只见过 class 0 的模型的成绩。
+    按时间算：**A = 48 894.0 s，B = 25 087.5 s，即 66.1% / 33.9%**。直接后果：
+    - **分类器的 null（全猜多数类）是 66.1%，不是 50%**。任何"准确率 > 50% 即成功"的说法都是错的。
+    - **必须同时报每类准确率或平衡准确率**，否则数字没有意义（数据集 README 警告的正是这类虚高）。
+    - 步骤 5 的留出划分必须**分层**：按故事分组后仍要保证验证集里有 class 1。
+14. **两个分组守卫存在泄漏路径**（步骤 4 发现，尚未修）：`nova2026/auditory/evaluation.py` 的
+    `check_split` / `assert_held_out` 用 `trial.group.split("|")` **字面比较**，而转换产物的 `group`
+    仍带 `rep_` 前缀，于是 `{part1_track1, part1_track2}` 与 `{rep_part1_track1, rep_part1_track2}`
+    看起来互不相交——**训练 trial 0、验证 trial 8 会被接受，尽管两者含同一段 125 s 音频**。
+    修法：在进入 `evaluation` 之前用 `scripts/auditory/kuleuven_contract.canonical_story` / `group_key`
+    归一化。**步骤 5 的评估必须使用归一化后的 group**，否则留出故事成绩是泄漏出来的。
 5. **音频素材实测**（主 agent 侦察，`datasets/AAD-KULeuven/stimuli/*_dry.wav`）：
    **44 100 Hz / 单声道 / int16**；完整段约 **394.0–395.3 s**，`rep_` 段 **125.0 s**；
    peak 约 3297–4886（int16 满量程的 10–15%，故归一化后幅度 ≈0.10–0.15）。
@@ -421,8 +428,8 @@ KU Leuven 列索引：`Fp1=0 Fp2=33 F7=6 F3=4 Fz=37 F4=39 F8=41 T7=14 C3=12 C4=4
 | 4 | **数据体检 + 契约冻结** | `results/kuleuven_audit.md`；冻结 `AuditoryConfig` 与特征契约 | 审计脚本 + 报告 | 35 / 40 | **DONE** — commit `48c412d`；585 行报告 + 19264 行逐 trial JSON；`source_unit_exponent` 已参数化（`DEFAULT_SOURCE_UNIT_EXPONENT = -6` 带白名单校验，且**默认行为未变**）；分组键已折 `rep_`；契约冻结列出 7 项不可变内容。**并纠正了主 agent 关于单位的一处错误判断**（见 §3.11 第 6 条） |
 | 5 | **解码器训练与评估** | `models/auditory_kuleuven.npz` + `results/aad_<date>.json`（留出故事 **+** 留一被试 + 窗长曲线） | 训练命令 + 指标 JSON | 35 / 75 | TODO |
 | 5.5 | **偏移扫描实验** | `results/aad_shift_sweep_<date>.json`：包络滑 ±300 ms 的相关衰减曲线 | 扫描脚本 + 曲线 | 30 / 40 | TODO |
-| 6 | **传输层移植**（须读 `secure-web-dev`） | `src/nova2026/transport/{protocol,publisher,sessions,server}.py` + 契约测试 | 单测全绿：包校验/快照/1013/生命周期 | 50 / 60 | TODO |
-| 7 | **前端移植** | `apps/attune-ui/`（来源 commit 记录）+ `npm ci/build/test` 通过 | 构建产物 + 测试输出 | 35 / 60 | TODO |
+| 6 | **传输层移植**（须读 `secure-web-dev`） | `src/nova2026/transport/{protocol,publisher,sessions,server}.py` + 契约测试 | 单测全绿：包校验/快照/1013/生命周期 | 50 / 60 | **DONE** — commit `7f2ab43`；63 个契约测试全绿；`tests/transport` 已加入 `scripts/run_tests.py`（全仓 628 tests）；依赖 5 个 pin 经 `secure-import` 逐个核验。**例外**：`server.py` 364 行 / `create_app` ~170 行，经批准作为已记录例外。**预算超支约 2 倍**（103 步 / 90 分钟），未触发重试闸 |
+| 7 | **前端移植** | `apps/attune-ui/`（来源 commit 记录）+ `npm ci/build/test` 通过 | 构建产物 + 测试输出 | 35 / 60 | **DONE** — commit `61ca57c`（来源 `4a523956`，逐文件 SHA256 记录在 `PROVENANCE.md`）；`npm ci` / `build` 通过；测试 **53/53**（配合 `apps/backend/` 测试替身与 `ATTUNE_PYTHON`，见 D-12/D-16） |
 | 8 | **`AttentionSession` + 生产者** | `src/nova2026/auditory/session.py` + `AttentionProducer`；合成 trial 先打通 | 端到端日志 + 前端截图 | 50 / 60 | TODO |
 | 9 | **媒体时间轴与音频** | 立体声 WAV（L=A,R=B）经 `/api/media/file`；`media/control` 握手 + 250 ms `report` | `|Δt| ≤ 0.75 s` 证据 + 增益激活证据 | 50 / 60 | TODO |
 | 9.5 | **ANT 真实数据集导入**（§3.12） | `scripts/auditory/antneuro.py`：读 `.cnt`（`read_raw_ant`）+ 会话音频起点（0 s / 267 s）+ 标记清单 + 用户标注口径（切换 ±buffer → `-1`） | 标记表导出供人工核对；每个会话的 trial 形状/时长/标签分布；误触清单显式记录 | 45 / 60 | TODO |
@@ -473,6 +480,10 @@ KU Leuven 列索引：`Fp1=0 Fp2=33 F7=6 F3=4 Fz=37 F4=39 F8=41 T7=14 C3=12 C4=4
 | 任何 `pip install` / `uv add` | **`secure-import`**（装之前） | 依赖安装审批流程 |
 | 任何删除/覆盖已有产物 | **`secure-action`**（执行之前） | 破坏性操作审批 |
 
+**并行纪律（D-18 的教训）**：**同一时刻不得有两个子 agent 修改同一个文件**。
+派发前主 agent 必须确认目标文件集互不相交；`pyproject.toml`、`scripts/run_tests.py`、`.gitignore`
+这类共享文件一次只允许一个 agent 触碰，否则会出现提交污染或互相覆盖。
+
 ### 6.2 子 agent 预算与防死循环（主 agent 强制执行）
 
 **事实前提**：本 harness 没有给子 agent 设置步数/上下文 token 上限的配置项，也没有 token 用量查询接口。可执行的抓手只有：`interrupt_agent`、`send_message`、`list_agents`，以及超时杀进程。
@@ -508,7 +519,7 @@ KU Leuven 列索引：`Fp1=0 Fp2=33 F7=6 F3=4 Fz=37 F4=39 F8=41 T7=14 C3=12 C4=4
 | 2 | `python -B -m scripts.auditory.convert --kind kuleuven ...` | exit 0；`trial_*.npz` 数量 = trial 数；`eeg.shape[0] == len(timestamps) == len(labels)` |
 | 3 | `python -B -m scripts.auditory.envelopes --audio <16 文件>` | 生成 16 个 `.npz`；分块↔整段一致性测试通过 |
 | 4 | 审计脚本 | 每受试 trial 数 = 20；时长落在合理区间；标签分布两种 |
-| 5 | 训练 + 评估 | 留出故事准确率显著 > 50%；留一被试数字如实记录 |
+| 5 | 训练 + 评估 | **分类器 null 是 66.1%（按时间 A 48 894 s / B 25 087.5 s），不是 50%**；留出故事准确率必须**显著高于 66.1%** 才算有效，且必须报每类/平衡准确率 |
 | 5.5 | 偏移扫描 | 相关峰在 0 附近；±300 ms 内衰减曲线单调下降 |
 | 6 | `python -B -m unittest discover -s tests/transport -v` | 全绿 |
 | 7 | `npm --prefix apps/attune-ui ci && npm --prefix apps/attune-ui test` | CI 与测试通过；Node 26 若有问题如实记录 |
@@ -563,6 +574,9 @@ KU Leuven 列索引：`Fp1=0 Fp2=33 F7=6 F3=4 Fz=37 F4=39 F8=41 T7=14 C3=12 C4=4
 | D-13 | 09-14 | 验证必须是**1 项正常 + 15 项扰动**（§3.13/§3.14） | 用户要求：只有一项完美，其余都要带故障 | 只跑正常路径 | 验收强度显著提高，工作量大增 | 本次提交 |
 | D-14 | 09-14 | 主 agent **不写代码/不写测试**，全部派子 agent；主 agent 只做定义、派发、核验、登记 | 用户要求；避免主 agent 的上下文与精力被实现细节吃掉，也避免"自己写自己验" | 主 agent 顺手修小问题 | 派发开销上升，但验收独立性更强 | 本规则提交 |
 | D-15 | 09-14 | 主 agent 可读子 agent 报告并判断对错；认为不对则**再派一个子 agent**，但**同一问题最多 3 个** | 用户要求：既允许纠错，又防止无限套娃 | 主 agent 自己改；或无限重派 | 每个交付物最多 3 次尝试，第 3 次失败即上报用户定夺 | 本规则提交 |
+| D-16 | 09-14 | `apps/backend/` 测试替身**暂时保留**（不立刻改接 `nova2026.transport`） | 三个 vendored 前端测试需要 `backend.adapters.{results,contracts,legacy,mock}`，而真传输层不提供适配器/mock；改接等于改写 vendored 测试，须单独授权 | 立刻重写那三个测试 | 仓库内短期存在两份包构造器，故替身已明确标注为 test double 并在 `__init__.py` 写明由 `src/nova2026/transport` 取代 | — |
+| D-17 | 09-14 | 修复 `tests/streaming/test_compare_cnt.py` 的 `antio` 前提（把"环境里没有 antio"改成测试内可控前提） | `antio` 是读真实 ANT 数据所必需，装上后该测试的假设失效，全仓从绿变红 | 卸载 `antio`（会让 .cnt 读不了）；或改断言迁就现状 | 全仓回归恢复到基线口径（628 tests 全绿） | 待提交 |
+| D-18 | 09-14 | 登记**提交污染**：`pyproject.toml` 的 `transport` extra 由步骤 4 的 commit `48c412d` 一并带入 | 两个子 agent 同时改同一文件、步骤 4 后提交；内容正确无需改写历史 | `git rebase`/改写历史 | 归属记录在案：内容属于步骤 6，提交归属步骤 4。**教训：并行子 agent 不得同时改同一文件** | — |
 
 ---
 
@@ -586,10 +600,12 @@ KU Leuven 列索引：`Fp1=0 Fp2=33 F7=6 F3=4 Fz=37 F4=39 F8=41 T7=14 C3=12 C4=4
    主 agent 的提交只应包含 `final_connection.md` 与主 agent 自己的核验记录。
 6. **主 agent 可以读子 agent 的报告与产物**，并据此判断是否可信；**认为不对时，派一个新的子 agent 去处理**，
    而不是自己动手修正（§9 第 1 条）。
-7. **同一个问题最多 3 个子 agent**（用户 2026-09-14 要求，防止无限套娃）：
+5. **同一问题最多 3 个子 agent**（用户 2026-09-14 要求，防止无限套娃）：
    第 1 个失败 → 派第 2 个（附诊断）；第 2 个失败 → 派第 3 个（附两次诊断）；
    **第 3 个仍失败 → 停下向用户报告**，并写明三次尝试各自的做法与失败点，由用户决定改方向还是放弃该项。
    计数规则：以「同一交付物」为单位，正常完成后追加的小修不算新问题。
+6. **并行派发时必须检查文件集不相交**（D-18 的教训）：两个子 agent 不得同时改同一个文件；
+   `pyproject.toml`、`scripts/run_tests.py`、`.gitignore` 等共享文件一次只派一个。
 
 ---
 
