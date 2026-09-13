@@ -61,6 +61,7 @@ class Suite:
 SUITES = (
     Suite("streaming", "tests/streaming"),
     Suite("tooling", "tests/tooling"),
+    Suite("transport", "tests/transport"),
     Suite("visual-detect", "tests/visual_detect", functions=True),
     Suite("auditory", "scripts/auditory/tests"),
     Suite("dataproc-streaming", "scripts/dataproc/streaming/tests"),

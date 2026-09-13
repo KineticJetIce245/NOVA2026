@@ -1,0 +1,270 @@
+"""The observed media timeline: the browser plays, the transport only transcribes.
+
+By decision D-02 the playback position and its revision are **owned by the
+browser**: the frontend validates ``media_id``, ``media_revision`` and
+``media_time_s`` field by field and falls back to neutral gain on any
+disagreement, so a backend that "improves" a position is worse than one that is
+honestly late. This module therefore stores what the controller reported,
+acknowledges it with a revision, and refuses commands that contradict the
+timeline it has already accepted.
+
+Two rules make the refusals meaningful:
+
+* **Progression must be plausible.** A report may not move the position
+  backwards (beyond 20 ms of rounding) and may not jump further ahead than the
+  time that actually elapsed plus a 0.5 s allowance per report, so a seek or a
+  stalled tab cannot silently re-anchor the timeline.
+* **A violation is sticky.** The first contradictory command marks the timeline
+  invalid and ``sync_status`` stays ``desynchronized`` until a fresh ``prepare``
+  starts a new revision; a later "good" report cannot repair a bad seek.
+
+``sync_status`` is ``observed`` only while a prepared timeline is fresh (a report
+within 1.5 s of the clock reading), which is the acknowledgement the attention
+path needs before it may attribute a measurement to a playback position.
+"""
+
+from __future__ import annotations
+
+import math
+from collections.abc import Callable
+from pathlib import Path
+from threading import RLock
+from time import monotonic
+from typing import Any
+from uuid import uuid4
+
+from .protocol import MAX_SAFE_INTEGER
+
+SUPPORTED_SUFFIXES = (".wav", ".mp3", ".m4a", ".mp4", ".webm")
+"""Media containers the controller may point at."""
+
+VIDEO_SUFFIXES = (".mp4", ".webm")
+"""Suffixes whose descriptor reports ``kind='video'`` instead of ``'audio'``."""
+
+MAX_MEDIA_SECONDS = 864000.0
+"""Upper bound for reported positions and durations (10 days)."""
+
+FRESH_SECONDS = 1.5
+"""A report older than this leaves the timeline desynchronized."""
+
+PLAYING_ADVANCE_ALLOWANCE = 0.5
+"""Extra seconds a report may run ahead of the elapsed time while playing."""
+
+IDLE_ADVANCE_ALLOWANCE = 0.5
+"""Forward jump allowed by a command that starts playback from a stopped timeline."""
+
+PAUSED_ADVANCE_ALLOWANCE = 0.1
+"""Forward jump allowed while the timeline is not playing and stays not playing."""
+
+BACKWARD_TOLERANCE = 0.02
+"""Position regression tolerated as rounding while playing."""
+
+
+def seconds(value: Any, field: str) -> float:
+    """Validate one reported time value and return it as ``float``.
+
+    Args:
+        value: Candidate seconds value from a controller command.
+        field: Field name used in the error message.
+
+    Returns:
+        The value as ``float``.
+
+    Raises:
+        ValueError: If ``value`` is not a finite number in
+            ``[0, MAX_MEDIA_SECONDS]``. A boolean is not a number here.
+    """
+
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or not 0 <= value <= MAX_MEDIA_SECONDS
+    ):
+        raise ValueError(f"{field} must be a finite number of seconds in [0, {MAX_MEDIA_SECONDS}].")
+    return float(value)
+
+
+class MediaTimeline:
+    """One media asset plus the controller timeline observed for it.
+
+    Args:
+        path: Existing file to serve. Its resolved path never leaves the process;
+            :meth:`descriptor` exposes only ``/api/media/file``.
+        title: Display title, trimmed to 128 characters.
+        clock: Monotonic clock, injectable so tests can advance time deliberately.
+
+    Raises:
+        ValueError: If ``path`` is not an existing file with a supported suffix.
+    """
+
+    def __init__(
+        self,
+        path: str | Path,
+        title: str = "Demo Audio",
+        clock: Callable[[], float] = monotonic,
+    ) -> None:
+        self.path = Path(path).resolve()
+        if not self.path.is_file():
+            raise ValueError(f"media file does not exist: {self.path}")
+        if self.path.suffix.lower() not in SUPPORTED_SUFFIXES:
+            raise ValueError(
+                f"media suffix {self.path.suffix!r} is not one of {SUPPORTED_SUFFIXES}."
+            )
+
+        self.title = title.strip()[:128] or "Demo Audio"
+        self.media_id = uuid4().hex
+        self.kind = "video" if self.path.suffix.lower() in VIDEO_SUFFIXES else "audio"
+        self.clock = clock
+        self.lock = RLock()
+        self.session_id: str | None = None
+        self.revision = 0
+        self.client_id: str | None = None
+        self.request_id = -1
+        self.position = 0.0
+        self.duration: float | None = None
+        self.playback = "stopped"
+        self.reference: float | None = None
+        self.last_received: float | None = None
+        self.valid = False
+
+    def descriptor(self) -> dict[str, Any]:
+        """Return the asset identity the controller needs, without its path."""
+
+        return {
+            "media_id": self.media_id,
+            "title": self.title,
+            "kind": self.kind,
+            "url": "/api/media/file",
+        }
+
+    def bind(self, session_id: str) -> None:
+        """Attach the timeline to a session, resetting it when the session changes."""
+
+        with self.lock:
+            if self.session_id != session_id:
+                self.stop()
+                self.session_id = session_id
+
+    def stop(self) -> None:
+        """Return to the neutral stopped state and bump the revision.
+
+        Stopping drops the controller identity, so the next command must be a
+        ``prepare`` from whichever client takes over.
+        """
+
+        with self.lock:
+            self.position = 0.0
+            self.playback = "stopped"
+            self.client_id = None
+            self.request_id = -1
+            self.valid = False
+            self.revision += 1
+
+    def snapshot(self) -> dict[str, Any]:
+        """Return the descriptor, position, playback state and sync status.
+
+        ``sync_status`` is ``observed`` only when the timeline is valid *and* a
+        report arrived within :data:`FRESH_SECONDS`; otherwise it is
+        ``desynchronized`` and the attention path must degrade to neutral.
+        """
+
+        with self.lock:
+            fresh = (
+                self.last_received is not None
+                and self.clock() - self.last_received <= FRESH_SECONDS
+            )
+            return dict(
+                **self.descriptor(),
+                session_id=self.session_id,
+                media_time_s=self.position,
+                duration_s=self.duration,
+                playback_state=self.playback,
+                revision=self.revision,
+                server_reference_s=self.reference,
+                server_received_s=self.last_received,
+                sync_status="observed" if self.valid and fresh else "desynchronized",
+            )
+
+    def control(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Apply one controller command and return the resulting snapshot.
+
+        Args:
+            data: Decoded ``POST /api/media/control`` body: ``session_id``,
+                ``media_id``, ``client_id``, ``request_id``, ``action``,
+                ``media_time_s`` and ``duration_s``.
+
+        Returns:
+            The snapshot taken after the command was applied.
+
+        Raises:
+            ValueError: If the session or media identity does not match, the
+                action is unknown, the controller request is stale or belongs to
+                another client, a time value is invalid, or the position moved in
+                a way the timeline cannot explain.
+        """
+
+        with self.lock:
+            if data.get("session_id") != self.session_id or data.get("media_id") != self.media_id:
+                raise ValueError("session_id or media_id does not match this timeline.")
+            action = data.get("action")
+            if action not in ("prepare", "playing", "paused", "stopped", "report"):
+                raise ValueError(f"action must be one of the media actions, not {action!r}.")
+            client = data.get("client_id")
+            request = data.get("request_id")
+            if not isinstance(client, str) or not 1 <= len(client) <= 128:
+                raise ValueError("client_id must be a nonempty string of at most 128 characters.")
+            if type(request) is not int or not 0 <= request <= MAX_SAFE_INTEGER:
+                raise ValueError("request_id must be a nonnegative JavaScript-safe integer.")
+            if self.client_id is not None and (
+                client != self.client_id or request <= self.request_id
+            ):
+                raise ValueError("request_id must increase within one controller.")
+
+            position = seconds(data.get("media_time_s"), "media_time_s")
+            duration = seconds(data.get("duration_s"), "duration_s")
+            if duration <= 0 or position > duration:
+                raise ValueError("duration_s must be positive and media_time_s must not exceed it.")
+
+            now = self.clock()
+            if action == "prepare":
+                if self.playback != "stopped" or position != 0:
+                    raise ValueError(
+                        "media must be stopped at position 0 before it can be prepared."
+                    )
+                self.revision += 1
+                self.client_id = client
+                self.reference = now
+                self.playback = "paused"
+                self.valid = True
+            elif self.client_id is None:
+                if action != "stopped":
+                    raise ValueError("prepare must be accepted before any other action.")
+            else:
+                elapsed = now - self.last_received if self.last_received is not None else 0.0
+                if self.playback == "playing":
+                    max_advance = elapsed + PLAYING_ADVANCE_ALLOWANCE
+                elif action == "playing":
+                    max_advance = IDLE_ADVANCE_ALLOWANCE
+                else:
+                    max_advance = PAUSED_ADVANCE_ALLOWANCE
+                if action != "stopped" and (
+                    position < self.position - BACKWARD_TOLERANCE
+                    or position - self.position > max_advance
+                ):
+                    # Sticky: only a fresh prepare clears this.
+                    self.valid = False
+                    raise ValueError(
+                        "media position moved further than the elapsed time allows; "
+                        "stop and prepare again."
+                    )
+                if action != "report":
+                    self.playback = action
+
+            self.request_id = request
+            self.position = 0.0 if action == "stopped" else position
+            self.duration = duration
+            self.last_received = now
+            if action == "stopped":
+                self.stop()
+            return self.snapshot()
