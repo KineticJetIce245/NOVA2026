@@ -22,7 +22,10 @@ def replay_windows(
     step=1.0,
     chunk_seconds=0.032,
     max_wait=3.0,
-    audio_offset=0.0,
+    audio_offset=None,
+    check_channels=True,
+    max_bad_channels=0,
+    exclude_channels=(),
 ):
     """Yield aligned windows on a virtual clock; never precompute future audio.
 
@@ -30,11 +33,16 @@ def replay_windows(
     retain nominal source times and a separate conservative availability time.
     Pending windows wait a bounded time for the audio resampler, then reject.
     """
+    if audio_offset is None:
+        audio_offset = getattr(trial, 'audio_offset', 0.)
     if not np.isfinite(chunk_seconds) or chunk_seconds <= 0:
         raise ValueError("chunk_seconds must be finite and positive.")
     if not np.isfinite(max_wait) or max_wait < 0 or not np.isfinite(audio_offset):
         raise ValueError("Invalid audio alignment timing.")
-    processing = stream_config(trial, config, history, step)
+    processing = stream_config(trial, config, history, step,
+                               check_channels=check_channels,
+                               max_bad_channels=max_bad_channels,
+                               exclude_channels=exclude_channels)
     processor = AuditoryProcessor(processing)
     extractor = EnvelopeExtractor(trial.audio_rate, config)
     envelopes = EnvelopeBuffer(config.sample_rate, history + max_wait + 5)

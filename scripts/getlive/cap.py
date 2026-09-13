@@ -159,7 +159,15 @@ NON_EOG_AUXILIARY_TYPES = (
     "eyetrack",
 )
 
-CAP_MODES = ("auto", "ca-208", "declared")
+# Recorded order verified in both 12 September CNT files. Reference/ground
+# are operator declarations (13 September), not physical measurements from LSL.
+EEGO24_CHANNELS = (
+    "Fp1", "Fp2", "F9", "F7", "F3", "Fz", "F4", "F8", "F10", "M1", "T7", "C3",
+    "C4", "T8", "M2", "Cz", "P7", "P3", "Pz", "P4", "P8", "Oz", "O1", "O2",
+)
+EEGO24_REFERENCE = 'CPz'
+EEGO24_GROUND = 'Fpz'
+CAP_MODES = ("auto", "ca-208", "eego24", "declared")
 CHANNEL_MODES = ("cap", "model")
 EOG_MODES = ("eog", "drop")
 
@@ -436,6 +444,12 @@ def select_profile(
             the declared labels do not cover the profile.
     """
 
+    if mode == 'eego24' or (mode == 'auto' and set(declared_channels) == set(EEGO24_CHANNELS)):
+        if not set(EEGO24_CHANNELS).issubset(declared_channels):
+            raise ValueError('The outlet does not publish the eego24 montage.')
+        return CapProfile(name='eego24', eeg_channels=EEGO24_CHANNELS, eog_channels=(),
+                          reference=EEGO24_REFERENCE, ground=EEGO24_GROUND,
+                          source='recording+operator', detail='12 September CNT montage; operator-declared CPz/Fpz')
     if mode not in CAP_MODES:
         raise ValueError(f"cap mode must be one of {CAP_MODES}, not {mode!r}.")
     if mode == "declared":

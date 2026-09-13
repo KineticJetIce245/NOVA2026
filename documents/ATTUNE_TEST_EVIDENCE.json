@@ -1,0 +1,100 @@
+{
+  "software_status": "passed",
+  "physical_participant_definition_of_done": "unverified",
+  "engine_pytest": {
+    "passed": 503,
+    "subtests_passed": 61
+  },
+  "ui_backend_unittest": {
+    "passed": 60
+  },
+  "ui_frontend_node_tests": {
+    "passed": 55
+  },
+  "ui_production_build": "passed",
+  "dichotic_240_seconds": {
+    "passed": true,
+    "source": "Lacroix_Flo2_2026-09-12_19-41-11.npz",
+    "source_is_recorded_eeg": true,
+    "acoustic_timing_verified": false,
+    "accuracy_evaluated": false,
+    "presentation": "dichotic",
+    "packets": 2575,
+    "attention_packets": 238,
+    "stop_seconds": null,
+    "elapsed_seconds": 249.17789689998608,
+    "acquire_gaps": 0,
+    "recovery_segments": 0,
+    "consumer_errors": 0,
+    "frontend_decoder": "passed"
+  },
+  "diotic_stop": {
+    "passed": true,
+    "source": "Lacroix_Flo2_2026-09-12_19-41-11.npz",
+    "source_is_recorded_eeg": true,
+    "acoustic_timing_verified": false,
+    "accuracy_evaluated": false,
+    "presentation": "diotic",
+    "packets": 104,
+    "attention_packets": 8,
+    "stop_seconds": 0.5375641999999061,
+    "elapsed_seconds": 18.34308280001278,
+    "acquire_gaps": 0,
+    "recovery_segments": 0,
+    "consumer_errors": 0,
+    "frontend_decoder": "passed"
+  },
+  "managed_player_stop": {
+    "passed": true,
+    "source": "Lacroix_Flo2_2026-09-12_19-41-11.npz",
+    "source_is_recorded_eeg": true,
+    "acoustic_timing_verified": false,
+    "accuracy_evaluated": false,
+    "presentation": "diotic",
+    "packets": 104,
+    "attention_packets": 8,
+    "stop_seconds": 0.5698843999998644,
+    "elapsed_seconds": 18.034894700016594,
+    "acquire_gaps": 0,
+    "recovery_segments": 0,
+    "consumer_errors": 0,
+    "frontend_decoder": "passed"
+  },
+  "model_development_validation": [
+    {
+      "alpha": 10.0,
+      "accuracy": 0.34615384615384615,
+      "windows": 26
+    },
+    {
+      "alpha": 100.0,
+      "accuracy": 0.38461538461538464,
+      "windows": 26
+    },
+    {
+      "alpha": 1000.0,
+      "accuracy": 0.38461538461538464,
+      "windows": 26
+    },
+    {
+      "gate": {
+        "center": -0.010093511788352535,
+        "scale": 0.16115605292423243,
+        "threshold": 2.1314313421180753,
+        "false_fire_rate": 0.01,
+        "null_windows": 53
+      },
+      "windows": 26,
+      "fires": 1,
+      "fire_rate": 0.038461538461538464,
+      "precision": 1.0,
+      "interpretation": "Development validation used for alpha selection; not independent test accuracy. False-fire rate is a calibration target, not a measured population guarantee."
+    }
+  ],
+  "limits": [
+    "No physical loopback measurement or participant playback",
+    "No diotic EEG calibration or diotic accuracy measurement",
+    "Real model development accuracy 38.46%; not reliable attention decoding",
+    "Real-data live replay checks transport only, not acoustic alignment or accuracy"
+  ]
+}

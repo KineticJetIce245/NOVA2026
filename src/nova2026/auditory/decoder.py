@@ -29,12 +29,14 @@ class RidgeDecoder:
         if count < 2:
             raise ValueError("Window is too short for the configured lags.")
         normalized = (eeg - self.mean) / self.scale
+        for name in self.training_info.get('disabled_flat_channels', []):
+            normalized[:, self.contract['eeg_channels'].index(name)] = 0.
         columns = []
         for lag in range(self.config.lag_samples + 1):
             columns.append(normalized[lag : lag + count])
         return np.concatenate(columns, axis=1)
 
-    def fit(self, examples, training_info=None, base=None):
+    def fit(self, examples, training_info=None, base=None, *, allow_flat_channels=()):
         """Examples are (AuditoryWindow, per-sample candidate labels)."""
         examples = list(examples)
         usable = []
@@ -57,8 +59,15 @@ class RidgeDecoder:
         self.mean = sums / total
         variance = np.maximum(squares / total - self.mean * self.mean, 0)
         self.scale = np.sqrt(variance)
-        if np.any(self.scale < 1e-9):
+        names = self.contract['eeg_channels']
+        if isinstance(allow_flat_channels, str) or set(allow_flat_channels)-set(names):
+            raise ValueError('Allowed flat channels must be known channel labels.')
+        flat = self.scale < 1e-9
+        if any(flat[i] and name not in allow_flat_channels for i, name in enumerate(names)):
             raise ValueError("Training contains a flat EEG channel.")
+        self.training_info = dict(training_info or {})
+        self.training_info['disabled_flat_channels'] = [n for i, n in enumerate(names) if flat[i]]
+        self.scale[flat] = 1.
         if base is not None:
             if base.contract != self.contract or base.config.to_dict() != self.config.to_dict():
                 raise ValueError("Base decoder preprocessing contract differs from calibration.")
@@ -66,6 +75,8 @@ class RidgeDecoder:
                 raise ValueError("Base decoder dimensions differ from calibration.")
             # A weight prior is meaningful only in the base model's feature coordinates.
             self.mean, self.scale = base.mean.copy(), base.scale.copy()
+            if base.training_info.get('disabled_flat_channels', []) != self.training_info['disabled_flat_channels']:
+                raise ValueError('Base decoder disabled-channel policy differs.')
         width = len(self.mean) * (self.config.lag_samples + 1)
         covariance = np.zeros((width, width))
         target_covariance = np.zeros(width)
@@ -91,7 +102,6 @@ class RidgeDecoder:
         regularized = covariance + self.alpha * np.eye(width)
         prior = 0 if base is None else self.alpha * base.weights
         self.weights = np.linalg.solve(regularized, target_covariance + prior)
-        self.training_info = dict(training_info or {})
         return self
 
     def validate(self, window):

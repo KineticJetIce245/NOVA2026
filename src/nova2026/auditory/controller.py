@@ -10,7 +10,8 @@ from .config import MIN_MARGIN
 class AttentionController:
     """Own this component on the audio thread; hand estimates to it via a queue."""
 
-    def __init__(self, margin=MIN_MARGIN, max_age=3.0, attenuation_db=6.0, min_switch_windows=3):
+    def __init__(self, margin=MIN_MARGIN, max_age=3.0, attenuation_db=6.0, min_switch_windows=3, gate=None):
+        self.gate = gate
         if not all(math.isfinite(value) for value in (margin, max_age, attenuation_db)):
             raise ValueError("Controller parameters must be finite.")
         if margin <= 0 or max_age <= 0 or not 0 <= attenuation_db <= 20:
@@ -62,11 +63,12 @@ class AttentionController:
             return
         self.evidence_end = estimate.evidence_end
         difference = scores[0] - scores[1]
-        if abs(difference) < self.margin:
+        gated = self.gate.choice(scores) if self.gate is not None else None
+        if (self.gate is not None and gated is None) or (self.gate is None and abs(difference) < self.margin):
             self.selected = None
             self.pending, self.pending_count = None, 0
         else:
-            candidate = int(difference < 0)
+            candidate = gated if self.gate is not None else int(difference < 0)
             if self.selected == candidate:
                 self.selected = candidate
                 self.pending, self.pending_count = None, 0

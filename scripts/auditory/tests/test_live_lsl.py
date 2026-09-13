@@ -25,6 +25,12 @@ class ChannelOptionTests(unittest.TestCase):
 
 class LiveAudioTests(unittest.TestCase):
     def test_timestamped_lsl_to_paced_audio(self):
+        self.exercise_callback(False)
+
+    def test_faulting_consumer_cannot_stop_acquisition(self):
+        self.exercise_callback(True)
+
+    def exercise_callback(self, fail_consumer):
         from mne_lsl.lsl import StreamInfo, StreamOutlet, local_clock
         from mne_lsl.stream import StreamLSL
         model = train([synthetic_trial("train")], [synthetic_trial("validation")], alphas=(10.,))[0]
@@ -38,9 +44,10 @@ class LiveAudioTests(unittest.TestCase):
         ready, stopped = Event(), Event()
         epoch = []
 
-        class ObservedAudio(TimestampedAudio):
-            def record(self, position, frames, audible_at):
-                super().record(position, frames, audible_at)
+        from nova2026.auditory.timing import OnlineTimestampedAudio
+        class ObservedAudio(OnlineTimestampedAudio):
+            def record(self, position, frames, audible_at, samples):
+                super().record(position, frames, audible_at, samples)
                 if not epoch:
                     epoch.append(audible_at)
                     ready.set()
@@ -59,9 +66,15 @@ class LiveAudioTests(unittest.TestCase):
         stream.connect(acquisition_delay=None, processing_flags=["clocksync"], timeout=10)
         worker.start()
         started = time.monotonic()
+        callbacks = []
+        def consumer(estimate, aligned, raw):
+            time.sleep(.001)
+            callbacks.append(estimate)
+            if fail_consumer:
+                raise RuntimeError('dashboard consumer fault')
         try:
-            with patch("scripts.auditory.live.TimestampedAudio", ObservedAudio):
-                audio, report = run(trial, model, stream, output="wav")
+            with patch("scripts.auditory.live.OnlineTimestampedAudio", ObservedAudio):
+                audio, report = run(trial, model, stream, output="wav", on_estimate=consumer)
         finally:
             stopped.set()
             ready.set()
@@ -70,6 +83,8 @@ class LiveAudioTests(unittest.TestCase):
             del outlet
         self.assertGreater(time.monotonic() - started, 11)
         self.assertEqual(len(audio), len(trial.audio))
+        self.assertEqual(len(callbacks), len(report['estimates']))
+        self.assertEqual(report['consumer_errors'], len(callbacks) if fail_consumer else 0)
         valid = [e for e in report["estimates"] if e["valid"]]
         self.assertGreaterEqual(len(valid), 3)
         self.assertTrue(all(np.argmax(e["scores"]) == 0 for e in valid))

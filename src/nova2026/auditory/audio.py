@@ -100,3 +100,37 @@ class AudioPlayback:
                 samples = self.mixer.process(block, self.controller.gains(now))
                 underflowed = output.write(samples)
                 self.underruns += int(underflowed)
+
+
+class StereoMixer(AudioMixer):
+    """Validated per-candidate ramp, shared by both stereo presentation arms."""
+
+    def _ramped(self, samples, target):
+        samples = np.asarray(samples, dtype=float)
+        target = np.asarray(target, dtype=float)
+        if samples.ndim != 2 or samples.shape[1] != 2 or target.shape != (2,):
+            raise ValueError("Expected two audio tracks and two gains.")
+        if not np.all(np.isfinite(samples)) or not np.all(np.isfinite(target)):
+            raise ValueError("Audio and gains must be finite.")
+        if np.any(np.abs(samples) > 1) or np.any(target < 0) or np.any(target > 1):
+            raise ValueError("Audio must be normalized and gains between zero and one.")
+        if not len(samples):
+            return np.empty((0, 2), dtype=float)
+        time = (np.arange(len(samples)) + 1) / self.sample_rate
+        decay = np.exp(-time / self.ramp_seconds)
+        gains = target + (self.gain - target) * decay[:, None]
+        self.gain = gains[-1].copy()
+        return samples * gains
+
+
+class DichoticMixer(StereoMixer):
+    """Candidate A to left, candidate B to right."""
+    def process(self, samples, target):
+        return (0.49 * self._ramped(samples, target)).astype(np.float32)
+
+
+class DioticMixer(StereoMixer):
+    """Identical two-candidate mixture in both ears."""
+    def process(self, samples, target):
+        mono = (0.49 * self._ramped(samples, target).sum(axis=1)).astype(np.float32)
+        return np.repeat(mono[:, None], 2, axis=1)

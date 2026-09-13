@@ -14,13 +14,15 @@ from types import SimpleNamespace
 import numpy as np
 from scipy.io import wavfile
 
-from nova2026.auditory.audio import AudioMixer, LatestEstimate
+from nova2026.auditory.audio import DichoticMixer, DioticMixer, LatestEstimate
 from nova2026.auditory.controller import AttentionController
 from nova2026.auditory.data import AttentionEstimate, load_trial
 from nova2026.auditory.decoder import RidgeDecoder
 from nova2026.auditory.pipeline import AuditoryPipeline
 from nova2026.auditory.streaming import AuditoryProcessor, stream_config
-from nova2026.auditory.timing import TimestampedAudio, validate_audio_profile
+from nova2026.auditory.timing import OnlineTimestampedAudio, validate_audio_profile
+from nova2026.auditory.gate import DecisionGate
+from nova2026.streaming.timebase import GridPolicy, TimeBase
 
 from .outputs import guard_outputs
 
@@ -35,16 +37,32 @@ def channel_list(text):
 
 def run(trial, model, stream, *, source_unit_exponent=0, output="wav", window=None,
         timing_profile=None, record=None, subject="demo", session_name="synthetic",
-        check_channels=True, max_bad_channels=0, exclude_channels=()):
+        check_channels=True, max_bad_channels=0, exclude_channels=(),
+        on_estimate=None, on_status=None, stop_event=None, presentation='dichotic',
+        timebase='grid', ledger=None, marker_receiver=None):
     from mne_lsl.lsl import local_clock
     from nova2026.streaming import prepare
     from nova2026.streaming.bootstrap import StreamSession
     from nova2026.streaming.preprocess import unit_scaler
 
     frames = max(1, round(trial.audio_rate * .032))
+    if presentation not in ('dichotic', 'diotic') or timebase not in ('grid', 'off'):
+        raise ValueError('Invalid presentation or timebase mode.')
+    stop = stop_event if stop_event is not None else Event()
+    if stop.is_set():
+        return np.empty((0, 2), np.float32), {'cancelled': True}
+    if marker_receiver is not None:
+        ledger = marker_receiver.ledger
+    from scripts.attune.stimuli import check_candidates
+    candidate_correlation = check_candidates(trial.audio, trial.audio_rate, model.config)
     if output not in ("wav", "play"):
         raise ValueError("Unknown audio output mode.")
     if output == "play":
+        if model.training_info.get('presentation') != presentation:
+            raise ValueError('Participant playback requires calibration recorded in this presentation arm.')
+        import re
+        if any(re.fullmatch(r'Ch\d+', name, re.IGNORECASE) for name in model.contract['eeg_channels']):
+            raise ValueError('Real playback requires electrode labels, not positional Ch1..ChN names.')
         timing_profile = validate_audio_profile(timing_profile, trial.audio_rate, frames)
         if timing_profile != model.training_info.get("audio_timing_profile"):
             raise ValueError("Audio configuration differs from model calibration; recalibrate.")
@@ -71,14 +89,24 @@ def run(trial, model, stream, *, source_unit_exponent=0, output="wav", window=No
                            window=history, hop=1., capacity=history + 4, warmup=2.,
                            block=max(1, round(settings.input_sfreq * .032)),
                            record=record, subject=subject, session=session_name)
+    provider = OnlineTimestampedAudio(trial.audio_rate, model.config,
+                                     retain_seconds=max(60., history + 10))
+    gate_data = model.training_info.get('decision_gate')
+    if output == 'play' and gate_data is None:
+        raise ValueError('Participant playback requires a null-calibrated decision gate; retrain.')
+    gate = DecisionGate(**gate_data) if gate_data else None
+    controller, handoff = AttentionController(gate=gate), LatestEstimate()
+    timeline = TimeBase(GridPolicy.for_rate(settings.input_sfreq)) if timebase == 'grid' else None
     session = StreamSession(stream, args, settings.eeg_channels, contract=contract)
     scaler = unit_scaler(source_unit_exponent, desired_exponent=-6)
-    provider = TimestampedAudio(trial.audio, trial.audio_rate, model.config)
-    controller, handoff = AttentionController(), LatestEstimate()
-    mixer = AudioMixer(trial.audio_rate)
+    mixer = (DichoticMixer if presentation == 'dichotic' else DioticMixer)(trial.audio_rate)
     pipeline = AuditoryPipeline(model, local_clock)
-    stop = Event()
     errors, rendered, estimates = [], [], []
+    consumer_errors = 0
+    latest_aligned = None
+    current_bad_channels = ()
+    last_status = -np.inf
+    audio_state = {'gains': [1., 1.], 'choice': None}
     bad_channel_windows = {}
     windows_with_bad_channels = 0
     position = 0
@@ -92,7 +120,8 @@ def run(trial, model, stream, *, source_unit_exponent=0, output="wav", window=No
         if estimate is not None:
             controller.update(estimate, audible)
         result = mixer.process(trial.audio[position:position + remaining], controller.gains(audible))
-        provider.record(position, remaining, audible)
+        audio_state.update(gains=mixer.gain.tolist(), choice=controller.choice(audible))
+        provider.record(position, remaining, audible, trial.audio[position:position + remaining])
         position += remaining
         rendered.append(result)
         return result
@@ -118,7 +147,7 @@ def run(trial, model, stream, *, source_unit_exponent=0, output="wav", window=No
                         outdata[:] = 0
                         if result is None or stop.is_set():
                             raise sd.CallbackStop
-                        outdata[:len(result), 0] = result
+                        outdata[:len(result), :] = result
                     except sd.CallbackStop:
                         raise
                     except Exception as error:
@@ -126,7 +155,7 @@ def run(trial, model, stream, *, source_unit_exponent=0, output="wav", window=No
                         stop.set()
                         raise sd.CallbackAbort from error
 
-                with sd.OutputStream(samplerate=trial.audio_rate, channels=1, dtype="float32",
+                with sd.OutputStream(samplerate=trial.audio_rate, channels=2, dtype="float32",
                                      device=timing_profile["device"], blocksize=frames,
                                      callback=callback, finished_callback=stop.set):
                     stop.wait(len(trial.audio) / trial.audio_rate + 3)
@@ -140,8 +169,12 @@ def run(trial, model, stream, *, source_unit_exponent=0, output="wav", window=No
     eeg_error = None
     try:
         while not stop.is_set():
+            if marker_receiver is not None:
+                marker_receiver.poll()
             data, times = session.acquire.read(timeout=1.)
             data, times = session.ingest(data, times)
+            if timeline is not None:
+                times, _ = timeline.place(times)
             data, times = scaler(data, times)
             for raw in processor.feed((data, times)):
                 # A tolerated dead electrode still belongs in the run record:
@@ -153,9 +186,33 @@ def run(trial, model, stream, *, source_unit_exponent=0, output="wav", window=No
                         bad_channel_windows[name] = bad_channel_windows.get(name, 0) + 1
                 raw.available_at = local_clock()
                 aligned = provider.align(raw)
+                if ledger is not None and ledger.for_window(aligned.timestamps[0], aligned.timestamps[-1]) is None:
+                    aligned.valid = False
+                    aligned.reasons = tuple(aligned.reasons) + ('cue_boundary_or_unknown',)
+                latest_aligned = aligned
+                current_bad_channels = raw.bad_channels
                 estimate, _ = pipeline.rundown(aligned)
                 handoff.put(estimate)
                 estimates.append(estimate.to_dict())
+                if on_estimate is not None:
+                    try:
+                        on_estimate(estimate, aligned, raw)
+                    except Exception:
+                        consumer_errors += 1
+            now = local_clock()
+            if on_status is not None and now - last_status >= .5:
+                last_status = now
+                try:
+                    on_status(now, latest_aligned, {
+                        'presentation': {'mode': presentation, **({'left': 'A', 'right': 'B'} if presentation == 'dichotic' else {})},
+                        'quality': {'windows_with_bad_channels': windows_with_bad_channels,
+                                    'current_bad_channels': list(current_bad_channels),
+                                    'bad_channel_windows': dict(bad_channel_windows),
+                                    'repair_held_rows': int(processor.repair.held_rows)},
+                        **audio_state, **provider.diagnostics(),
+                    })
+                except Exception:
+                    consumer_errors += 1
     except Exception as error:
         if not stop.is_set():
             eeg_error = error
@@ -184,11 +241,17 @@ def run(trial, model, stream, *, source_unit_exponent=0, output="wav", window=No
         raise errors[0] from eeg_error
     if eeg_error:
         raise eeg_error
-    if not estimates:
+    if not estimates and stop_event is None:
         raise RuntimeError("No EEG decisions produced; run is not a successful live evaluation.")
     # Recovery resets and transport health belong in the run record: without
     # them a session that discarded chunks looks identical to a clean one.
     report = {
+        'consumer_errors': consumer_errors,
+        'candidate_envelope_correlation': candidate_correlation,
+        'decision_gate': gate_data,
+        'presentation': {'mode': presentation, **({'left': 'A', 'right': 'B'} if presentation == 'dichotic' else {})},
+        'timebase': {'mode': timebase, 'relocks': len(timeline.state.relocks) if timeline else 0,
+                     'large_steps': len(timeline.state.large_steps) if timeline else 0},
         "estimates": estimates,
         "recording": None if session.recorder is None else str(session.recorder.path),
         "audio_timing_profile": timing_profile,
@@ -208,7 +271,7 @@ def run(trial, model, stream, *, source_unit_exponent=0, output="wav", window=No
         },
         **provider.diagnostics(),
     }
-    return np.concatenate(rendered), report
+    return np.concatenate(rendered) if rendered else np.empty((0, 2), np.float32), report
 
 
 def main():
@@ -219,6 +282,9 @@ def main():
     parser.add_argument("--stream", required=True)
     parser.add_argument("--source-unit-exponent", type=int, default=0)
     parser.add_argument("--output", choices=("wav", "play"), default="wav")
+    parser.add_argument('--presentation', choices=('dichotic', 'diotic'), default='dichotic')
+    parser.add_argument('--timebase', choices=('grid', 'off'), default='grid')
+    parser.add_argument('--markers', help='Optional AAD_Markers outlet; rejects unknown/cue-straddling windows')
     parser.add_argument("--window", type=float, help="Must match the trained model history")
     parser.add_argument("--out", required=True)
     parser.add_argument("--timing-profile", help="Measured loopback/profile JSON required for --output play")
@@ -242,11 +308,17 @@ def main():
     guard_outputs(
         [destination / "mixed.wav", destination / "timing.json"], force=args.force
     )
-    stream = StreamLSL(bufsize=4., name=args.stream)
+    stream = StreamLSL(bufsize=20., name=args.stream)
     stream.connect(acquisition_delay=None, processing_flags=["clocksync"], timeout=10)
+    markers = None
     try:
+        if args.markers:
+            from scripts.attune.events import MarkerReceiver
+            markers = MarkerReceiver(args.markers)
         audio, report = run(trial, model, stream, source_unit_exponent=args.source_unit_exponent,
                             output=args.output, window=args.window,
+                            presentation=args.presentation, timebase=args.timebase,
+                            marker_receiver=markers,
                             record=args.record, subject=args.subject,
                             session_name=args.session,
                             check_channels=not args.no_channel_check,
@@ -254,6 +326,8 @@ def main():
                             exclude_channels=exclude_channels,
                             timing_profile=json.loads(Path(args.timing_profile).read_text()) if args.timing_profile else None)
     finally:
+        if markers is not None:
+            markers.close()
         stream.disconnect()
     destination.mkdir(parents=True, exist_ok=True)
     wavfile.write(destination / "mixed.wav", round(trial.audio_rate), audio)

@@ -228,9 +228,12 @@ class LoadCntTests(unittest.TestCase):
         np.testing.assert_array_equal(loaded, data)
 
     def test_cnt_without_antio_explains_the_fix(self) -> None:
+        from unittest.mock import patch
         target = self.root / "ref.cnt"
         target.write_bytes(b"not really a cnt")
-        with self.assertRaises(RuntimeError) as caught:
+        # Test missing-dependency behavior independently of whether the optional
+        # ANT reader is installed (real-recording integration needs it installed).
+        with patch('mne.io.read_raw_ant', side_effect=RuntimeError('antio is required')), self.assertRaises(RuntimeError) as caught:
             load_cnt(target)
         self.assertIn("antio", str(caught.exception))
 

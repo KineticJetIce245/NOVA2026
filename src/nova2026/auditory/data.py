@@ -34,6 +34,8 @@ class AuditoryTrial:
         self.reference = reference
         self.upstream_processing = upstream_processing
         self.group = str(group if group is not None else trial_id)
+        self.audio_offset = 0.0
+        self.presentation = None
         if self.eeg.ndim != 2 or self.eeg.shape[1] != len(self.channel_names):
             raise ValueError("EEG must have samples by named channels.")
         if not self.channel_names or len(set(self.channel_names)) != len(self.channel_names):
@@ -159,7 +161,7 @@ def load_trial(path):
 
     with np.load(path, allow_pickle=False) as archive:
         metadata = json.loads(str(archive["metadata"]))
-        return AuditoryTrial(
+        trial = AuditoryTrial(
             archive["eeg"],
             archive["timestamps"],
             archive["audio"],
@@ -172,6 +174,13 @@ def load_trial(path):
             metadata["upstream_processing"],
             metadata["group"],
         )
+        trial.audio_offset = float(metadata.get('audio_offset', 0.))
+        trial.presentation = metadata.get('presentation')
+        if trial.presentation not in (None, 'dichotic', 'diotic'):
+            raise ValueError('Invalid trial presentation.')
+        if not np.isfinite(trial.audio_offset):
+            raise ValueError('Audio offset must be finite.')
+        return trial
 
 
 def save_trial(trial, path):
@@ -186,6 +195,8 @@ def save_trial(trial, path):
         "reference": trial.reference,
         "upstream_processing": trial.upstream_processing,
         "group": trial.group,
+        "audio_offset": trial.audio_offset,
+        "presentation": trial.presentation,
     }
     np.savez_compressed(
         path,
