@@ -26,8 +26,11 @@
 | KU Leuven AAD 数据集（16 受试 × 20 trial × 64ch@128Hz + 两路语音 + 标签） | `datasets/AAD-KULeuven/` | 已在，未转换、未训练 |
 | 全量测试入口 | `scripts/run_tests.py` | 已存在 |
 
-**环境**：Python 3.13.15 / numpy 2.5.2 / mne 1.12.1 / torch 2.13.0+cu132（CUDA 可用）/ sklearn 1.9.0；
-Node v26.7.0；缺 `fastapi`/`uvicorn`/`websockets`/`httpx`；`sounddevice` 不装。
+**环境**（步骤 1 实测冻结，见 `results/test_baseline_20260913-005823.txt`）：
+Python 3.13.15 / numpy 2.5.2 / scipy 1.18.0 / mne 1.12.1 / torch 2.13.0+cu132（CUDA 可用）/
+scikit-learn 1.9.0 / pandas 3.0.5 / matplotlib 3.11.1；Node v26.7.0；
+缺 `fastapi`/`uvicorn`/`websockets`/`httpx`；`sounddevice` 不装。
+**基线测试**：5 suites / 523 tests / 0 skipped / 92.1s，exit 0，全绿。
 
 ### 已实测的四条硬事实
 
@@ -213,20 +216,20 @@ Node v26.7.0；缺 `fastapi`/`uvicorn`/`websockets`/`httpx`；`sounddevice` 不�
 
 | # | 步骤 | 交付物 | 证据 | 预算（步/分钟） | 状态 |
 | --- | --- | --- | --- | --- | --- |
-| 1 | **基线固化** | `results/test_baseline_<date>.txt` + 依赖清单 | `python -B scripts/run_tests.py` 全绿 | 6 / 10（纯执行） | TODO |
-| 2 | **KU Leuven 转换** | `metadata.json` + `converted/S*/trial_*.npz`；解决 hrtf/dry 与重复文件名 | 转换 exit 0；抽查形状/时长/对齐 | 30 / 30 | TODO |
-| 3 | **包络预计算**（B1） | `scripts/auditory/envelopes.py` + `src` 离线入口 + `datasets/audio/*.npz` + 一致性测试 | 生成全部 16 个 KU Leuven 素材包络；分块↔整段一致 | 30 / 30 | TODO |
-| 4 | **数据体检 + 契约冻结** | `results/kuleuven_audit.md`；冻结 `AuditoryConfig` 与特征契约 | 审计脚本 + 报告 | 25 / 30 | TODO |
-| 5 | **解码器训练与评估** | `models/auditory_kuleuven.npz` + `results/aad_<date>.json`（留出故事 **+** 留一被试 + 窗长曲线） | 训练命令 + 指标 JSON | 25 / 60 | TODO |
-| 5.5 | **偏移扫描实验** | `results/aad_shift_sweep_<date>.json`：包络滑 ±300 ms 的相关衰减曲线 | 扫描脚本 + 曲线 | 20 / 30 | TODO |
-| 6 | **传输层移植**（须读 `secure-web-dev`） | `src/nova2026/transport/{protocol,publisher,sessions,server}.py` + 契约测试 | 单测全绿：包校验/快照/1013/生命周期 | 35 / 40 | TODO |
-| 7 | **前端移植** | `apps/attune-ui/`（来源 commit 记录）+ `npm ci/build/test` 通过 | 构建产物 + 测试输出 | 25 / 40 | TODO |
-| 8 | **`AttentionSession` + 生产者** | `src/nova2026/auditory/session.py` + `AttentionProducer`；合成 trial 先打通 | 端到端日志 + 前端截图 | 35 / 40 | TODO |
-| 9 | **媒体时间轴与音频** | 立体声 WAV（L=A,R=B）经 `/api/media/file`；`media/control` 握手 + 250 ms `report` | `|Δt| ≤ 0.75 s` 证据 + 增益激活证据 | 35 / 40 | TODO |
-| 10 | **真实 trial 全链路 + 一键入口** | `python -B -m scripts.auditory_ui.demo`：起服务 + 1× 回放 + 开浏览器 | V1–V5 全部证据 | 35 / 45 | TODO |
-| 10.5 | **无设备 demorun**（H2） | `python -B -m scripts.auditory_ui.demorun`：无人值守跑完整场并出报告 | 运行日志 + `results/` 报告 | 20 / 30 | TODO |
-| 11 | **真人实时模式** | eego/LSL 接同一 `AttentionSession`；校准流程（含回环测量） | 硬件实测记录（在场时） | 30 / 60 | TODO |
-| 12 | **评估收口 + 文档** | `VALIDATION.md`、`documents/auditory_ui_protocol.md`、根 `README.md` | 文档 + 评估命令 | 25 / 35 | TODO |
+| 1 | **基线固化** | `results/test_baseline_<date>.txt` + 依赖清单 | `python -B scripts/run_tests.py` 全绿 | 14 / 15 | **DONE** — `results/test_baseline_20260913-005823.txt`：523 tests 全绿，commit `21a637e` |
+| 2 | **KU Leuven 转换** | `metadata.json` + `converted/S*/trial_*.npz`；解决 hrtf/dry 与重复文件名 | 转换 exit 0；抽查形状/时长/对齐 | 45 / 50 | TODO |
+| 3 | **包络预计算**（B1） | `scripts/auditory/envelopes.py` + `src` 离线入口 + `datasets/audio/*.npz` + 一致性测试 | 生成全部 16 个 KU Leuven 素材包络；分块↔整段一致 | 45 / 50 | TODO |
+| 4 | **数据体检 + 契约冻结** | `results/kuleuven_audit.md`；冻结 `AuditoryConfig` 与特征契约 | 审计脚本 + 报告 | 35 / 40 | TODO |
+| 5 | **解码器训练与评估** | `models/auditory_kuleuven.npz` + `results/aad_<date>.json`（留出故事 **+** 留一被试 + 窗长曲线） | 训练命令 + 指标 JSON | 35 / 75 | TODO |
+| 5.5 | **偏移扫描实验** | `results/aad_shift_sweep_<date>.json`：包络滑 ±300 ms 的相关衰减曲线 | 扫描脚本 + 曲线 | 30 / 40 | TODO |
+| 6 | **传输层移植**（须读 `secure-web-dev`） | `src/nova2026/transport/{protocol,publisher,sessions,server}.py` + 契约测试 | 单测全绿：包校验/快照/1013/生命周期 | 50 / 60 | TODO |
+| 7 | **前端移植** | `apps/attune-ui/`（来源 commit 记录）+ `npm ci/build/test` 通过 | 构建产物 + 测试输出 | 35 / 60 | TODO |
+| 8 | **`AttentionSession` + 生产者** | `src/nova2026/auditory/session.py` + `AttentionProducer`；合成 trial 先打通 | 端到端日志 + 前端截图 | 50 / 60 | TODO |
+| 9 | **媒体时间轴与音频** | 立体声 WAV（L=A,R=B）经 `/api/media/file`；`media/control` 握手 + 250 ms `report` | `|Δt| ≤ 0.75 s` 证据 + 增益激活证据 | 50 / 60 | TODO |
+| 10 | **真实 trial 全链路 + 一键入口** | `python -B -m scripts.auditory_ui.demo`：起服务 + 1× 回放 + 开浏览器 | V1–V5 全部证据 | 50 / 70 | TODO |
+| 10.5 | **无设备 demorun**（H2） | `python -B -m scripts.auditory_ui.demorun`：无人值守跑完整场并出报告 | 运行日志 + `results/` 报告 | 30 / 45 | TODO |
+| 11 | **真人实时模式** | eego/LSL 接同一 `AttentionSession`；校准流程（含回环测量） | 硬件实测记录（在场时） | 45 / 75 | TODO |
+| 12 | **评估收口 + 文档** | `VALIDATION.md`、`documents/auditory_ui_protocol.md`、根 `README.md` | 文档 + 评估命令 | 35 / 50 | TODO |
 
 ### 依赖关系
 
@@ -285,6 +288,8 @@ Node v26.7.0；缺 `fastapi`/`uvicorn`/`websockets`/`httpx`；`sounddevice` 不�
 3. 亲自执行该步的证据命令；核对输出与子 agent 声称一致。
 4. 写入本文件 §5 状态列：`DONE` / `BLOCKED(原因)` / `BUDGET-STOP(第几次)`。
 
+**验收陷阱（步骤 1 实测发现，后续步骤沿用）**：`git check-ignore -v <path>` 在「命中 `.gitignore` 的 `!` 取反规则」与「真的被忽略」两种情况下**都返回退出码 0**，因此不能单独作为"该文件可被提交"的判据。判据改用 `git add --dry-run <path>`（可提交 exit 0，被忽略 exit 1）+ `git status --short <path>`（被忽略的文件根本不出现）。
+
 ### 6.3 预登记命令与预期（防"试到过为止"）
 
 每一步在派发前先在本表登记「我要跑什么、预期看到什么」。实际输出与预期不符时，子 agent 必须**停下来判断**，不允许连续盲试。
@@ -321,3 +326,4 @@ Node v26.7.0；缺 `fastapi`/`uvicorn`/`websockets`/`httpx`；`sounddevice` 不�
 | 2026-09-12 | v0.2：补 attune-ui 侦察结论、后端契约表、移植约束 | 主 agent |
 | 2026-09-12 | v1.0：锁定 A–H 全部设计决定；新增 `datasets/audio` 包络要求；新增偏移扫描（5.5）与无设备 demorun（10.5）；写入最终验收 V1–V7 与主 agent 职责 | 主 agent |
 | 2026-09-12 | v1.1：新增 §6.1 强制 skill 加载表、§6.2 子 agent 预算与防死循环（熔断、新 agent 接手、限额升级）、§6.3 预登记命令表；步骤表加入每步预算 | 主 agent |
+| 2026-09-13 | v1.2：步骤 1 **DONE**（523 tests 全绿，commit `21a637e`）；按 §6.2 规则 4 将全部步骤预算重校准（步骤 1 实测 14 步，名义 6 步属于预算设定错误，非 agent 失控）；§6.2 增补 `git check-ignore` 的验收陷阱与替代判据 | 主 agent |
