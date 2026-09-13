@@ -104,6 +104,14 @@ class RunPolicy:
     max_bad_channels: int
     exclude_channels: tuple[str, ...] = ()
     source_unit_exponent: int = -6
+    saturation_limit_uv: float | None = None
+    """Repair's absolute-level guard in uV; ``None`` keeps the chain default.
+
+    Run policy, not contract: it decides what counts as an unsafe endpoint in a
+    *recording*, and a recording from an amplifier that railed an electrode above
+    the chain default would otherwise stop the run at every railed stretch
+    (plan section 3.11 measures exactly that rail on the operator's ANT session).
+    """
     margin: float = MIN_MARGIN
     warmup_seconds: float = 2.0
     frame_seconds: float = 0.25
@@ -138,6 +146,7 @@ class RunPolicy:
             "max_bad_channels": self.max_bad_channels,
             "exclude_channels": list(self.exclude_channels),
             "source_unit_exponent": self.source_unit_exponent,
+            "saturation_limit_uv": self.saturation_limit_uv,
             "margin": self.margin,
             "warmup_seconds": self.warmup_seconds,
             "frame_seconds": self.frame_seconds,
@@ -389,6 +398,12 @@ class AttentionSession:
             exclude_channels=policy.exclude_channels,
             source_unit_exponent=policy.source_unit_exponent,
         )
+        # The endpoint guard is run policy, so it travels the same way the
+        # channel policy and the exponent do: into the chain's settings, where
+        # `AuditoryProcessor` hands it to `Repair`. `None` keeps the chain
+        # default and changes nothing for callers that do not set it.
+        settings.saturation_limit_uv = policy.saturation_limit_uv
+
         self.source_channels = tuple(source.channel_names)
         wanted = tuple(contract.get("eeg_channels") or self.source_channels)
         missing = [name for name in wanted if name not in self.source_channels]

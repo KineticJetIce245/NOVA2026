@@ -1,0 +1,1085 @@
+"""Run the whole auditory demo against a recorded ANT session over real LSL.
+
+    python -B -m scripts.getlive.ant_live --clip 130
+
+One command, four processes and one loopback port:
+
+1. it loads an imported ANT trial (``datasets/AAD-ANT/session_*.npz``, written
+   by ``scripts/auditory/antneuro.py``), the 20-channel live model and the two
+   reference envelopes the operator's own recording was scored against;
+2. it renders the stimulus actually played in that session - sliced out of
+   ``left_mono.wav``/``right_mono.wav`` at the session's own audio start - to a
+   stereo WAV, so the transport and the gain path see a real media file;
+3. it starts a **publisher subprocess** that plays the trial over LSL on the
+   loopback at its true 500 Hz rate, and connects the real live path to it:
+   pre-flight by name, ``Acquire``, the time base, the channel contract and the
+   auditory chain, all of which are the amplifier path's own code;
+4. it drives the transport exactly as the demo does - the same app factory, the
+   same ``SimulatedMediaClient`` speaking ``mediaController.js``'s protocol -
+   and records the packets, the gate, the decisions and the transport counters;
+5. it writes ``results/antneuro_live_<date>.{json,md}`` and stops the publisher.
+
+**What this proves.** That recorded ANT EEG, carried by LSL at 500 Hz through
+the live pre-flight and the live acquisition route, produces decisions on the
+20-channel contract - and what those decisions are worth against the session's
+own marker-derived labels, on a different rig (CPz reference against the model's
+Cz, and two railed electrodes: F8 throughout and F3 for 39.8 % of session 1).
+
+**What it does not prove.** No amplifier was involved, so nothing here says the
+amplifier or its LSL outlet works. No live participant was involved, so it is
+not a live decoding result. And it is not the audio-to-EEG loopback measurement
+the plan requires before a human study (``residual_offset_seconds``, +-30 ms,
+sections 3.11/3.17-4): there is no audio device anywhere in this path, so the
+only loopback measured here is LSL delivery on one machine.
+
+Loopback only; the media file is server-side configuration and is the only file
+``/api/media/file`` can serve. No participant data is logged: the record holds
+rates, counters, policy and decision words.
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import contextlib
+import json
+import math
+import signal
+import subprocess
+import sys
+import threading
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+import numpy as np
+
+REPO = Path(__file__).resolve().parents[2]
+if str(REPO) not in sys.path:  # allow `python scripts/getlive/ant_live.py`
+    sys.path.insert(0, str(REPO))
+
+from nova2026.auditory.config import (  # noqa: E402
+    CALIBRATED_MARGIN,
+    MIN_MARGIN,
+    AuditoryConfig,
+)
+from nova2026.auditory.decoder import RidgeDecoder  # noqa: E402
+from nova2026.auditory.producer import AttentionProducer  # noqa: E402
+from nova2026.auditory.render import (  # noqa: E402
+    DEFAULT_CROSSMIX_WEIGHT,
+    DEFAULT_PRESENTATION,
+    PRESENTATION_MODES,
+    presentation_mode,
+    render_stereo,
+)
+from nova2026.auditory.session import AttentionSession, RunPolicy  # noqa: E402
+from nova2026.auditory.sources import ReferenceEnvelopes  # noqa: E402
+from nova2026.streaming.preflight import validate_source  # noqa: E402
+from nova2026.transport.media import MediaTimeline  # noqa: E402
+from nova2026.transport.server import LOOPBACK_HOSTS, create_app  # noqa: E402
+from scripts.auditory_ui.demo import capture, log, packet_census  # noqa: E402
+from scripts.auditory_ui.media import MEDIA_TICK_SECONDS, SimulatedMediaClient  # noqa: E402
+from scripts.auditory_ui.session import free_port  # noqa: E402
+from scripts.getlive.ant_publish import (  # noqa: E402
+    DEFAULT_SOURCE_ID,
+    DEFAULT_STREAM_NAME,
+    PUBLISHER_MODULE,
+    load_ant_trial,
+    slice_window,
+)
+from scripts.getlive.ant_source import (  # noqa: E402
+    DEFAULT_MICROVOLT_EXPONENT,
+    AntStreamSource,
+    sleep_until_ready,
+)
+from scripts.getlive.outlets import channel_facts, open_inlet  # noqa: E402
+
+DEFAULT_SESSION = "datasets/AAD-ANT/session_19-34-06.npz"
+"""Session 1: its stimulus starts at 0 s, so a clip from 0 plays real audio."""
+
+DEFAULT_MODEL = "models/auditory_kuleuven_live20.npz"
+"""The 20-channel live model - the contract the rig's cap can actually carry."""
+
+DEFAULT_AUDIO_ROOT = "tmp/antneurodata/audio_files/experiment"
+"""The operator's own played stimulus; ``tmp/`` is git-ignored and never written."""
+
+ENVELOPES = ("datasets/audio/left_mono.npz", "datasets/audio/right_mono.npz")
+"""Reference envelopes, named explicitly: an ANT session has no story name, so
+``feature_cache``'s story-to-envelope mapping does not apply here."""
+
+TERMINAL_STATUSES = ("stopped", "error")
+
+
+def load_candidates(
+    audio_root: Path, start_seconds: float, samples: int, *, rate: int = 48000
+) -> tuple[np.ndarray, dict]:
+    """Slice the played stimulus for one published window.
+
+    The recording's audio timeline is anchored at the trial's ``audio_start``
+    (operator-given: ``audio position = start + (EEG time - Start marker)``), so
+    the candidate columns must start there and cover exactly the published
+    window. The slice is taken from ``left_mono``/``right_mono`` - the channels
+    that were actually played (plan section 3.12) - and never from ``*_raw``,
+    which was never presented.
+
+    Raises:
+        FileNotFoundError: If the played stimulus is not on this machine.
+        ValueError: If the slice would run past the end of the stimulus.
+    """
+
+    from scipy.io import wavfile
+
+    first = int(round(start_seconds * rate))
+    last = first + int(samples)
+    columns = []
+    report: dict = {"sample_rate": rate, "slice_samples": [first, last]}
+    for name in ("left_mono.wav", "right_mono.wav"):
+        path = Path(audio_root) / name
+        if not path.is_file():
+            raise FileNotFoundError(
+                f"played stimulus not found: {path} (pass --audio-root). The "
+                "operator's recording lives under tmp/, which is git-ignored."
+            )
+        got_rate, data = wavfile.read(path)
+        if int(got_rate) != rate:
+            raise ValueError(f"{path.name} is {got_rate} Hz, expected {rate} Hz.")
+        if data.ndim != 1:
+            raise ValueError(f"{path.name} must be mono.")
+        if last > data.shape[0]:
+            raise ValueError(
+                f"{name} holds {data.shape[0]} samples; the window needs {last} "
+                f"({last / rate:.3f}s from {start_seconds:.3f}s). Shorten --clip."
+            )
+        columns.append(np.asarray(data[first:last], dtype=np.float64) / 32768.0)
+        report[name] = {"source": str(path), "slice_seconds": round(last / rate, 3)}
+    return np.column_stack(columns), report
+
+
+def build(app_state: dict, args):
+    """Build the session and the producer: the factory the REST path calls.
+
+    Called twice by design, exactly as the demo does it: once to prove start-up
+    can succeed before the URL exists, and once when ``POST /api/session/start``
+    arrives, so a viewer's session is started through the real REST path.
+    """
+
+    source, references, model = (
+        app_state["source"],
+        app_state["references"],
+        app_state["model"],
+    )
+    # The live adapter cannot know where this recording's audio began; the
+    # operator's own anchor does. Time zero of the published window plus the
+    # window's own first timestamp plus the session's audio offset is where the
+    # stimulus was actually at sample zero of the window.
+    source.audio_start = float(app_state["audio_first_timestamp"]) + float(
+        app_state["audio_offset"]
+    )
+    policy = RunPolicy(
+        check_channels=False,
+        max_bad_channels=0,
+        margin=float(args.margin),
+        warmup_seconds=args.warmup,
+        frame_seconds=args.frame_seconds,
+        source_unit_exponent=int(args.source_unit_exponent),
+        # Run policy, printed and recorded: Repair's absolute-level guard has to sit
+        # above this recording's own rail (83 333 uV measured), or every railed
+        # stretch is an unsafe endpoint and the run stops (plan section 3.11).
+        saturation_limit_uv=float(args.saturation_limit_uv),
+    )
+    session = AttentionSession(
+        source=source, decoder=model, references=references, policy=policy
+    )
+    producer = AttentionProducer(session)
+    if app_state.get("media") is not None:
+        producer.media_reference = app_state["media"].media_reference
+    return session, producer
+
+
+def probe(stream, channels: tuple[str, ...], args, lines: list[str]) -> dict:
+    """Report what the outlet declared and what the live pre-flight accepted.
+
+    It also runs the same pre-flight **with a deliberately wrong expectation**,
+    which is the only way to show that acceptance was a check rather than a
+    formality: the same stream is refused when it is asserted to be volts
+    instead of microvolts. Nothing is loosened to make either run pass.
+    """
+
+    facts = channel_facts(stream)
+    report: dict = {
+        "declared": {
+            "name": facts["name"],
+            "type": facts["stype"],
+            "source_id": facts["source_id"],
+            "sfreq": facts["sfreq"],
+            "channels": list(facts["channels"]),
+            "types": list(facts["types"]),
+            "units": None if facts["units"] is None else list(facts["units"]),
+            "dtype": facts["dtype"],
+        "n_channels": facts["n_channels"],
+        },
+        "accepted": None,
+        "rejected": [],
+    }
+    validate_source(
+        stream,
+        sfreq=args.sfreq,
+        channels=channels,
+        source_unit_exponent=int(args.source_unit_exponent),
+    )
+    report["accepted"] = {
+        "channels": list(channels),
+        "n_channels": len(channels),
+        "sfreq": args.sfreq,
+        "source_unit_exponent": int(args.source_unit_exponent),
+        "n_channels_declared": facts["n_channels"],
+        "dropped_columns": [
+            name for name in facts["channels"] if name not in set(channels)
+        ],
+    }
+    log(
+        f"pre-flight accepted the outlet: {len(channels)} channels by name at "
+        f"{args.sfreq:g} Hz, units exponent {int(args.source_unit_exponent)}",
+        lines,
+    )
+    for label, kwargs in (
+        ("volts-instead-of-microvolts", {"source_unit_exponent": 0}),
+        ("wrong-rate", {"sfreq": args.sfreq * 2}),
+        (
+            "wrong-channel-name",
+            {"channels": tuple("X" + name for name in channels)},
+        ),
+    ):
+        try:
+            validate_source(
+                stream,
+                sfreq=kwargs.get("sfreq", args.sfreq),
+                channels=kwargs.get("channels", channels),
+                source_unit_exponent=kwargs.get(
+                    "source_unit_exponent", int(args.source_unit_exponent)
+                ),
+            )
+        except RuntimeError as error:
+            report["rejected"].append({"counter-check": label, "error": str(error)})
+            log(f"counter-check {label}: refused - {error}", lines)
+        else:  # pragma: no cover - a counter-check that passes is itself a finding
+            report["rejected"].append(
+                {"counter-check": label, "error": "NOT refused", "finding": True}
+            )
+            log(f"FINDING: counter-check {label} was NOT refused", lines)
+    return report
+
+
+def coverage_against_markers(labels: np.ndarray, decided: list, rate: float) -> dict:
+    """Window decisions against the session's own per-sample marker labels.
+
+    The label is read **after** the stream is closed and only here: it is the one
+    thing that must never enter the decision path (plan rule 3). ``-1`` is the
+    operator's unknown band around every cue switch and is excluded from the
+    agreement rather than counted as a miss.
+    """
+
+    result: dict = {
+        "kind": (
+            "replay of the operator's own recorded ANT session through the live "
+            "LSL route; a different rig and a different reference from the model's "
+            "training data, so a poor result is expected"
+        ),
+        "labelled_samples": int(np.count_nonzero(labels >= 0)),
+        "unknown_samples": int(np.count_nonzero(labels < 0)),
+    }
+    if not decided:
+        result["note"] = "no committed window to score"
+        return result
+    index = np.clip(
+        np.round(np.asarray([float(moment) for moment, _ in decided]) * rate).astype(int),
+        0,
+        len(labels) - 1,
+    )
+    truth = labels[index]
+    guess = np.asarray([0 if word == "A" else 1 for _, word in decided])
+    known = truth >= 0
+    result["decided_windows"] = int(len(guess))
+    result["decided_windows_labelled"] = int(np.count_nonzero(known))
+    result["decided_windows_in_unknown_band"] = int(np.count_nonzero(~known))
+    if not np.any(known):
+        result["note"] = "every committed window fell in the operator's unknown band"
+        return result
+    agree = guess[known] == truth[known]
+    result.update(
+        {
+            "window_accuracy_on_labelled": float(agree.mean()),
+            "majority_class_rate_on_labelled": float(
+                max((truth[known] == value).mean() for value in (0, 1))
+            ),
+            "balanced_accuracy_on_labelled": float(
+                np.mean(
+                    [
+                        (agree[truth[known] == value].mean() if (truth[known] == value).any() else 0.0)
+                        for value in (0, 1)
+                    ]
+                )
+            ),
+            "recall_on_labelled": {
+                "A": (
+                    float(agree[truth[known] == 0].mean())
+                    if (truth[known] == 0).any()
+                    else None
+                ),
+                "B": (
+                    float(agree[truth[known] == 1].mean())
+                    if (truth[known] == 1).any()
+                    else None
+                ),
+            },
+        }
+    )
+    result["note"] = (
+        "agreement over the committed windows of ONE recorded session, replayed "
+        "through the live route on this machine; abstentions are reported as "
+        "uncovered time, not as misses. Not a live-participant accuracy, and not "
+        "a cross-subject claim."
+    )
+    return result
+
+
+def markdown(record: dict) -> str:
+    """Render the run record as the report a reviewer reads first."""
+
+    transport = record["transport"]
+    labels = record["labels_vs_decisions"]
+    gate = (record["frontend_evidence"].get("gate") or {}).get("report") or {}
+    decode = (record["frontend_evidence"].get("decode") or {}).get("report") or {}
+    lines = [
+        f"# ANT live-route run - {record['stamp']}",
+        "",
+        f"Session `{record['session']['trial_id']}` "
+        f"({record['session']['samples']} samples, "
+        f"{record['session']['seconds']} s, {record['session']['channels']} channels) "
+        f"published on LSL at {record['publisher']['sample_rate']:g} Hz; the live "
+        f"pre-flight accepted it and the session ran for {record['clip_seconds']:g} s "
+        f"at 1x.",
+        "",
+        "## What accepted the source, and what it had to reject",
+        "",
+        f"- declared by the outlet: {record['probe']['declared']['n_channels']} "
+        f"channels, {record['probe']['declared']['sfreq']:g} Hz, units "
+        f"{sorted(set(record['probe']['declared']['units'] or []))}, type "
+        f"{record['probe']['declared']['type']!r}",
+        f"- accepted: {record['probe']['accepted']['n_channels']} electrodes by "
+        f"name, exponent {record['probe']['accepted']['source_unit_exponent']} "
+        f"(microvolts), no column dropped",
+        "",
+        "| counter-check | refused with |",
+        "| --- | --- |",
+    ]
+    for row in record["probe"]["rejected"]:
+        lines.append(f"| {row['counter-check']} | {row['error']} |")
+    lines += [
+        "",
+        "## Transport diagnostics (the live path's own counters)",
+        "",
+        f"- `max_lag` {transport['max_lag_seconds']} s over "
+        f"{transport['blocks']} blocks / {transport['samples']} samples",
+        f"- `gaps` {transport['gaps']}, largest {transport['max_gap_seconds']} s",
+        f"- source clock as delivered: {transport['raw_rate_hz']} Hz "
+        f"(nominal {record['publisher']['sample_rate']:g})",
+        f"- peak deviation from a perfect grid: "
+        f"{transport['grid_deviation_peak_seconds']} s; re-locks "
+        f"{transport['timebase_relocks']}, suspicious steps "
+        f"{transport['timebase_large_steps']}",
+        f"- pre-chain rate conversion: {transport['pre_resampled_to_hz']} "
+        f"({transport['pre_resampled_samples']} samples); chain resampler "
+        f"startup delay {transport['chain_resampler_startup_delay_seconds']} s "
+        f"({transport['chain_resampler_quality']})",
+        f"- recovery events {len(transport['recovery_events'])}, "
+        f"repaired samples {transport['repaired_samples']}, "
+        f"bad-channel census {transport['bad_channel_census'] or 'none'}",
+        "",
+        "## Decisions against the session's own marker labels",
+        "",
+        f"- status `{(record.get('session_record') or {}).get('status')!r}`, decisions "
+        f"{json.dumps(record['session'].get('decisions') or {})}",
+        f"- session failure {json.dumps(record['session'].get('failure'))}",
+        f"- decided windows {labels.get('decided_windows')} of "
+        f"{record['session'].get('windows')} windows; "
+        f"{labels.get('decided_windows_in_unknown_band')} of them fell in the "
+        f"operator's unknown band and are excluded",
+        f"- accuracy on labelled windows "
+        f"{labels.get('window_accuracy_on_labelled')}, majority-class rate on the "
+        f"same windows {labels.get('majority_class_rate_on_labelled')}, balanced "
+        f"{labels.get('balanced_accuracy_on_labelled')}",
+        "",
+        "## Frontend gate (Node-side evidence, not a browser)",
+        "",
+        f"- gain gate open: {gate.get('gate_open')} at "
+        f"{gate.get('gate_opened_at_seconds')} s; attenuated gain frames "
+        f"{gate.get('playback_gains_applied')} of {gate.get('sampled_gain_packets')}",
+        f"- the vendored frontend's own decoders rejected {decode.get('rejects')} "
+        f"of {decode.get('packets')} packets",
+        "",
+        "## What this proves, and what it does not",
+        "",
+        "Proves: the recorded ANT session drives the live route - LSL transport, "
+        "20-channel pre-flight by name, 500 Hz, microvolts after the import's "
+        "conversion - and produces decisions, packets and gain frames on this "
+        "machine, with the transport's own timing counters recorded above.",
+        "",
+        "Does not prove: that an amplifier works (no amplifier was present); "
+        "anything about a live participant (the input is a recording); the "
+        "audio-to-EEG loopback offset the plan requires before a human study "
+        "(`residual_offset_seconds`, tolerance +-30 ms, sections 3.11/3.17-4) - "
+        "there is no audio device in this path, so the only loopback here is LSL "
+        "delivery; and nothing about the model's accuracy on this rig, because "
+        "the recording is a different rig with a different reference (CPz against "
+        "the model's Cz) and two railed electrodes (F8 throughout, F3 for 39.8 % "
+        "of session 1).",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def audio_start_of(trial: AntTrial, start_offset_seconds: float) -> float:
+    """The session-clock time at which stimulus position zero was played.
+
+    ``audio position = start offset + (EEG time - Start marker)`` is the
+    operator-given timeline of the recorded experiment (plan section 3.12): the
+    offset is 0 s for session 1 and 267 s for session 2, and the Start marker is
+    the recording's own first timestamp because the import already rebased the
+    trial onto it. So the session time of stimulus position zero is the trial's
+    first timestamp plus that offset - an operator fact, reported rather than
+    inferred from the envelope's leading zeros (the import's own metadata records
+    its envelope as zero where nothing was playing, but the played stimulus
+    itself does not begin with silence, so "first non-zero row" is not the
+    answer).
+    """
+
+    return float(trial.timestamps[0]) + float(start_offset_seconds)
+
+
+async def drive(port: int, args, media_report: dict, client, stop: asyncio.Event) -> dict:
+    """Start the session over REST, run the client, and watch it end."""
+
+    import httpx
+
+    base = f"http://{args.host}:{port}"
+    packets: list = []
+    arrivals: list = []
+    state: dict = {"started": None, "media": None, "final": None,
+                   "packets": packets, "arrivals": arrivals}
+    async with httpx.AsyncClient(base_url=base, timeout=10.0) as http:
+        for _ in range(200):
+            with contextlib.suppress(httpx.HTTPError):
+                if (await http.get("/api/health")).status_code == 200:
+                    break
+            await asyncio.sleep(0.05)
+        else:
+            raise RuntimeError("the transport never became ready on loopback")
+
+        listener = asyncio.create_task(capture(port, packets, stop, client, arrivals))
+        state["started"] = (await http.post("/api/session/start")).json()
+        client.configure(state["started"]["id"], media_report["media_id"])
+        client.state["prepared"] = False
+        await asyncio.sleep(0)
+        playback = asyncio.create_task(client.play(stop))
+        try:
+            while not stop.is_set():
+                await asyncio.sleep(args.poll)
+                records = (await http.get("/api/sessions")).json()
+                last = records[-1] if records else None
+                if last is not None and last["status"] in TERMINAL_STATUSES:
+                    state["final"] = last
+                    break
+        finally:
+            stop.set()
+            state["media"] = (await playback).to_dict()
+            listener.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await listener
+    return state
+
+
+def start_publisher(args, window, lines: list[str]) -> subprocess.Popen:
+    """Start the LSL publisher as its own process, as the rig's recorder would be."""
+
+    command = [
+        sys.executable,
+        "-B",
+        "-m",
+        PUBLISHER_MODULE,
+        "--session",
+        str(args.session),
+        "--start",
+        str(args.clip_start),
+        "--seconds",
+        str(args.clip),
+        "--name",
+        args.stream_name,
+        "--source-id",
+        args.source_id,
+    ]
+    log("publisher: " + " ".join(command), lines)
+    return subprocess.Popen(
+        command,
+        cwd=str(REPO),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+
+
+def run(args, lines: list[str]) -> tuple[dict, int]:
+    """Everything except argument parsing: load, connect, stream, report."""
+
+    began = time.time()
+    config = AuditoryConfig()
+    model = RidgeDecoder.load(Path(args.model))
+    trial = load_ant_trial(args.session)
+    window, first_index = slice_window(trial, args.clip_start, args.clip)
+    audio_offset = audio_start_of(trial, args.audio_start_offset)
+    log(
+        f"session audio offset {audio_offset:g}s (derived from the recording: the "
+        f"first row the played stimulus reaches; the import's Start anchor is "
+        f"5.006s for session 1 and the stimulus begins there)",
+        lines,
+    )
+    channels = tuple(model.contract["eeg_channels"])
+    if tuple(trial.channel_names) != channels:
+        # Not fatal by itself - the contract maps by name - but the model's own
+        # electrode set is the contract the cap can carry, so a mismatch here is
+        # reported rather than silently reordered.
+        log(
+            f"note: the trial carries {list(trial.channel_names)} while the model "
+            f"contract names {list(channels)}; the contract maps by name",
+            lines,
+        )
+    log(
+        f"session {trial.trial_id}: {len(trial.timestamps)} samples, "
+        f"{trial.seconds:.3f}s, {len(trial.channel_names)} channels at "
+        f"{trial.sample_rate:g} Hz, peak {float(np.max(np.abs(window.eeg))):.1f} uV",
+        lines,
+    )
+    log(
+        f"published window: {len(window.timestamps)} samples from index "
+        f"{first_index} ({args.clip_start:g}s + {args.clip:g}s)",
+        lines,
+    )
+    references = ReferenceEnvelopes.load(tuple(ENVELOPES), config, labels=("left", "right"))
+    log(
+        f"reference envelopes named explicitly (an ANT session has no story name): "
+        f"{Path(ENVELOPES[0]).name}, {Path(ENVELOPES[1]).name}; coverage "
+        f"{references.coverage()}",
+        lines,
+    )
+    log(
+        f"operating point: margin={float(args.margin):g} "
+        f"({'calibrated default' if abs(float(args.margin) - CALIBRATED_MARGIN) < 1e-12 else 'explicit'}), "
+        f"documented policy default {MIN_MARGIN}; check_channels=False "
+        f"(section 3.17 item 1)",
+        lines,
+    )
+
+    # The stimulus the operator actually played for this session, sliced to the
+    # published window. Nothing is invented: no audio played, no audio rendered.
+    candidates, audio_report = load_candidates(
+        Path(args.audio_root),
+        trial.timestamps[first_index] - audio_offset,
+        int(round(len(window.timestamps) / trial.sample_rate * args.audio_rate)),
+        rate=int(args.audio_rate),
+    )
+    media_out = Path(args.media_out)
+    media_report = render_stereo(
+        candidates,
+        media_out,
+        sample_rate=int(args.audio_rate),
+        presentation=presentation_mode(args.presentation),
+        crossmix_weight=args.crossmix_weight,
+    )
+    media_report["audio_slice"] = audio_report
+    media_report["eeg_seconds"] = round(window.seconds, 3)
+    timeline = MediaTimeline(media_out, args.media_title)
+    # The transport's media descriptor and the duration the client reports are
+    # what the frontend's own gate compares field by field; both come from the
+    # served timeline, not from a second copy of the numbers.
+    media_report["descriptor"] = timeline.descriptor()
+    media_report["media_id"] = timeline.media_id
+    log(
+        f"rendered {args.presentation} stereo from the played stimulus: "
+        f"{media_report['seconds']}s, route {media_report['presentation']} "
+        f"(A={Path(ENVELOPES[0]).name})",
+        lines,
+    )
+
+    publisher = start_publisher(args, window, lines)
+    try:
+        sleep_until_ready(args.stream_name, timeout=args.resolve_timeout)
+        row = {
+            "name": args.stream_name,
+            "stype": "EEG",
+            "source_id": args.source_id,
+        }
+        stream = open_inlet(row, bufsize=4.0, connect_timeout=args.connect_timeout)
+        try:
+            probe_report = probe(stream, channels, args, lines)
+            # The model's contract names the rate its training trials were at;
+            # `RidgeDecoder.validate` compares the chain's contract with it
+            # verbatim, so a 500 Hz recording must reach the chain at that rate.
+            # The conversion is explicit, printed here, and recorded - it is an
+            # adapter-stage rate change, not a change to the contract.
+            wanted_rate = float(model.contract.get("input_sfreq") or args.sfreq)
+            pre = (
+                None
+                if args.pre_resample == "off" or math.isclose(wanted_rate, args.sfreq)
+                else wanted_rate
+            )
+            if pre is not None:
+                log(
+                    f"pre-chain rate conversion: {args.sfreq:g} Hz source -> "
+                    f"{pre:g} Hz, the rate the decoder contract records "
+                    f"(contract mismatch would otherwise be refused by "
+                    f"RidgeDecoder.validate; nothing about the recording changes)",
+                    lines,
+                )
+            source = AntStreamSource(
+                stream,
+                channels=channels,
+                sfreq=args.sfreq,
+                reference=trial.reference,
+                upstream_processing=trial.upstream_processing,
+                kind="ant_lsl_replay",
+                source_unit_exponent=int(args.source_unit_exponent),
+                block_samples=args.block_samples,
+                timebase=args.timebase,
+                pre_resample_sfreq=pre,
+                max_lag_seconds=args.max_lag_seconds,
+            )
+            log(
+                f"live source ready: window sample 0 is time zero; audio anchor "
+                f"{trial.timestamps[first_index] + audio_offset:.3f}s on the "
+                f"session's own clock (start offset {audio_offset:g}s from the "
+                f"1004/Start marker)",
+                lines,
+            )
+            exit_code, record = stream_session(
+                args, lines, source, references, model, timeline, media_report, began,
+                probe_report, window, trial, first_index, audio_offset,
+            )
+        finally:
+            if stream.connected:
+                stream.disconnect()
+    finally:
+        with contextlib.suppress(Exception):
+            publisher.terminate()
+        try:
+            output, _ = publisher.communicate(timeout=15)
+        except subprocess.TimeoutExpired:  # pragma: no cover - kill path
+            publisher.kill()
+            output = ""
+        if output:
+            log(f"publisher said: {output.strip()}", lines)
+    return record, exit_code
+
+
+def stream_session(
+    args, lines, source, references, model, timeline, media_report, began,
+    probe_report, window, trial, first_index, audio_offset,
+) -> tuple[int, dict]:
+    """Run the transport and the session around an already-connected source."""
+
+    app_state = {
+        "source": source,
+        "references": references,
+        "model": model,
+        "media": timeline,
+        "holder": {},
+        "audio_first_timestamp": float(trial.timestamps[first_index]),
+        "audio_offset": float(audio_offset),
+    }
+
+    def factory():
+        session, producer = build(app_state, args)
+        app_state["holder"]["producer"] = producer
+        app_state["holder"]["session"] = session
+        # The transport deliberately keeps a failing producer's exception out of
+        # the session record (it is not a log sink). The runner is its own run's
+        # log sink, so it wraps run() to keep the one line that says why a
+        # session ended as `producer_failed` - otherwise the record would name
+        # the failure without saying what failed.
+        original_run = producer.run
+
+        def run(publish, stop):
+            try:
+                return original_run(publish, stop)
+            except BaseException as error:  # noqa: BLE001 - recorded, then re-raised
+                app_state["holder"]["producer_error"] = f"{type(error).__name__}: {error}"
+                log(f"the session's producer failed: {type(error).__name__}: {error}", lines)
+                raise
+
+        producer.run = run
+        return producer
+
+    static_dir = Path(args.static_dir) if args.static_dir else None
+    if static_dir is not None and not static_dir.is_dir():
+        print(f"static dir not found: {static_dir}", file=sys.stderr)
+        return 2
+    app = create_app(producer_factory=factory, media=timeline, static_dir=static_dir)
+
+    port = args.port or free_port()
+    if args.host not in LOOPBACK_HOSTS:
+        print(f"loopback only; refusing host {args.host!r}", file=sys.stderr)
+        return 2
+    import uvicorn
+
+    server = uvicorn.Server(
+        uvicorn.Config(
+            app, host=args.host, port=port, log_level=args.log_level, ws="websockets"
+        )
+    )
+    thread = threading.Thread(target=server.run, name="nova-uvicorn", daemon=True)
+    thread.start()
+    url = f"http://{args.host}:{port}/"
+
+    stop = asyncio.Event()
+    loop_holder: dict = {}
+
+    def request_stop(*_ignored):
+        print("\n[ant_live] stop requested; ending the session", flush=True)
+        loop = loop_holder.get("loop")
+        if loop is not None:
+            loop.call_soon_threadsafe(stop.set)
+        else:
+            stop.set()
+
+    for name in ("SIGINT", "SIGTERM"):
+        handle = getattr(signal, name, None)
+        if handle is not None:
+            with contextlib.suppress(ValueError, OSError):
+                signal.signal(handle, request_stop)
+
+    client = SimulatedMediaClient(
+        url.rstrip("/"),
+        client_id="ant-live-runner",
+        duration_s=media_report["seconds"],
+        clip_seconds=args.clip,
+        tick_seconds=args.media_tick,
+    )
+    log(f"open {url} while it runs (serving {static_dir})", lines)
+
+    exit_code = 0
+    state: dict = {}
+    try:
+        loop_holder["loop"] = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop_holder["loop"])
+        state = loop_holder["loop"].run_until_complete(
+            drive(port, args, media_report, client, stop)
+        )
+    except (RuntimeError, OSError, ValueError) as error:
+        log(f"the run failed: {type(error).__name__}: {error}", lines)
+        exit_code = 1
+    finally:
+        try:
+            import httpx
+
+            with httpx.Client(base_url=f"http://{args.host}:{port}", timeout=5.0) as http:
+                http.post("/api/session/stop")
+        except Exception:  # pragma: no cover - the server may already be gone
+            pass
+        server.should_exit = True
+        thread.join(timeout=15)
+        loop_holder["loop"].close()
+        log(f"transport stopped (server thread alive: {thread.is_alive()})", lines)
+
+    producer = app_state["holder"].get("producer")
+    session = app_state["holder"].get("session")
+    summary = producer.summary.to_dict() if producer is not None and producer.summary else {}
+    processor = getattr(session, "processor", None)
+    packets = state.get("packets") or []
+    log(f"{len(packets)} packets recorded from /ws/live", lines)
+    log(f"decisions: {json.dumps(summary.get('decisions', {}))}", lines)
+    log(f"effective run policy: {json.dumps(summary.get('policy', {}))}", lines)
+    log(
+        "bad-channel census: "
+        + (json.dumps(summary.get("bad_channel_census")) or "no channel was flagged"),
+        lines,
+    )
+
+    evidence = frontend_evidence(args, packets, state, media_report, lines)
+    transport = source.transport.to_dict()
+    transport["recovery_events"] = [
+        dict(event) for event in getattr(processor, "recovery", None).events
+    ] if getattr(processor, "recovery", None) is not None else []
+    transport["repaired_samples"] = int(
+        getattr(getattr(processor, "repair", None), "repaired_samples", 0)
+    )
+    transport["bad_channel_census"] = dict(summary.get("bad_channel_census") or {})
+    transport["recovery_segment"] = int(
+        getattr(getattr(processor, "recovery", None), "segment", 0)
+    )
+    # The chain's own resampler delay is the one component of the alignment
+    # budget this run can actually measure: it is a fixed offset between the
+    # timestamps the chain carries and the samples it produced. Plan sections
+    # 3.11/3.17-4 want the *audio-to-EEG* loopback, which needs an audio device;
+    # this is reported so the difference is explicit rather than blurred.
+    resampler = getattr(processor, "resampler", None)
+    transport["chain_resampler_startup_delay_seconds"] = (
+        None if resampler is None else float(resampler.startup_delay_seconds)
+    )
+    transport["chain_resampler_quality"] = (
+        None if resampler is None else str(resampler.quality)
+    )
+    record = {
+        "kind": (
+            "ANT recorded session driven through the live LSL route; a replay of "
+            "a recording on a different rig, not a live participant"
+        ),
+        "stamp": datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S"),
+        "started_at": datetime.fromtimestamp(began, timezone.utc).isoformat(),
+        "seconds": round(time.time() - began, 2),
+        "command": sys.argv,
+        "url": url,
+        "session": {
+            "path": str(args.session),
+            "trial_id": trial.trial_id,
+            "subject": trial.subject,
+            "samples": int(len(trial.timestamps)),
+            "seconds": round(trial.seconds, 3),
+            "channels": list(trial.channel_names),
+            "sample_rate": trial.sample_rate,
+            "reference": trial.reference,
+            "labels_present": sorted({int(v) for v in trial.labels.tolist()}),
+        },
+        "publisher": {
+            "module": PUBLISHER_MODULE,
+            "stream_name": args.stream_name,
+            "source_id": args.source_id,
+            "sample_rate": trial.sample_rate,
+            "unit": "microvolts",
+            "unit_exponent": int(args.source_unit_exponent),
+        },
+        "published_window": {
+            "first_sample_index": int(first_index),
+            "clip_start_seconds": float(args.clip_start),
+            "clip_seconds": float(args.clip),
+            "samples": int(len(window.timestamps)),
+            "first_timestamp": float(window.timestamps[0]),
+            "peak_microvolts": float(np.max(np.abs(window.eeg))),
+        },
+        "clip_seconds": float(args.clip),
+        "probe": probe_report,
+        "transport": transport,
+        "operating_point": {
+            "margin": float(args.margin),
+            "margin_source": (
+                "calibrated (results/aad_margin_calibration_*.md, decision D-29)"
+                if abs(float(args.margin) - CALIBRATED_MARGIN) < 1e-12
+                else "explicit --margin"
+            ),
+            "documented_default_margin": MIN_MARGIN,
+            "window_seconds": summary.get("window_seconds"),
+            "timebase": args.timebase,
+            "policy": summary.get("policy"),
+        },
+        "session_summary": summary,
+        "session_record": state.get("final"),
+        "media": media_report,
+        "media_client": state.get("media"),
+        "frontend_evidence": evidence,
+        "packet_stream": {
+            "path": evidence.get("stream"),
+            "count": evidence.get("packets"),
+            "by_type": packet_census(packets),
+        },
+        "labels_vs_decisions": coverage_against_markers(
+            trial.labels, summary.get("decision_stream") or [], trial.sample_rate
+        ),
+        "log": lines,
+    }
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(record, indent=2, default=str))
+    report = Path(args.report)
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_text(markdown(record))
+    print(f"run record: {out}")
+    print(f"report: {report}")
+    gate = (evidence.get("gate") or {}).get("report") or {}
+    print(
+        f"gain gate: open={gate.get('gate_open')} at "
+        f"{gate.get('gate_opened_at_seconds')}s, attenuated gain frames "
+        f"{gate.get('playback_gains_applied')} of {gate.get('sampled_gain_packets')}"
+    )
+    print(f"effective margin: {float(args.margin):g} (documented default {MIN_MARGIN})")
+    print(f"transport: {json.dumps({k: transport[k] for k in ('max_lag_seconds','gaps','blocks','samples','raw_rate_hz','grid_deviation_peak_seconds','pre_resampled_to_hz','ended')})}")
+    print(f"labels vs decisions: {json.dumps({k: v for k, v in record['labels_vs_decisions'].items() if k not in ('kind',)})}")
+    if (state.get("final") or {}).get("status") == "error":
+        print(f"the session reported an error: {json.dumps(summary.get('failure'))}")
+        exit_code = 1
+    return exit_code, record
+
+
+def frontend_evidence(args, packets, state, media_report, lines) -> dict:
+    """Write the packet stream and let the vendored frontend's own code judge it.
+
+    It calls the demo's own ``gather_evidence`` with paths pointed at this run's
+    outputs, so the frontend verdicts here come from exactly the code path that
+    produced step 10's, over a stream this step's live route generated.
+    """
+
+    from types import SimpleNamespace
+
+    from scripts.auditory_ui.demo import gather_evidence
+
+    stem = Path(args.out).with_suffix("")
+    names = SimpleNamespace(
+        stream_out=str(stem.with_name(stem.name + "_packets.jsonl")),
+        media_record=str(stem.with_name(stem.name + "_media.json")),
+        render_out=str(stem.with_name(stem.name + "_frontend.html")),
+        gate_out=str(stem.with_name(stem.name + "_gate.json")),
+        decode_script="scripts/auditory_ui/decode_packets.mjs",
+        gate_script="scripts/auditory_ui/gate_evidence.mjs",
+    )
+    return gather_evidence(names, packets, state, media_report, lines)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """The runner's command line."""
+
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument("--session", default=DEFAULT_SESSION)
+    parser.add_argument("--model", default=DEFAULT_MODEL)
+    parser.add_argument("--audio-root", default=DEFAULT_AUDIO_ROOT)
+    parser.add_argument("--audio-rate", type=int, default=48000)
+    parser.add_argument("--clip-start", type=float, default=0.0)
+    parser.add_argument(
+        "--audio-start-offset",
+        type=float,
+        default=0.0,
+        help=("operator-given session audio start, in seconds of stimulus at the "
+              "recording's Start anchor: 0 for session 19-34-06, 267 for 19-41-11 (section 3.12)"),
+    )
+    parser.add_argument("--clip", type=float, default=130.0, help="seconds to publish and run")
+    parser.add_argument("--stream-name", default=DEFAULT_STREAM_NAME)
+    parser.add_argument("--source-id", default=DEFAULT_SOURCE_ID)
+    parser.add_argument("--sfreq", type=float, default=500.0)
+    parser.add_argument(
+        "--source-unit-exponent",
+        type=int,
+        default=DEFAULT_MICROVOLT_EXPONENT,
+        help="-6 for microvolts, 0 for volts; the outlet declares microvolts",
+    )
+    parser.add_argument("--block-samples", type=int, default=100)
+    parser.add_argument(
+        "--pre-resample",
+        default="auto",
+        help=(
+            "auto (default): convert the incoming blocks to the rate the decoder "
+            "contract records; off: feed the chain at the source rate, which the "
+            "decoder refuses unless a model was fitted at that rate"
+        ),
+    )
+    parser.add_argument("--timebase", default="grid", choices=("grid", "stamps"))
+    parser.add_argument(
+        "--saturation-limit-uv",
+        type=float,
+        default=90000.0,
+        help=("Repair's absolute-level guard, in uV. It must sit above this "
+              "recording's own rail (83 333 uV), or every railed stretch becomes an "
+              "unrepairable fault and stops the run; the effective value is printed "
+              "and recorded."),
+    )
+    parser.add_argument("--max-lag-seconds",
+        type=float,
+        default=10.0,
+        help=("age limit for a delivered block. An inlet that attaches behind a "
+              "publisher already streaming inherits a backlog from before the "
+              "connection; this is deliberately loose enough to deliver it and "
+              "tight enough to fail a stalled source. The measured lag is recorded."),
+    )
+    parser.add_argument("--resolve-timeout", type=float, default=20.0)
+    parser.add_argument("--connect-timeout", type=float, default=10.0)
+    parser.add_argument(
+        "--margin",
+        type=float,
+        default=CALIBRATED_MARGIN,
+        help=(
+            f"controller commit margin; default {CALIBRATED_MARGIN} is the point "
+            f"calibrated on held-out stories (D-29). The documented policy default "
+            f"is {MIN_MARGIN}."
+        ),
+    )
+    parser.add_argument("--warmup", type=float, default=2.0)
+    parser.add_argument("--frame-seconds", type=float, default=0.25)
+    parser.add_argument("--media-tick", type=float, default=MEDIA_TICK_SECONDS)
+    parser.add_argument("--media-out", default="output/auditory_ui/ant_live_stereo.wav")
+    parser.add_argument("--media-title", default="ANT recorded session")
+    parser.add_argument(
+        "--presentation",
+        default=DEFAULT_PRESENTATION,
+        choices=PRESENTATION_MODES,
+        help="presentation route; the recorded session is dichotic (L=A, R=B)",
+    )
+    parser.add_argument("--crossmix-weight", type=float, default=DEFAULT_CROSSMIX_WEIGHT)
+    parser.add_argument("--static-dir", default=str(REPO / "apps" / "attune-ui" / "dist"))
+    parser.add_argument("--host", default="127.0.0.1", help="loopback only")
+    parser.add_argument("--port", type=int, default=0, help="0 picks a free loopback port")
+    parser.add_argument("--log-level", default="warning")
+    parser.add_argument("--poll", type=float, default=0.5)
+    parser.add_argument(
+        "--probe-only",
+        action="store_true",
+        help="connect, report the pre-flight verdict, then stop",
+    )
+    parser.add_argument(
+        "--out", default="results/antneuro_live_run.json", help="run record"
+    )
+    parser.add_argument(
+        "--report", default="results/antneuro_live_run.md", help="markdown summary"
+    )
+    return parser
+
+
+def probe_only(args, lines: list[str]) -> int:
+    """Connect to the outlet, report what it declared, and stop."""
+
+    model = RidgeDecoder.load(Path(args.model))
+    channels = tuple(model.contract["eeg_channels"])
+    publisher = start_publisher(args, None, lines)
+    try:
+        sleep_until_ready(args.stream_name, timeout=args.resolve_timeout)
+        stream = open_inlet(
+            {"name": args.stream_name, "stype": "EEG", "source_id": args.source_id},
+            bufsize=4.0,
+            connect_timeout=args.connect_timeout,
+        )
+        try:
+            probe(stream, channels, args, lines)
+        finally:
+            if stream.connected:
+                stream.disconnect()
+    finally:
+        with contextlib.suppress(Exception):
+            publisher.terminate()
+        with contextlib.suppress(Exception):
+            output, _ = publisher.communicate(timeout=15)
+            if output:
+                log(f"publisher said: {output.strip()}", lines)
+    return 0
+
+
+def main(argv=None) -> int:
+    """Parse, then run (or probe) and report."""
+
+    args = build_parser().parse_args(argv)
+    lines: list[str] = []
+    if args.probe_only:
+        return probe_only(args, lines)
+    record, exit_code = run(args, lines)
+    return exit_code
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -32,6 +32,8 @@ def stream_config(
     max_bad_channels=0,
     exclude_channels=(),
     source_unit_exponent=DEFAULT_SOURCE_UNIT_EXPONENT,
+    saturation_limit_uv=None,
+    amplitude_limit_uv=None,
 ):
     """Build the chain settings for one trial and decoder configuration.
 
@@ -73,6 +75,12 @@ def stream_config(
         check_channels=check_channels, max_bad_channels=max_bad_channels,
         exclude_channels=tuple(exclude_channels),
         source_unit_exponent=int(source_unit_exponent),
+        saturation_limit_uv=(
+            None if saturation_limit_uv is None else float(saturation_limit_uv)
+        ),
+        amplitude_limit_uv=(
+            None if amplitude_limit_uv is None else float(amplitude_limit_uv)
+        ),
     )
 
 
@@ -95,6 +103,7 @@ class AuditoryProcessor:
         exclude_channels = tuple(getattr(settings, "exclude_channels", ()) or ())
         self.repair = Repair(
             settings.input_sfreq,
+            **self._endpoint_limits(settings),
             source_unit_exponent=int(getattr(
                 settings, "source_unit_exponent", DEFAULT_SOURCE_UNIT_EXPONENT
             )),
@@ -133,6 +142,27 @@ class AuditoryProcessor:
             "stage": "auditory-current-streaming-v2",
             "window_seconds": settings.window_seconds, "step_seconds": settings.step_seconds,
         }
+
+    @staticmethod
+    def _endpoint_limits(settings):
+        """Repair's endpoint safety limits, when the run policy sets them.
+
+        Defaults stay `Repair`'s own (500 / 75 000 uV) for every caller that
+        does not set them, so no existing behaviour moves. A recording whose
+        amplifier railed an electrode past 75 000 uV (plan section 3.11 documents
+        exactly that on the operator's ANT session) needs a declared saturation
+        limit above its own rail; the value is run policy, printed and recorded,
+        never a silent widening of the guard.
+        """
+
+        limits = {}
+        saturation = getattr(settings, "saturation_limit_uv", None)
+        amplitude = getattr(settings, "amplitude_limit_uv", None)
+        if saturation is not None:
+            limits["saturation_limit_uv"] = float(saturation)
+        if amplitude is not None:
+            limits["amplitude_limit_uv"] = float(amplitude)
+        return limits
 
     def _resolve_judges(self, judges):
         """Validate the injected judges; default to the monitor and the repairer."""
