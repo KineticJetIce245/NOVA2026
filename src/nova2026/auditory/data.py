@@ -102,8 +102,53 @@ class AttentionEstimate:
         }
 
 
+def dry_stimulus_name(name):
+    """Map a KU Leuven stimulus name to the dry recording the envelope comes from.
+
+    ``trials[i].stimuli`` names the files that were presented to the subject, which
+    the dataset authors rendered through head-related transfer functions
+    (``*_hrtf.wav``); some trials already carry the direct ``*_dry.wav`` names.
+    The published ``preprocess_data.m`` and the dataset README both take the
+    envelope from the dry recording instead: the README states that "for the
+    analysis, we have assumed knowledge of the original clean stimuli (i.e.
+    stimuli presented under the 'dry' condition), and hence envelopes were
+    extracted only from part{part}_track{track}_dry.wav files", and the script
+    loads ``<name>_dry.mat`` after truncating the name to 12 or 16 characters.
+    Resolving the dry counterpart is therefore part of the published recipe rather
+    than a convenience: the hrtf rendering carries the ear-to-ear filtering that
+    the decode is supposed to explain, so it must not enter the reference
+    envelope. The mapping is exact, keeps any ``rep_`` prefix, and is idempotent.
+    """
+    text = str(name)
+    if Path(text).name != text:
+        raise ValueError(f"Stimulus names must be bare file names: {name!r}.")
+    stem, suffix = Path(text).stem, Path(text).suffix
+    for condition in ("_hrtf", "_dry"):
+        if stem.endswith(condition):
+            return f"{stem[: -len(condition)]}_dry{suffix}"
+    raise ValueError(f"Unrecognised KU Leuven stimulus name: {name!r}.")
+
+
+def resolve_stimulus(directory, name):
+    """Resolve an already-derived stimulus name without guessing its identity."""
+    direct = Path(directory) / name
+    if direct.is_file():
+        return direct
+    matches = list(Path(directory).rglob(name))
+    if len(matches) != 1:
+        raise ValueError(f"Expected one stimulus file for {name}.")
+    return matches[0]
+
+
 def load_kuleuven(path, stimuli, channel_names, reference, upstream_processing):
-    """Read MATLAB v5 trials; require explicit recording metadata from the caller."""
+    """Read MATLAB v5 trials; require explicit recording metadata from the caller.
+
+    Candidates are the two dry stimulus names, sorted, so candidate 0 is always
+    the ``track1`` excerpt and ``labels`` holds the index of the attended
+    candidate. Each name is mapped through :func:`dry_stimulus_name` before it is
+    resolved on disk, so the loader never depends on the ``*_hrtf`` name being
+    unique or even present.
+    """
     from .audio import read_audio
 
     path = Path(path)
@@ -112,16 +157,13 @@ def load_kuleuven(path, stimuli, channel_names, reference, upstream_processing):
     for index, record in enumerate(np.atleast_1d(records)):
         eeg = np.asarray(record.RawData.EegData, dtype=float)
         rate = float(record.FileHeader.SampleRate)
-        names = sorted(str(name) for name in np.atleast_1d(record.stimuli))
+        names = sorted(dry_stimulus_name(name) for name in np.atleast_1d(record.stimuli))
         if len(names) != 2:
             raise ValueError("Expected two stimulus files per trial.")
         tracks = []
         audio_rate = None
         for name in names:
-            matches = list(Path(stimuli).rglob(name))
-            if len(matches) != 1:
-                raise ValueError(f"Expected one stimulus file for {name}.")
-            samples, current_rate = read_audio(matches[0])
+            samples, current_rate = read_audio(resolve_stimulus(stimuli, name))
             if audio_rate is not None and current_rate != audio_rate:
                 raise ValueError("Candidate audio rates differ.")
             audio_rate = current_rate

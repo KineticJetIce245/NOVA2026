@@ -1,6 +1,15 @@
 # data
 datasets/*
 !datasets/.gitkeep
+# The KU Leuven metadata is a committed source file, not a derived artifact: it is
+# three keys of text recording the channel order and the provenance that the
+# conversion depends on, and it carries no signal from the dataset. Git cannot
+# re-include a file whose parent directory is excluded, so the directory is
+# re-included only far enough to reach it; everything beside it (the .mat files,
+# stimuli/ and the multi-gigabyte converted/ tree) stays ignored.
+!datasets/AAD-KULeuven/
+datasets/AAD-KULeuven/*
+!datasets/AAD-KULeuven/metadata.json
 models/*
 !models/.gitkeep
 
@@ -45,6 +54,10 @@ results/*
 # Exception: the frozen pre-change test baseline is a reviewable text record of
 # what the tree passed before the integration work started.
 !results/test_baseline_*.txt
+# Exception: the KU Leuven conversion summary is the reviewable evidence for
+# step 2 (shape/rate/label invariants, naming derivation, on-disk size). The
+# converted trials it describes stay out of git under datasets/.
+!results/kuleuven_conversion_*.json
 
 # macOS metadata. On exFAT (this repository lives on one) macOS cannot store
 # extended attributes, so it writes an AppleDouble sidecar next to every file it
