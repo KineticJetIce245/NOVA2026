@@ -7,7 +7,7 @@
       "caught": true,
       "returncode": 1,
       "detail": [
-        "FAILED (errors=1)"
+        "FAILED (failures=1)"
       ]
     },
     {
@@ -25,7 +25,16 @@
       "caught": true,
       "returncode": 1,
       "detail": [
-        "FAILED (errors=1)"
+        "FAILED (failures=1)"
+      ]
+    },
+    {
+      "mutation": "the-gate-refuses-a-key-absent-from-both-sides",
+      "caught_by": "GatedKeysTests.test_a_gate_key_absent_from_both_sides_is_accepted",
+      "caught": true,
+      "returncode": 1,
+      "detail": [
+        "FAILED (errors=4)"
       ]
     }
   ],

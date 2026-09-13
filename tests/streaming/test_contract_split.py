@@ -30,6 +30,7 @@ model is fitted on data this chain produced, so the premise is built here rather
 than inherited from ``models/`` or ``datasets/`` (plan section 6.4 item 1).
 """
 
+import copy
 import json
 import subprocess
 import sys
@@ -184,6 +185,21 @@ class Fixture(unittest.TestCase):
         contract.pop(key, None)
         return self._with(self.window, contract)
 
+    def model_without(self, key):
+        """A copy of the fitted model whose contract lacks ``key``.
+
+        A copy, not the fixture's own decoder: one model is fitted per class
+        here, so editing it in place would leak this test's contract into every
+        other test in the module.
+        """
+
+        model = copy.copy(self.model)
+        model.contract = {
+            name: value for name, value in self.model.contract.items()
+            if name != key
+        }
+        return model
+
 
 def _examples(windows):
     """``(window, per-sample labels)`` pairs for fitting, from the chain itself."""
@@ -256,6 +272,53 @@ class GatedKeysTests(Fixture):
                     self.model.validate(self.without(key))
                 self.assertIn(key, str(caught.exception))
                 self.assertIn("absent", str(caught.exception))
+
+    def test_a_gate_key_absent_from_both_sides_is_accepted(self):
+        # The case this suite shipped without, and with it the correction that
+        # was not implemented: a key *neither* side declares is not a processing
+        # difference. Nothing can disagree when neither contract carries it, so
+        # refusing it refuses a contract that decides nothing - the same false
+        # refusal that cost the ANT session 116 of 116 windows over a number
+        # that could not differ. The old line (``key not in incoming or key not
+        # in model``) refused exactly this case and called it "absent from one
+        # side", which was false twice over.
+        for key in ("stage", "resample_quality", "filter_order", "units"):
+            with self.subTest(key=key):
+                model = self.model_without(key)
+                contract = dict(model.contract)
+                window = self._with(self.window, contract)
+                # Byte-identical and short exactly one gate key: this is an
+                # absent key, not a difference dressed up as one.
+                self.assertNotIn(key, contract)
+                self.assertEqual(model.contract, dict(window.contract))
+                model.validate(window)  # must not raise
+                record = model.contract_provenance()
+                self.assertEqual(record["gated"], {})
+                # Nor is it smuggled out as a key present on one side only.
+                self.assertEqual(record["only_in_model"], [])
+                self.assertEqual(record["only_in_source"], [])
+
+    def test_the_absent_from_one_side_message_is_true_where_it_refuses(self):
+        # The other half of the defect: where an absent key *is* a difference,
+        # "absent from one side" has to be a fact about the two contracts rather
+        # than a phrase. Every case below has the key on exactly one side.
+        for key in ("units", "bandpass", "stage"):
+            with self.subTest(key=key, missing_from="window"):
+                window = self.without(key)
+                self.assertNotIn(key, window.contract)
+                self.assertIn(key, self.model.contract)
+                with self.assertRaises(ValueError) as caught:
+                    self.model.validate(window)
+                self.assertIn(f"processing keys {key}", str(caught.exception))
+                self.assertIn("absent from one side", str(caught.exception))
+            with self.subTest(key=key, missing_from="model"):
+                model = self.model_without(key)
+                self.assertNotIn(key, model.contract)
+                self.assertIn(key, self.window.contract)
+                with self.assertRaises(ValueError) as caught:
+                    model.validate(self.window)
+                self.assertIn(f"processing keys {key}", str(caught.exception))
+                self.assertIn("absent from one side", str(caught.exception))
 
 
 class RecordedProvenanceTests(Fixture):
@@ -411,12 +474,20 @@ MUTATIONS = (
         "after": '                None, self._now, self._now, False, ("scoring_failed",)',
         "test": "FailureCauseTests.test_a_scoring_failure_records_its_cause_in_the_summary",
     },
+    {
+        "name": "the-gate-refuses-a-key-absent-from-both-sides",
+        "file": "src/nova2026/auditory/decoder.py",
+        "before": '            missing = [key for key in GATE_KEYS if (key in incoming) != (key in model)]\n',
+        "after": '            missing = [key for key in GATE_KEYS if key not in incoming or key not in model]\n',
+        "test": "GatedKeysTests.test_a_gate_key_absent_from_both_sides_is_accepted",
+    },
 )
 """Each removes one piece of the mechanism; each must turn its named test red.
 
-Kept to three so the mutation run stays a focused check rather than a suite: one
-for the gate, one for the record, one for the cause. They are applied to a
-**copy** of the tree, never to the working tree.
+Kept focused rather than a suite: one for the gate, one for the record, one for
+the cause - and one for the line that shipped late, a gate key absent from both
+sides, because a mutation nobody wrote a case for is a correction nobody sees
+revert. They are applied to a **copy** of the tree, never to the working tree.
 """
 
 
@@ -428,9 +499,13 @@ def run_mutation_check(repo: Path, *, timeout: float = 600.0) -> dict:
     read; the child's own ``src`` **pinned at the front of ``sys.path``**, because
     ``.venv``'s editable install would otherwise put the unmutated module back;
     every ``__pycache__`` in the copy **cleared before each run**, because a stale
-    ``.pyc`` can hide a mutation whose mtime lands in the same second; and the
+    ``.pyc`` can hide a mutation whose mtime lands in the same second; the
     mutated file **compiled** before it runs, because a syntax error also makes a
-    test "fail" while proving nothing.
+    test "fail" while proving nothing; and the child **imports this module by
+    name**, because ``unittest.main(module=None, ...)`` resolves a bare
+    ``Class.test`` name as a top-level module, loads a failed-import test
+    instead, and so reports every mutation "caught" (``errors=1``, ``Ran 1 test
+    in 0.000s``) while no test ran at all.
     """
 
     import shutil
@@ -449,7 +524,8 @@ def run_mutation_check(repo: Path, *, timeout: float = 600.0) -> dict:
             "import sys\n"
             "sys.path[:0] = ['', {root!r}, {src!r}]\n"
             "import unittest\n"
-            "unittest.main(module=None, argv=['unittest', '-v', {test!r}])\n"
+            "unittest.main(module={module!r}, "
+            "argv=['unittest', '-v', {test!r}])\n"
         )
         for mutation in MUTATIONS:
             target = copy / mutation["file"]
@@ -479,7 +555,9 @@ def run_mutation_check(repo: Path, *, timeout: float = 600.0) -> dict:
                 continue
             result = subprocess.run(
                 [sys.executable, "-B", "-c", runner.format(
-                    root=str(copy), src=str(copy / "src"), test=mutation["test"]
+                    root=str(copy), src=str(copy / "src"),
+                    module="tests.streaming.test_contract_split",
+                    test=mutation["test"],
                 )],
                 cwd=str(copy), capture_output=True, text=True, timeout=timeout,
             )

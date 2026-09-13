@@ -64,6 +64,14 @@ from scripts.getlive.live_source import (
 
 MODEL = Path(__file__).resolve().parents[2] / "models" / "auditory_kuleuven_live20.npz"
 
+MISSING_MODEL = (
+    f"the 20-channel decoder is not in this clone: {MODEL} is absent, and "
+    "models/* is git-ignored, so a checkout carries no fitted decoder. "
+    "Produce it with scripts/auditory/train_kuleuven.py (the 20ch model, "
+    "auditory_kuleuven_live20.npz) or copy it from the machine that fitted it."
+)
+"""Why a test that needs the fitted decoder skips rather than fails."""
+
 RATE = 500.0
 """The rig's measured rate (plan section 3.11)."""
 
@@ -81,7 +89,7 @@ def load_model():
     from nova2026.auditory.decoder import RidgeDecoder
 
     if not MODEL.is_file():
-        raise unittest.SkipTest(f"model not present on this machine: {MODEL}")
+        raise unittest.SkipTest(MISSING_MODEL)
     return RidgeDecoder.load(MODEL)
 
 
@@ -140,6 +148,7 @@ class ContractGateTests(unittest.TestCase):
 class ElectrodeSelectionTests(unittest.TestCase):
     """The 20 electrodes are chosen by name, never by column position."""
 
+    @unittest.skipUnless(MODEL.is_file(), MISSING_MODEL)
     def test_the_model_supplies_the_default_list(self):
         names = model_electrodes(MODEL)
         self.assertEqual(len(names), 20)
@@ -148,6 +157,7 @@ class ElectrodeSelectionTests(unittest.TestCase):
         self.assertEqual(parse_electrodes(None, MODEL), names)
         self.assertEqual(parse_electrodes("Cz,Oz", MODEL), ("Cz", "Oz"))
 
+    @unittest.skipUnless(MODEL.is_file(), MISSING_MODEL)
     def test_a_reversed_montage_still_selects_the_right_columns(self):
         declared = tuple(reversed(CAP))
         wanted = parse_electrodes(None, MODEL)
@@ -160,6 +170,7 @@ class ElectrodeSelectionTests(unittest.TestCase):
         # not the first twenty columns, so a positional pick is visible.
         self.assertNotEqual(list(columns), list(range(len(wanted))))
 
+    @unittest.skipUnless(MODEL.is_file(), MISSING_MODEL)
     def test_the_four_extra_electrodes_are_dropped_not_truncated(self):
         wanted = parse_electrodes(None, MODEL)
         columns, missing = select_columns(CAP, wanted)
@@ -167,6 +178,7 @@ class ElectrodeSelectionTests(unittest.TestCase):
         self.assertNotIn(CAP.index("F9"), columns)
         self.assertEqual(len(columns), 20)
 
+    @unittest.skipUnless(MODEL.is_file(), MISSING_MODEL)
     def test_a_missing_electrode_is_named(self):
         declared = tuple(name for name in CAP if name not in ("Cz", "Pz"))
         _columns, missing = select_columns(declared, parse_electrodes(None, MODEL))
@@ -254,6 +266,7 @@ class AudioAnchorTests(unittest.TestCase):
 class LiveOutletTests(unittest.TestCase):
     """The adapter command 2 uses, against a real outlet on this host."""
 
+    @unittest.skipUnless(MODEL.is_file(), MISSING_MODEL)
     def test_the_twenty_electrodes_arrive_by_name_in_contract_order(self):
         from mne_lsl.lsl import StreamInfo, StreamOutlet, local_clock
 

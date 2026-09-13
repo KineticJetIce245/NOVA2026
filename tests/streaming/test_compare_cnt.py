@@ -302,6 +302,13 @@ class LoadCntTests(unittest.TestCase):
         self.assertIn("antio", message)
         self.assertIn("--cnt-npy", message)
 
+    @unittest.skipUnless(
+        importlib.util.find_spec("antio") is not None,
+        "antio is an optional extra and is not installed: this test reads a "
+        ".cnt through it (pip install antio, or uv add antio). The "
+        "missing-package branch needs no package and is covered by "
+        "test_cnt_without_antio_explains_the_fix.",
+    )
     def test_cnt_with_antio_reports_the_file_not_the_dependency(self) -> None:
         # Precondition: the installed antio, so the file itself is read and is
         # rejected on its contents rather than on a missing package.
