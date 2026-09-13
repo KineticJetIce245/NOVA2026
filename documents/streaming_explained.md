@@ -1781,21 +1781,54 @@ duration`. The documented dry-cap workflow - `--exclude-channels O1,Fp1
 --no-channel-check` - keeps the electrodes recorded while removing them from the
 verdict, and then the same 30 s run passes.
 
-### 11.8 Finding 5: real sample loss, `unsafe_endpoints`, and the DC offset
+### 11.8 Finding 5, corrected: the gaps were not loss, and `unsafe_endpoints` was not the DC offset
 
-The relay counted 94 missing samples in 65,542 (~0.14%), i.e. roughly one lost
-sample per 1150. LSL runs over UDP multicast, so these are most likely network
-drops between the Windows box and the Mac, not the amplifier. The grid carries
-them as gaps, which is correct; `Repair` then synthesises the missing row and, on
-completing the repair, checks that its endpoints are inside
-`amplitude_limit_uv` - an **absolute** 500 uV rail. With a 12.6 mV electrode
-offset on every channel, that check trips, the fault is fatal, and five of them
-end the run.
+This subsection is a correction. Both claims made here on the day are wrong, and
+both were wrong the same way: arithmetic that was never done.
 
-The honest fix is on the rig, not in the package: enable the amplifier's
-high-pass (or fix the electrode offsets). The package-side lesson is that
-`Repair`'s endpoint rail assumes a roughly zero-centred signal, which a raw
-eego stream is not.
+**The gaps were not network loss.** The relay counted 94 missing samples in 65 542
+(~0.14%), and UDP multicast made packet loss the natural explanation. The CNT
+comparison disproved it: 88 500 sample pairs, every run aligned at
+r = 1.000000, nothing differing by more than one LSB - no sample was ever missing.
+What the relay was counting were *timestamp* steps. `TIMEBASE_DESIGN.md` sections
+3 and 4 trace them to the stamping itself, and the run reports stopped calling
+them gaps when the counted grid replaced the block-spreading one.
+
+**`unsafe_endpoints` was not the electrode offset.** `Repair` refuses a repair when
+an endpoint is at or above `saturation_limit_uv` (75 000 uV absolute) or when the
+jump between the two endpoints exceeds `amplitude_limit_uv` (500 uV). A 12.6 mV
+offset with 42 uV of noise trips neither: 12 640 < 75 000, and adjacent samples
+differ by microvolts.
+
+The arithmetic that does explain those faults is the unit lie of 11.6: in the runs
+that asserted `--source-units V`, `_to_uv` is 10^6, so the same 12 640 samples
+became 1.26e10 uV and every endpoint sat far above the rail. `unsafe_endpoints`
+was a second symptom of the wrong unit, not of the electrode offset.
+
+The evidence is in `records/`: no recording contains an `unsafe_endpoints` event.
+Every one of them used `units=uV`, and the only recoveries in any of them are two
+`irregular_timestamps`. The endpoint faults appear only in the unrecorded
+`--source-units V` sessions.
+
+**What survives.** The electrode DC offset is real and still worth fixing on the
+rig, but nothing in this package is blocked by it: with the unit assertion right,
+no run produced an endpoint fault. The package-side lesson is smaller than the one
+claimed here - `Repair`'s rails are absolute, so an operator whose signal sits far
+from zero should check them rather than assume they fit. All four limits are now
+flags on the live script, and they are written into the run's provenance:
+
+| Flag | Library default | What it bounds |
+| --- | --- | --- |
+| `--repair-amplitude-uv` | 500 uV | jump between the two finite endpoints a repair may bridge |
+| `--repair-saturation-uv` | 75 000 uV | absolute endpoint level above which a repair is unsafe |
+| `--max-recoveries` | 5 | bounded chain restarts before the run stops |
+| `--max-fault-seconds` | 5.0 s | consecutive judge-rejected windows before the run stops |
+
+Both `--repair-*-uv` limits stay in microvolts whatever `--source-units` says:
+they judge the signal, and the unit declaration is the thing that can be wrong.
+That is what makes `--repair-saturation-uv 2e10` a usable answer to a source that
+declares `Volt` while sending microvolts, instead of a run that dies on its first
+repair.
 
 ### 11.9 Finding 6: an option that was parsed and then ignored
 
@@ -1804,8 +1837,10 @@ The shared parser hands every live script `--workers`, `--compute` and `--queue`
 test on the rig therefore measured **nothing** while looking like it worked -
 precisely the class of silent misbehaviour this package refuses everywhere else.
 
-`live.py` is now wired: `_prepare` builds a `TaskOffloader` when `--workers > 0`
-whose handler sleeps `--compute` seconds, `_handle_window` submits each finished
+`live.py` is now wired: `_prepare` builds the load test's consumer with the
+shared `dummy_offloader` factory (the same one `scripts/streaming_demo.py` uses,
+so the two scripts can no longer drift into measuring different consumers) when
+`--workers > 0`, `_handle_window` submits each finished
 `EEGWindow` (a copy out of the ring buffer, so it is safe to hand over), and
 `_loop` drains the pool and copies `dropped`/`failed` into
 `stats.offload_dropped` / `stats.offload_failed`, which land in the run report.

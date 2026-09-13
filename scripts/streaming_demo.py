@@ -14,7 +14,7 @@ uneven chunk size, then runs the whole chain in one loop:
       |                                 band-pass, 500 -> 128 Hz
       -> CircularBuffer.push()         2 s windows @ 128 Hz
       -> StreamSession.wrap()          warm-up + judge (quality/repair) gating
-      -> TaskOffloader (or in-loop) analysis
+      -> dummy_offloader (or in-loop) analysis
 
 Each recorded run keeps a config snapshot and one line per delivered window
 (D). Pass --record to keep the raw run. A run stopped by a guard, interrupted,
@@ -32,7 +32,7 @@ Replace the PlayerLSL/StreamLSL setup with the real amplifier outlet to run
 live; nothing else in the loop changes.
 """
 
-from time import monotonic, sleep
+from time import monotonic
 from uuid import uuid4
 
 import mne
@@ -44,8 +44,8 @@ from mne_lsl.stream import StreamLSL  # our reader (inlet)
 from nova2026.streaming import (  # runs per-window analysis
     Recovery,  # A2: reset-and-continue on unrepairable damage
     StreamStats,  # E: per-run counters persisted at close
-    TaskOffloader,  # runs per-window analysis on worker threads
     UnrepairableError,  # damage the Repair stage cannot fix
+    dummy_offloader,  # the load test's consumer, on worker threads
     prepare,  # pre-flight source check -> the run's channel contract (B)
     processing_contract,  # serializable description of this run's chain
     resolve_outlet,  # confirm the outlet is publishing before connecting (B1)
@@ -249,19 +249,14 @@ def main() -> None:
             f"ptp_uV={np.round(peak_to_peak_uv, 1)}"
         )
 
-    # The "analysis" task: optionally sleep to simulate a slow model, then
-    # report. This function runs in worker threads when workers > 0.
-    def analyze(item) -> None:
-        eeg_window = item
-        if args.compute > 0:
-            sleep(args.compute)
-        report(eeg_window)
-
-    # Offloader created once before the loop; workers pick tasks off a queue.
-    offloader = (
-        TaskOffloader(analyze, workers=args.workers, capacity=args.queue)
-        if args.workers
-        else None
+    # The "analysis" task: the offloader sleeps for --compute seconds to pretend
+    # to be a slow model, then calls report() on a worker thread. --workers 0
+    # keeps the analysis in the loop and builds no offloader at all.
+    offloader = dummy_offloader(
+        handler=report,
+        workers=args.workers,
+        capacity=args.queue,
+        compute_seconds=args.compute,
     )
 
     # ------------------------------------------------------------------
@@ -347,7 +342,8 @@ def main() -> None:
             stats.offload_dropped = offloader.dropped
             stats.offload_failed = offloader.failed
             if failure is None and not interrupted:
-                # Observed on the submitting thread, as TaskOffloader documents.
+                # Observed on the submitting thread, where the offloader's
+                # contract says a worker failure has to surface.
                 try:
                     offloader.raise_error()
                 except Exception as error:  # noqa: BLE001 - recorded below

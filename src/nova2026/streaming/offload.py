@@ -4,6 +4,10 @@ The submitting loop stays the acquisition owner: ``submit`` hands a reference to
 an already-independent item to a bounded queue and returns immediately, while
 worker threads run the handler in their own context. This keeps pulling samples
 independent from how long a handler takes.
+
+:func:`dummy_offloader` builds the load test's consumer - a task that spends a
+fixed time per item - so the demo and the live script share one definition of
+"a consumer slow enough to compete with acquisition" instead of two.
 """
 
 import math
@@ -239,3 +243,58 @@ class TaskOffloader:
 
         with self._lock:
             setattr(self, name, getattr(self, name) + 1)
+
+
+def dummy_offloader(
+    *,
+    handler: Callable[[object], object] | None = None,
+    workers: int,
+    capacity: int,
+    compute_seconds: float = 0.0,
+) -> TaskOffloader | None:
+    """Build the load test's consumer: a fixed cost per item, on worker threads.
+
+    A load test only answers its question if the consumer is real enough to
+    compete with acquisition: spending ``compute_seconds`` per item on a pool of
+    workers leaves the pulling loop free, which is exactly what is being
+    measured. ``handler`` then runs on the item, so one factory serves both
+    callers - the demo prints the window, the live script burns the time and
+    discards it.
+
+    Args:
+        handler: Optional callable applied to each item after the compute time.
+        workers: Worker threads. ``0`` or fewer means the caller asked for
+            in-loop analysis, so no offloader is built at all.
+        capacity: Queued items before the drop-oldest policy applies.
+        compute_seconds: Time each item spends pretending to be analysed.
+
+    Returns:
+        A started :class:`TaskOffloader`, or ``None`` when ``workers <= 0``.
+
+    Raises:
+        ValueError: If ``workers`` is not an integer, ``compute_seconds`` is not
+            finite and non-negative, or ``handler`` is neither callable nor
+            ``None``.
+    """
+
+    if isinstance(workers, bool) or not isinstance(workers, int):
+        raise ValueError("workers must be an integer.")
+    if workers < 1:
+        return None
+    if not math.isfinite(compute_seconds) or compute_seconds < 0:
+        raise ValueError("compute_seconds must be finite and non-negative.")
+    if handler is not None and not callable(handler):
+        raise ValueError("handler must be callable or None.")
+
+    def analyze(item: object) -> None:
+        # The pretend compute comes first: it is the cost under test, and the
+        # handler must not start before it.
+        if compute_seconds > 0:
+            sleep(compute_seconds)
+        if handler is not None:
+            handler(item)
+
+    # ``capacity`` has no default here on purpose, and the overflow policy is
+    # left to the offloader: duplicating either would create a second owner of
+    # what a full queue does.
+    return TaskOffloader(analyze, workers=workers, capacity=capacity)

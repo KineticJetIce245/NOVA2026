@@ -317,6 +317,17 @@ a time-based downstream analysis inherits.
 | `Cannot repair source damage (irregular_timestamps)`, repeatedly | the source's timestamps jitter by more than `Repair`'s tolerance | `--timebase grid`; measure with `ts_check` (below) first if you want the numbers |
 | `Too many data faults` after a second or two | the same, and the recovery budget ran out before a single window | `--timebase grid`; the EE-511 rig does this on every run without it |
 | the same, and `ts_check` reports a high `compressed%` | the source is chunk-stamped: a whole block shares one timestamp | `--timebase grid` lands it on a clean grid; the relay's `--regrid` (below) is the older route |
+| `Cannot repair source damage (unsafe_endpoints)` | the endpoints are read far above the rails, which normally means the unit declaration is wrong (`--source-units V` on a source sending microvolts scales every value by 1e6) | fix `--source-units`; if the declaration cannot be fixed, raise `--repair-saturation-uv` past the scaled level |
+
+Four limits are operator-settable rather than fixed in the library, and the run
+records the values it used in its provenance:
+
+| Flag | Default | What it bounds |
+| --- | --- | --- |
+| `--repair-amplitude-uv` | 500 | jump between the two finite endpoints a repair may bridge, in uV whatever `--source-units` says |
+| `--repair-saturation-uv` | 75 000 | absolute endpoint level above which a repair is unsafe, in uV whatever `--source-units` says |
+| `--max-recoveries` | 5 | chain restarts before the run stops |
+| `--max-fault-seconds` | 5.0 | consecutive judge-rejected windows before the run stops; keep it above the window length plus the judges' settling, because one transient invalidates every window that overlaps it |
 
 ## Repairing a chunk-stamped source: `--timebase grid`
 

@@ -40,6 +40,7 @@ report is still printed and written).
 """
 
 import argparse
+import math
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -57,6 +58,7 @@ from nova2026.streaming import (
     TaskOffloader,
     TimeBase,
     UnrepairableError,
+    dummy_offloader,
     prepare,
     processing_contract,
 )
@@ -371,6 +373,50 @@ def _add_timebase_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_limit_args(parser: argparse.ArgumentParser) -> None:
+    """Register how much damage the run may repair and how much it may survive.
+
+    Both repair limits are in microvolts whatever ``--source-units`` says: they
+    judge the *signal*, and the unit declaration is exactly what can be wrong
+    (this amplifier declares ``Volt`` while sending microvolts). A wrong
+    declaration scales both endpoints by the same wrong factor, so the only way
+    an operator can see it from here is a limit that trips; the flags exist so
+    that an operator who knows the declaration is wrong can say so instead of
+    losing the run.
+    """
+
+    limits = parser.add_argument_group("fault tolerance limits")
+    limits.add_argument(
+        "--repair-amplitude-uv",
+        type=float,
+        default=500.0,
+        help="largest jump between the two finite samples a repair may bridge, "
+        "in uV regardless of --source-units (default 500)",
+    )
+    limits.add_argument(
+        "--repair-saturation-uv",
+        type=float,
+        default=75000.0,
+        help="absolute level that makes a repair unsafe, in uV regardless of "
+        "--source-units; never below --repair-amplitude-uv (default 75000, "
+        "just above the amplifier's own rail)",
+    )
+    limits.add_argument(
+        "--max-recoveries",
+        type=int,
+        default=5,
+        help="bounded chain restarts allowed before the run stops (default 5)",
+    )
+    limits.add_argument(
+        "--max-fault-seconds",
+        type=float,
+        default=5.0,
+        help="longest run of consecutive judge-rejected windows tolerated "
+        "before the run stops; keep it above the window length plus settling "
+        "(default 5)",
+    )
+
+
 def _add_args(parser: argparse.ArgumentParser) -> None:
     """Register the hardware-specific options on top of the shared ones."""
 
@@ -379,6 +425,7 @@ def _add_args(parser: argparse.ArgumentParser) -> None:
     _add_quality_args(parser)
     _add_scoring_args(parser)
     _add_timebase_args(parser)
+    _add_limit_args(parser)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -436,6 +483,20 @@ def _validate_arguments(parser: argparse.ArgumentParser, args: argparse.Namespac
         )
     if args.timebase_drift_limit is not None and args.timebase_drift_limit <= 0:
         parser.error("--timebase-drift-limit must be positive when given.")
+    if not math.isfinite(args.repair_amplitude_uv) or args.repair_amplitude_uv < 0:
+        parser.error("--repair-amplitude-uv must be finite and non-negative.")
+    if (
+        not math.isfinite(args.repair_saturation_uv)
+        or args.repair_saturation_uv < args.repair_amplitude_uv
+    ):
+        parser.error(
+            "--repair-saturation-uv must be finite and not below "
+            "--repair-amplitude-uv."
+        )
+    if args.max_recoveries < 1:
+        parser.error("--max-recoveries must be at least 1.")
+    if not math.isfinite(args.max_fault_seconds) or args.max_fault_seconds <= 0:
+        parser.error("--max-fault-seconds must be finite and positive.")
 
 
 def _diagnose(message: str, args: argparse.Namespace, source: dict, profile) -> str:
@@ -495,6 +556,29 @@ def _prepare_timebase(run: _Run) -> None:
     run.timebase = TimeBase(run.timebase_policy) if args.timebase == "grid" else None
 
 
+def repair_limits(args: argparse.Namespace) -> dict[str, float]:
+    """The endpoint safety limits ``Repair`` is built with, in uV.
+
+    One owner for the mapping from flags to stage arguments: the chain and the
+    run record both read it here, so the recorded limits cannot drift from the
+    ones the run actually used.
+    """
+
+    return {
+        "amplitude_limit_uv": args.repair_amplitude_uv,
+        "saturation_limit_uv": args.repair_saturation_uv,
+    }
+
+
+def recovery_limits(args: argparse.Namespace) -> dict[str, float]:
+    """The fault budget ``Recovery`` is built with, in its own units."""
+
+    return {
+        "max_events": args.max_recoveries,
+        "persistent_fault_seconds": args.max_fault_seconds,
+    }
+
+
 def _build_chain(run: _Run) -> None:
     """Build the preprocessing chain, in the order it runs.
 
@@ -514,6 +598,7 @@ def _build_chain(run: _Run) -> None:
         n_eeg=len(run.eeg),
         channel_names=run.eeg,
         exclude_channels=run.excluded,
+        **repair_limits(args),
     )
     scaler = unit_scaler(unit_exponent, desired_exponent=-6)
     run.quality = QualityMonitor(
@@ -592,6 +677,10 @@ def _chain_provenance(run: _Run) -> dict:
                 "max_bad_channels": args.max_bad_channels,
                 "excluded_channels": list(run.excluded),
             },
+            "limits": {
+                "repair": repair_limits(args),
+                "recovery": recovery_limits(args),
+            },
             "timebase": {
                 "mode": args.timebase,
                 "nominal_sfreq": run.timebase_policy.nominal_sfreq,
@@ -635,29 +724,19 @@ def _prepare(run: _Run) -> None:
     run.recovery = Recovery(
         resettable=run.resettable + (run.session.buffer,),
         recorder=run.session.recorder,
+        **recovery_limits(args),
     )
     run.stats = StreamStats()
     run.electrodes = ChannelStats(
         run.channels, flat_uv=args.flat_uv, noisy_uv=args.noisy_uv
     )
-    if args.workers > 0:
-        run.offloader = _make_offloader(args)
-
-
-def _make_offloader(args: argparse.Namespace) -> TaskOffloader | None:
-    """Build the consumer offloader this run asked for, if any.
-
-    A load test needs a consumer that is real enough to compete with acquisition:
-    spending ``--compute`` seconds per window on a pool of worker threads leaves
-    the pull loop free. ``--workers 0`` is the default and keeps analysis in the
-    loop, so this returns ``None`` and nothing changes.
-    """
-
-    def analyze(_window, _seconds=float(args.compute)):
-        if _seconds > 0:
-            sleep(_seconds)
-
-    return TaskOffloader(analyze, workers=args.workers, capacity=args.queue)
+    # A load test needs a consumer real enough to compete with acquisition;
+    # --workers 0 (the default) keeps analysis in the loop and builds nothing.
+    run.offloader = dummy_offloader(
+        workers=args.workers,
+        capacity=args.queue,
+        compute_seconds=args.compute,
+    )
 
 
 def _handle_window(run: _Run, window, window_times, start) -> None:

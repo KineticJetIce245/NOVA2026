@@ -22,10 +22,11 @@ the source never delivered. The reports looked like this:
 | `offload1/run-172814` | 15 600 | 6 | 9 | 17 of 58 |
 
 Those gaps were not free: `Repair` synthesises a NaN row for every sample the
-grid implies and the source did not send, interpolates it, and flags every
-window that overlaps the repair as `interpolated`. On a signal with a 12.6 mV
-electrode offset the repair endpoint check (`amplitude_limit_uv = 500`) then
-raised `unsafe_endpoints`, which is fatal, and two runs died on it.
+grid implies and the source did not send, interpolates it, and flags every window
+that overlaps the repair as `interpolated` - 14 of 58 windows in the 30 s run.
+(The `unsafe_endpoints` faults seen that day were a separate symptom: they came
+from the wrong unit assertion, not from the electrode offset. Corrected in
+`streaming_explained.md` 11.8.)
 
 ## 2. Two explanations were tried and both are wrong
 
@@ -95,9 +96,8 @@ the recorder stores the relay's synthetic stamps as chunk anchors
 replay rebuilds the grid at the declared rate, freezing the staircase in place
         |
         v
-Repair sees a 2-sample step, synthesises the missing row, repairs it, flags the
-window "interpolated"; on a DC-offset signal the repair endpoint check raises
-unsafe_endpoints, which is fatal
+Repair sees a 2-sample step, synthesises the missing row, repairs it, and flags
+the window "interpolated"
 ```
 
 The pipeline is fabricating damage in response to a timekeeping artefact, and
@@ -248,7 +248,7 @@ End-to-end, on the rig: the CNT gate in §8.
 | `timebase_relocked_samples`, 30 s run | 2 - 9 samples of drift, reported as "gaps" and repaired | absorbed, **not repaired**, and reported as this number |
 | `timebase_anchor_rate` | not measured | reported in ppm against the nominal rate |
 | `interpolated` windows | 14 - 17 | warm-up only |
-| `unsafe_endpoints` fatal faults | present | **none** |
+| `unsafe_endpoints` fatal faults | present only under the wrong unit assertion, never once the units were right | **none** |
 | CNT alignment | r = 1.000000, 0 samples > 1 LSB | unchanged |
 | CNT sample count vs recorded count | not asserted | **equal** for the same interval |
 

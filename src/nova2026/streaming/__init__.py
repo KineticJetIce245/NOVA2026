@@ -3,7 +3,10 @@
 # Public entry points, re-exported so callers use one import line.
 from .acquire import Acquire             # fixed-size blocks from the LSL inlet
 from .circular_buffer import CircularBuffer   # ring storage -> overlapping windows
-from .offload import TaskOffloader       # run per-window analysis on workers
+from .offload import (                    # per-window analysis on worker threads
+    TaskOffloader,
+    dummy_offloader,
+)
 from .preflight import (
     ChannelContract,  # validate + reorder source channels
     prepare,  # pre-flight check -> the run's channel contract
@@ -42,6 +45,7 @@ __all__ = [
     "ChannelContract",
     "CircularBuffer",
     "TaskOffloader",
+    "dummy_offloader",
     "Resampler",
     "ResamplerQualityWarning",
     "RunRecorder",

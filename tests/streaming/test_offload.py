@@ -5,7 +5,7 @@ import unittest
 from queue import Full
 from threading import Event, Lock
 
-from nova2026.streaming.offload import TaskOffloader
+from nova2026.streaming.offload import TaskOffloader, dummy_offloader
 
 
 class SubmitTests(unittest.TestCase):
@@ -217,6 +217,70 @@ class FailureTests(unittest.TestCase):
                 handler = values.pop("handler")
                 with self.assertRaises(ValueError):
                     TaskOffloader(handler, **values)
+
+
+class DummyOffloaderTests(unittest.TestCase):
+    """The one definition of "a consumer slow enough to load the pipeline".
+
+    The demo script and the live script each used to build this task themselves,
+    so a load test could measure a consumer the other one never ran. The factory
+    is now the only place the pretend compute time is defined.
+    """
+
+    def test_no_workers_means_no_offloader(self) -> None:
+        # In-loop analysis is the default everywhere, so the caller gets None
+        # rather than an offloader with no thread to run on.
+        for workers in (0, -1):
+            with self.subTest(workers=workers):
+                self.assertIsNone(
+                    dummy_offloader(workers=workers, capacity=4, compute_seconds=0.1)
+                )
+
+    def test_the_compute_time_is_spent_before_the_handler_runs(self) -> None:
+        seen = []
+        offloader = dummy_offloader(
+            handler=seen.append,
+            workers=1,
+            capacity=1,
+            compute_seconds=0.2,
+        )
+        try:
+            offloader.submit("window")
+            time.sleep(0.05)
+            # 0.05 s in, a handler that ignored compute_seconds would already
+            # have run; the pretend compute has to come first.
+            self.assertEqual(seen, [], "the handler ran before the compute time")
+        finally:
+            offloader.close(drain=True, timeout=5)
+
+        self.assertEqual(seen, ["window"], "the handler has to see every item")
+
+    def test_every_item_reaches_the_handler(self) -> None:
+        seen = []
+        offloader = dummy_offloader(
+            handler=seen.append, workers=2, capacity=4, compute_seconds=0.0
+        )
+        try:
+            for index in range(4):
+                offloader.submit(index)
+        finally:
+            offloader.close(drain=True, timeout=5)
+
+        self.assertEqual(sorted(seen), [0, 1, 2, 3])
+        self.assertEqual(offloader.completed, 4)
+
+    def test_invalid_arguments(self) -> None:
+        cases = (
+            {"workers": True},
+            {"workers": "2"},
+            {"workers": 1, "compute_seconds": -0.1},
+            {"workers": 1, "compute_seconds": float("inf")},
+            {"workers": 1, "handler": "print"},
+        )
+        for options in cases:
+            with self.subTest(options=options):
+                with self.assertRaises(ValueError):
+                    dummy_offloader(capacity=4, **options)
 
 
 if __name__ == "__main__":
