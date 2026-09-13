@@ -49,8 +49,9 @@ an alignment budget:
   of zero, i.e. chance-level accuracy, while the UI reported "synchronized";
 * the `sync.status` field a session publishes is `unobserved` on the replay path,
   because no browser clock has been fitted there. It is not a claim that the clocks
-  agree; it is the absence of a measurement, and step 12 must say so in
-  `VALIDATION.md`.
+  agree; it is the absence of a measurement, and step 12 says so in
+  [`../VALIDATION.md`](../VALIDATION.md) §4 and in
+  [`auditory_ui_protocol.md`](auditory_ui_protocol.md) §7.
 
 ## 3. What step 9 measured on the replay path
 

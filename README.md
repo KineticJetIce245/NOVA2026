@@ -7,24 +7,39 @@ vendored [attune-ui](https://github.com/yut31/attune-ui) front end, which attenu
 the *un*attended stream - attenuation only, never gain.
 
 This is a **research prototype**, not a product: everything the software does and
-does not claim is written down in [`scripts/auditory/VALIDATION.md`](scripts/auditory/VALIDATION.md)
-and in §3.8 of [`final_connection.md`](final_connection.md).
+does not claim is written down in [`VALIDATION.md`](VALIDATION.md) - what is claimed,
+the scope of every number, the failure modes a user must expect, and what was
+deliberately not measured - plus the per-step record in §3.8 of
+[`final_connection.md`](final_connection.md).
+
+The wire contract between the backend and the vendored front end is
+[`documents/auditory_ui_protocol.md`](documents/auditory_ui_protocol.md); the reasoning
+behind the media timeline (and why `0.75 s` is a staleness bound, not an alignment
+budget) is [`documents/media_timeline_contract.md`](documents/media_timeline_contract.md).
 
 `final_connection.md` is the frozen contract: the locked design decisions (§3), the
 acceptance criteria V1-V9 (§4), the step plan and per-step evidence (§5), and the
-decision log D-01..D-22 (§8). Any change that deviates from it must change it first -
+decision log D-01..D-35 (§8). Any change that deviates from it must change it first -
 no subagent may edit it.
 
 ## Status
 
 | Step | What | State |
 | --- | --- | --- |
-| 1-5 | baseline, KU Leuven conversion, envelope precompute, data audit + frozen contract, decoder training/evaluation | **DONE** (evidence in `results/`) |
+| 1-5.5 | baseline, KU Leuven conversion, envelope precompute, data audit + frozen contract, decoder training/evaluation, offset sweep | **DONE** - evidence in `results/` |
 | 6-7 | transport layer (`src/nova2026/transport/`), front end (`apps/attune-ui/`) | **DONE** |
-| 5.5, 8, 9, 9.5, 10, 10.5, 11, 12 | shift sweep, session + producer, media timeline, ANT import, one-command demo, unattended demorun, live hardware, closing docs | TODO |
+| 8-10 | `AttentionSession` + producer, media timeline + gain path, ANT session import, one-command demo | **DONE** - `results/demo_run_20260914.md` |
+| 10.5 + V9 | unattended demorun and the 23-case perturbation matrix | **DONE** - 18 PASS, 5 FINDING, exit 0 (`results/perturbation_20260913-062335.md`) |
+| 11 | live hardware (eego/LSL, 20-channel contract, loopback measurement) | **TODO** - no hardware record exists; the real-time path is unverified |
+| 12 | closing documentation | **DONE** - `VALIDATION.md`, `documents/auditory_ui_protocol.md`, this README |
+
+Regression state at that point: `scripts/run_tests.py` 760 tests in 6 suites, 0 skipped, all
+green, and the front end's own 53 tests pass (`results/demo_run_20260914.md` V6).
 
 The per-step deliverables, their evidence paths and the measured numbers live in
-[`final_connection.md`](final_connection.md) §5; nothing in this README replaces them.
+[`final_connection.md`](final_connection.md) §5; nothing in this README replaces them,
+and [`VALIDATION.md`](VALIDATION.md) is the readable index of what they do and do not
+establish.
 
 ## Repository layout
 
@@ -42,6 +57,7 @@ NOVA2026/
 ├── tests/                the suites scripts/run_tests.py drives
 ├── tmp/                  scratch, and the user's ANT recording under tmp/antneurodata/ (git-ignored)
 ├── final_connection.md   frozen plan, step plan and decision log
+├── VALIDATION.md         what is claimed, with scope, and what is deliberately not claimed
 ├── pyproject.toml        package metadata and dependency groups
 ├── refs.bib              bibliography (BibTeX)
 └── README.md
@@ -224,8 +240,12 @@ commands + producer thread), `media` (the browser-reported playback timeline) an
 from nova2026.transport.server import create_app   # needs the `transport` extra
 ```
 
-The one-command demo that starts it together with the front end is step 10 of the
-plan and is not written yet.
+`scripts/auditory_ui/` is the auditory UI path built on top of it: `demo.py` (one command that
+verifies the envelopes, renders the stereo asset, starts this app on loopback with the built
+`dist/` mounted, drives one real trial at 1x and writes its own evidence), `demorun.py` (the
+unattended perturbation matrix), `session.py` (the step-8 evidence command), `media.py` (the
+browser stand-in for `POST /api/media/control`) and the Node evidence scripts. Section 8 has the
+commands and their order.
 
 `scripts/getlive/` is the EEG-amplifier path: it connects over LSL, runs the same
 streaming package the suites cover, and prints an acceptance verdict per window.
@@ -249,6 +269,44 @@ Only two options have no default, because a wrong guess fails *silently*:
 [`scripts/getlive/README.md`](scripts/getlive/README.md) explains the failure modes
 and the measurement behind each default.
 
+### 8. The auditory UI path: demo, demorun, calibration, ANT import
+
+Order matters: a session refuses to start without the reference envelopes, and the demo and the
+perturbation matrix both need a fitted decoder. `models/*` and `datasets/*` are git-ignored, so a
+fresh clone builds them first (sections 2-5 above).
+
+```
+# the demo (plan step 10, acceptance V1-V5): one command, one real trial at 1x,
+# the built front end served from the same origin
+.venv/bin/python -B -m scripts.auditory_ui.demo --browser
+
+# the perturbation matrix (V9) and the unattended demorun (step 10.5):
+# 1 clean case + 15 injected faults + 7 adversarial EEG inputs, each in its own process
+.venv/bin/python -B -m scripts.auditory_ui.demorun
+.venv/bin/python -B -m scripts.auditory_ui.demorun --only C11 --strict
+
+# the calibration behind the operating point (margin vs coverage, held-out stories only)
+.venv/bin/python -B -m scripts.auditory.margin_calibration --out results \
+    --contracts 64ch 20ch --histories 5 10 30 60
+
+# the ANT import (V8): marker table, the two exclusions, the 20-channel contract map
+.venv/bin/python -B -m scripts.auditory.antneuro --data-root tmp/antneurodata \
+    --out datasets/AAD-ANT --buffer-seconds 0.5
+```
+
+Three things a reader should know before quoting anything these produce:
+
+* **The demo's margin is not the shipped default.** `demo.py` defaults to the calibrated
+  `0.05` operating point (decision D-29); the evidence CLI `session.py` defaults to the
+  conservative `MIN_MARGIN = 0.5`; both write the effective value into their run record.
+* **"It started" does not mean the source matches the model.** Missing envelopes refuse the start
+  with an HTTP 409 that names the file, and a wrong channel count is refused rather than truncated,
+  but a mismatched candidate length or sample rate degrades *per window* instead of refusing at
+  startup (perturbation cases C15 and E3, recorded as finding D-35).
+* **`sync` says `unobserved` on this path**, because no clock has been fitted anywhere; and the
+  front end's `|Δt| ≤ 0.75 s` clause bounds report staleness, not alignment. The alignment budget
+  is ±100 ms. See `VALIDATION.md` §2.3/§4 and `documents/auditory_ui_protocol.md` §7.
+
 ## Documentation and derived-file naming
 
 The AI-written record is kept in full; only its names were normalised. The scheme is
@@ -257,20 +315,23 @@ then `YYYYMMDD-HHMMSS` when the file is a point-in-time artifact:
 
 | Where | Kind tokens | Examples |
 | --- | --- | --- |
-| `documents/` | `design`, `audit`, `guide`, plus the retired-module record | `timebase_design.md`, `audio_v2_audit_2026-09-12.md`, `streaming_guide_from_zero.md`, `riemann_live_pipeline_retired.md` |
+| `documents/` | `design`, `audit`, `guide`, `contract`, `protocol`, plus the retired-module record | `timebase_design.md`, `media_timeline_contract.md`, `auditory_ui_protocol.md`, `audio_v2_audit_2026-09-12.md`, `streaming_guide_from_zero.md`, `riemann_live_pipeline_retired.md` |
 | `results/` | `audit`, `conversion`, `baseline`, `metrics`, `report`, `sweep`, `averaging`, `incremental` | `kuleuven_audit_<stamp>.json`, `aad_<stamp>.json`, `test_baseline_<stamp>.txt`, `antneuro_testset_report.md` |
 | `tmp/` | never committed; `scratch/`, `reports/`, `logs/`, `notes/` group the kinds | `tmp/scratch/antneuro_probe.py`, `tmp/reports/ts_check_raw_run1.json` |
 
 `documents/` holds the prose (design records, audits of the audio_v2 review, the
 from-zero streaming guide, the handout PDFs and their `typst/` sources);
 `results/` holds generated measurements and is the home the plan fixes for them
-(§3.8); `records/` holds raw run recordings and is empty until the demo runs. Module
+(§3.8); `records/` holds raw run recordings written by the acquisition path. Module
 documentation stays **next to the code it documents** - `scripts/auditory/README.md`,
 `scripts/getlive/README.md`, `scripts/visual_detect/README.md`,
-`scripts/dataproc/streaming/README.md` and the `VALIDATION.md` files - because a
-reader standing in that folder has to find it there. The two documents whose names
-changed but which `src/` and `tests/` still refer to by their old name are listed in
-`final_connection.md` §5's step-12 notes.
+`scripts/dataproc/streaming/README.md` - because a reader standing in that folder has
+to find it there. The two `VALIDATION.md` files that live inside those folders are the
+historical audio-v2 records (their streaming sections are explicitly marked
+superseded); the root [`VALIDATION.md`](VALIDATION.md) is the one that covers the
+integration work. The two places outside `documents/` that name a document,
+`tests/streaming/test_timebase.py` and `scripts/getlive/live.py`, both point at
+`documents/timebase_design.md`, which is its current name.
 
 ## What is deliberately not claimed
 
@@ -290,6 +351,20 @@ changed but which `src/` and `tests/` still refer to by their old name are liste
 - **No amplifier, microphone or headphone calibration** was performed for the
   numbers in `results/`; `scripts/getlive/` exists so that it can be, with the
   assertions recorded in the run's provenance.
+- **No browser has executed the front end.** Every UI result is Node executing the vendored
+  modules (`protocol.js`, `state.js`, `decoders.js`, `mediaAudio.js`, `Dashboard.js` under
+  `react-dom/server`). No screenshot exists and none is claimed: layout, interaction and the Web
+  Audio graph are unverified.
+- **No acoustic output measurement.** `TimestampedAudio.diagnostics()` needs a real DAC, so block
+  timing and drift in ppm are unavailable on the replay path and the run record says so
+  (`available: false`) instead of inventing a figure.
+- **No result on the ANT test set.** The operator's recording was imported (markers, labels, the
+  20-channel map) but never decoded; acceptance criterion V4's 20-channel ANT number does not
+  exist. The ANT recording is also *dichotic* - a rehearsal of the task, not the target
+  both-streams-in-both-ears mixture.
+
+The complete list, each item with the evidence that does or does not support it, is
+[`VALIDATION.md`](VALIDATION.md) §3; the failure modes a user must expect are in §4.
 
 ## References (`refs.bib`)
 
