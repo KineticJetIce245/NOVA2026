@@ -4,6 +4,19 @@ datasets/*
 models/*
 !models/.gitkeep
 
+# Everything derived from a dataset stays out of git, including the precomputed
+# speech envelopes under datasets/audio/. The envelopes are the artifact the
+# demo refuses to run without, but they are reproducible from the source audio
+# plus the recorded SHA256 and parameters, so the repository keeps the recipe
+# (scripts/auditory/envelopes.py) and not the megabytes.
+datasets/audio/*
+!datasets/audio/.gitkeep
+
+# Demo output: rendered stereo mixes, replay products and per-run reports are
+# derived artifacts, not sources. Committed results live under results/.
+/output/auditory_demo/
+/output/auditory_ui/
+
 # editor
 .vscode
 
@@ -29,6 +42,9 @@ records/*
 !records/.gitkeep
 results/*
 !results/.gitkeep
+# Exception: the frozen pre-change test baseline is a reviewable text record of
+# what the tree passed before the integration work started.
+!results/test_baseline_*.txt
 
 # macOS metadata. On exFAT (this repository lives on one) macOS cannot store
 # extended attributes, so it writes an AppleDouble sidecar next to every file it
