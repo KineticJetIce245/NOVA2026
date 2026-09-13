@@ -17,6 +17,8 @@ export function createTransport({ rest = createRestClient(), socketFactory = url
     cleanup();
     const token = ++generation;
     const current = () => active && token === generation;
+    // Connect-time replay bookkeeping, rebuilt for each connection below.
+    let replayFloor = -1, replaying = false;
     controller = new AbortController();
     emit({ ...state, connection: failures ? 'reconnecting' : 'connecting', stale: true });
     function fail(message) {
@@ -31,6 +33,17 @@ export function createTransport({ rest = createRestClient(), socketFactory = url
       if (!current()) return;
       // REST is the reset boundary: backend process restarts may reset sequences.
       emit({ ...snapshot, connection: 'connecting', stale: true });
+      // The server replays its retained snapshot to every newly connected socket,
+      // on purpose, to close the subscribe race (src/nova2026/transport/server.py).
+      // So a new socket's first packets are exactly the state REST just handed us.
+      // They are absorbed at the socket boundary rather than handed to
+      // acceptPacket: its `sequence <= state.sequence` guard is right and stays
+      // untouched, but one replay of what we already show is not a failure and
+      // must not raise the page's red "measurements may be missing" alarm. The
+      // window closes on the first packet past the snapshot's high-water mark, so
+      // a duplicate arriving later, mid-stream, is still counted by that guard.
+      replayFloor = snapshot.sequence;
+      replaying = true;
       socket = socketFactory(url);
       socket.onopen = () => {
         if (!current()) return;
@@ -46,6 +59,10 @@ export function createTransport({ rest = createRestClient(), socketFactory = url
         if (state.sessionId !== null && packet.session_id !== state.sessionId && packet.sequence <= state.sequence) {
           fail('Backend epoch changed; refreshing snapshot'); return;
         }
+        // Connect-time replay of the snapshot REST just applied (see the note where
+        // `replaying` is set): already-displayed state, not an event and not a loss.
+        if (replaying && packet.sequence <= replayFloor) return;
+        replaying = false;
         const next = acceptPacket(state, packet);
         // Snapshot replay duplicates are harmless; only new valid packets reset backoff.
         if (next.sequence > state.sequence) failures = 0;

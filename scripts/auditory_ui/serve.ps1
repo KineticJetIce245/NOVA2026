@@ -105,12 +105,20 @@ if ($Rebuild) {
 }
 
 function New-DemoArgs([string]$out, [string]$streamOut) {
+    # `--media-out` is always explicit, and is never the demo's own default
+    # (output/auditory_ui/demo_stereo.wav). That name belongs to whichever run
+    # claimed it first: the page reads `duration` from the file, so a second run
+    # rendering a different trial over it silently re-tunes the session already
+    # being served. One media file per run, named after the run record, so -Smoke
+    # gets serve_smoke.wav and a normal start gets serve_<stamp>.wav.
+    $mediaOut = "output/auditory_ui/$([System.IO.Path]::GetFileNameWithoutExtension($out)).wav"
     $demoArgs = @(
         '-B', '-m', 'scripts.auditory_ui.demo',
         '--trial', $Trial,
         '--model', $Model,
         '--out', $out,
-        '--stream-out', $streamOut
+        '--stream-out', $streamOut,
+        '--media-out', $mediaOut
     )
     if ($Seconds -gt 0) { $demoArgs += @('--seconds', [string]$Seconds) }
     if ($Margin -gt 0) { $demoArgs += @('--margin', [string]$Margin) }

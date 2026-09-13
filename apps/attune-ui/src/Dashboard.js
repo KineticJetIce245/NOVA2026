@@ -44,7 +44,7 @@ export function Dashboard({ state, command, busy = false, commandError = null, m
     h('p', null, `Session Time: ${latest('attention')?.timestamp?.toFixed(2) ?? 'Unavailable'} s`),
     state.rejected > 0 && h('p', { className: 'rejected-warning', role: 'alert' },
       h('strong', null, `REJECTED PACKETS: ${state.rejected}`),
-      ` — ${state.rejected} received packet${state.rejected === 1 ? '' : 's'} failed envelope validation or latest-state acceptance and were dropped without display. Measurements may be missing or stale. Last reason: ${state.error ?? 'not reported'}`),
+      ` — ${state.rejected} received packet${state.rejected === 1 ? '' : 's'} failed envelope validation or latest-state acceptance and were not displayed. A duplicate or out-of-order packet repeats state already shown and loses no measurement; a malformed envelope is the case that can leave one missing or stale. Last reason: ${state.error ?? 'not reported'}`),
     h('p', null, `Session: ${state.sessionId ?? 'none'} · Sequence: ${state.sequence} · Rejected packets: ${state.rejected}`),
     state.error && h('p', null, `Transport note: ${state.error}`),
     h('p', null, 'null = unavailable; unknown packet types are retained without interpretation. Timestamps are session-relative seconds.'),
