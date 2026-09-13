@@ -381,6 +381,31 @@ records the values it used in its provenance:
 | `--max-recoveries` | 5 | chain restarts before the run stops |
 | `--max-fault-seconds` | 5.0 | consecutive judge-rejected windows before the run stops; keep it above the window length plus the judges' settling, because one transient invalidates every window that overlaps it |
 
+## Which contract keys stop a run, and which are only recorded
+
+`RidgeDecoder.validate` compares the chain's contract with the trained model's on
+the keys that **decide processing** - `eeg_channels`, `input_sfreq`,
+`output_sfreq`, `units`, `bandpass`, `filter_order`, `resample_quality`, `stage`.
+A difference in any of them refuses every window, and that is deliberate: a
+different band, rate, channel set or unit means the decoder is not being fed what
+it was fitted on.
+
+Two keys describe where the data came from rather than how it is used, and they
+are **recorded instead of gated**:
+
+| key | what it says | why it cannot be gated |
+| --- | --- | --- |
+| `input_reference` | the reference electrode the recording was made against | no run on a different rig can equalise it: the ANT `.cnt` header declares **CPz**, the KU Leuven model records an unknown/Cz derivation |
+| `upstream_processing` | the loader's own paragraph about filtering, resampling and channel naming | it is per-loader provenance text; copying the model's text onto another rig's recording would be a false statement about the data |
+
+Every difference is written into the run record under `contract_split`
+(`provenance`, `gated`, `only_in_model`, `only_in_source`) and printed as
+"What the model contract gated on, and what it only recorded" in the markdown
+report, so a cross-rig run is explicit rather than silent. `window_seconds` and
+`step_seconds` are compared too, but they are not gates: the windows handed to the
+decoder are already built at the model's own history, so a difference there would
+refuse a run over a number that has already been applied.
+
 ## Repairing a chunk-stamped source: `--timebase grid`
 
 A recorder that stamps a whole block once hands out a grid `Repair` can only
@@ -526,7 +551,31 @@ samples (smoothing must not hide that from `Repair`'s gap logic), and the
 **step-shaped** clock error of a cross-host clock sync, which differs from
 per-sample noise.
 
+## The two-command live demo
+
+`live_source.py`, `calibrate_loopback.py` and the two launchers are the
+operator-facing entry points for a session on the real amplifier. They are
+documented in full in `documents/live_demo_two_commands.md`; this is the map.
+
+| File | Responsibility |
+| --- | --- |
+| `live_source.py` | **Command 1.** Resolve the EEG outlet, connect, and run the package's own pre-flight on the **20 electrodes by name** at the asserted rate and unit. `--mode direct` (default) verifies and exits 0, printing the flags command 2 needs; `--mode bridge` republishes exactly those 20 electrodes (model order, typed `eeg`, unit declared) under `NOVA_Live` for the case the package refuses the amplifier's own declaration — it reuses `relay.py`'s outlet construction and the library's `TimeBase` and adds selection **by electrode name** rather than by column index; `--mode replay` publishes a recorded ANT session for rehearsal with no amplifier. It refuses (exit 2) rather than hanging when nothing is publishing, and lists what is on the network. |
+| `calibrate_loopback.py` | The **audio-to-EEG loopback offset** (plan sections 3.11/3.17-4), which has never been measured on this rig. `--procedure` prints the operator steps; `--make-clicks` writes the click track and its schedule; `--live` acquires, plays the track through the system's own player, finds the clicks by first difference, and reports the median offset with its spread and a status; `--analyse` re-measures from a saved acquisition. A spread wider than ±30 ms is reported as untrustworthy and no clicks at all is "not measurable" rather than a number. |
+| `live_demo.ps1`, `live_demo.sh` | The launchers: `source`, `run`, `calibrate`, `check`. Each resolves its own directory, **detects** the interpreter (`.venv/Scripts/python.exe` on Windows, `.venv/bin/python` on macOS/Linux, then `python3`/`python`), checks Python ≥ 3.12 and that `nova2026` imports, and refuses with the command to build the environment when it cannot. Each sets the environment in **its own shell's syntax** — `$env:ATTUNE_PYTHON` in PowerShell, `ATTUNE_PYTHON=… ; export` in `sh` — because the two forms do not mix. |
+
+The live command 2 lives in `scripts/auditory_ui/live.py`, outside this folder
+(plan D-21 keeps the demo's assembly under `scripts/auditory_ui/`). What it
+reuses from here is `ant_source.AntStreamSource` — the `AcquisitionSource` built
+around a real LSL inlet — plus `outlets.wait_for_outlet`/`open_inlet` and
+`live_source`'s electrode helpers, so the acquisition stack is this folder's,
+not a second one.
+
+`scripts/getlive/live.py` remains the acceptance test (does the package's chain
+run on this outlet for a whole session?); `live_source.py` is the shorter
+question the demo asks first, and neither replaces the other.
+
 ## What is still unverified
+
 
 * The **outlet name, type and channel order are unconfirmed offline**: no eego
   software was available while writing this. The probe exists precisely because
