@@ -4,7 +4,7 @@ The amplifier's timestamps cannot be trusted for placement: on the 2026-09-12
 bring-up 0.48% of the steps were shorter than half a sample, which ``Repair``
 refuses at any tolerance, so something has to turn those stamps into a grid
 ``Repair`` accepts. The design question is what that something is allowed to do.
-``documents/TIMEBASE_DESIGN.md`` carries the measurements; the short version:
+``documents/timebase_design.md`` carries the measurements; the short version:
 
 * the recorded samples match the amplifier's own ``.cnt`` sample for sample
   (88 500 pairs, ``r = 1.000000``, nothing differing by more than one LSB), so

@@ -1,7 +1,7 @@
 """Time-base tests: the rig's staircase must become a grid, not phantom damage.
 
 The fixture reproduces the timeline measured on 2026-09-12 (see
-``documents/TIMEBASE_DESIGN.md`` section 3): a few hundred ppm of rate error,
+``documents/timebase_design.md`` section 3): a few hundred ppm of rate error,
 plus a handful of whole-sample steps, totalling 5-9 samples of drift over 30 s.
 What the old code did with that timeline - read the steps as lost samples,
 insert slots for them, and let ``Repair`` repair rows that never existed - is
