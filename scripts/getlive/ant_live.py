@@ -155,6 +155,199 @@ def load_candidates(
     return np.column_stack(columns), report
 
 
+def parse_channel_list(value: str) -> tuple[str, ...]:
+    """Read ``--exclude-channels`` as labels, refusing anything but labels.
+
+    A comma-separated list is what the other live runners take
+    (``scripts/getlive/live.py``), and an empty value means "exclude nothing",
+    which is the default. A label that is not an electrode is refused later, by
+    the chain's own :class:`~nova2026.streaming.preprocess.scope.ChannelScope`.
+    """
+
+    return tuple(part.strip() for part in value.split(",") if part.strip())
+
+
+# The chain's own absolute-level guard, in uV: `Repair`'s default saturation
+# limit and the number that decides whether an interpolation endpoint is unsafe.
+# A run that sets `--saturation-limit-uv` moves it, and the exclusion check moves
+# with it; the value in force is printed and recorded either way.
+REPAIR_DEFAULT_SATURATION_UV = 75000.0
+
+
+# An electrode counts as railed for the declaration check when at least this
+# fraction of the published window sits at a repeated extreme. A single spike is
+# not a rail; F8 in the operator's session 1 is at 83 333.3 uV for 100 % of the
+# window and F3 for 50.6 %, so half the window separates the two from every
+# healthy electrode in the same recording (the next largest peak is 42 304 uV).
+RAILED_FRACTION = 0.5
+
+
+def rail_profile(
+    eeg: np.ndarray,
+    names: tuple[str, ...],
+    *,
+    rel_tolerance: float = 1e-9,
+    rail_fraction: float = RAILED_FRACTION,
+) -> dict:
+    """Measure each electrode's peak and how much of the window is railed.
+
+    This is the evidence behind a declared exclusion, and it is measured on the
+    same window the run publishes - not read from the recording anywhere else.
+    An electrode is *railed* when a repeated extreme covers at least
+    ``rail_fraction`` of the window: one amplifier spike is not a rail, and a
+    channel that merely has a large peak must not be excludable by accident.
+    """
+
+    data = np.asarray(eeg, dtype=float)
+    peak = np.abs(data).max(axis=0)
+    extreme = np.abs(np.abs(data) - peak[None, :]) <= rel_tolerance * np.maximum(
+        peak[None, :], 1.0
+    )
+    fraction = extreme.mean(axis=0)
+    per_channel = {
+        name: {
+            "peak_microvolts": float(peak[index]),
+            "railed_fraction": float(fraction[index]),
+            "railed": bool(fraction[index] >= rail_fraction),
+        }
+        for index, name in enumerate(names)
+    }
+    railed = tuple(
+        name
+        for index, name in enumerate(names)
+        if fraction[index] >= rail_fraction and peak[index] > 0
+    )
+    return {
+        "rail_fraction_threshold": float(rail_fraction),
+        "railed_channels": list(railed),
+        "railed_peaks_microvolts": {
+            name: float(peak[names.index(name)]) for name in railed
+        },
+        "railed_sample_fraction": {
+            name: float(fraction[names.index(name)]) for name in railed
+        },
+        "per_channel": per_channel,
+    }
+
+
+def saturation_guard_uv(args) -> float:
+    """The absolute-level guard this run's ``Repair`` will use, in uV.
+
+    ``None`` means the chain's own default (75 000 uV). The value is printed and
+    recorded, and it is the number the exclusion declaration is checked against:
+    an electrode that does not reach it was never going to make an endpoint
+    unsafe, so excluding it would blind the check for a channel that did not
+    need it.
+    """
+
+    requested = getattr(args, "saturation_limit_uv", None)
+    return REPAIR_DEFAULT_SATURATION_UV if requested is None else float(requested)
+
+
+def check_excluded_channels(
+    profile: dict,
+    excluded: tuple[str, ...],
+    *,
+    saturation_limit_uv: float,
+    allow_unrailed: bool,
+) -> list[str]:
+    """Verify every declared exclusion is justified on this window.
+
+    Returns the human-readable lines the run prints and records. Raises
+    ``ValueError`` - which the caller turns into exit code 2, before any session
+    exists - when a declared electrode is neither railed nor explicitly allowed,
+    because a silent exclusion of a healthy electrode is exactly the failure
+    mode the per-channel path exists to avoid: it would hide real damage on a
+    channel that still carries signal.
+    """
+
+    lines = []
+    for name in excluded:
+        measured = profile["per_channel"].get(name)
+        if measured is None:
+            raise ValueError(
+                f"--exclude-channels names {name!r}, which is not one of the "
+                f"{len(profile['per_channel'])} published electrodes."
+            )
+        peak = measured["peak_microvolts"]
+        if measured["railed"]:
+            lines.append(
+                f"excluded {name}: railed at {peak:.1f} uV for "
+                f"{100 * measured['railed_fraction']:.1f} % of the published "
+                f"window (>= {saturation_limit_uv:.0f} uV guard and >= "
+                f"{100 * profile['rail_fraction_threshold']:.0f} % of the window)"
+            )
+        elif not allow_unrailed:
+            raise ValueError(
+                f"--exclude-channels names {name!r}, but it is not railed "
+                f"(peak {peak:.1f} uV over "
+                f"{100 * measured['railed_fraction']:.1f} % of the window, "
+                f"threshold {100 * profile['rail_fraction_threshold']:.0f} %). "
+                "Excluding a healthy electrode would blind the endpoint check "
+                "for a channel that still carries signal; pass "
+                "--allow-unrailed-exclusion to declare an electrode dead anyway."
+            )
+        else:
+            lines.append(
+                f"excluded {name}: NOT railed (peak {peak:.1f} uV over "
+                f"{100 * measured['railed_fraction']:.1f} % of the window) - "
+                "declared dead explicitly by --allow-unrailed-exclusion"
+            )
+    if excluded:
+        lines.append(
+            f"excluded electrodes stay in the run: {len(excluded)} of "
+            f"{len(profile['per_channel'])} columns keep their data, are still "
+            "repaired and still counted in the bad-channel census; nothing is "
+            "dropped, so the decoder's 20-channel contract is untouched"
+        )
+    return lines
+
+
+def decision_census(summary: dict, decisions: list) -> dict:
+    """How the run spent its windows: committed, abstained, or absent.
+
+    ``decided`` counts frames that committed to A or B; ``evidence_gap`` counts
+    frames whose evidence never reached the worker (the queue dropped them), and
+    is reported rather than folded into the abstentions because it is a
+    different failure: there was nothing to decide on.
+    """
+
+    census = summary.get("decisions") or {}
+    return {
+        "windows": int(summary.get("windows") or 0),
+        "decided": int(census.get("A", 0)) + int(census.get("B", 0)),
+        "A": int(census.get("A", 0)),
+        "B": int(census.get("B", 0)),
+        "uncertain": int(census.get("uncertain", 0)),
+        "unavailable": int(census.get("unavailable", 0)),
+        "evidence_gap": int(summary.get("evidence_gaps") or 0),
+        "decision_stream": [[float(time_s), str(word)] for time_s, word in decisions],
+    }
+
+
+def chain_rate(args, model=None) -> float:
+    """The rate the auditory chain is actually fed, which it must also declare.
+
+    ``RidgeDecoder.validate`` compares the chain's whole contract with the
+    model's verbatim, so the adapter that converts the 500 Hz outlet to the
+    model's recorded rate has to move ``input_sfreq`` with it. Leaving the
+    declaration at 500 while delivering 128 Hz samples makes ``Repair`` read one
+    step as 3.9 samples: it synthesises three missing rows per sample and reports
+    every window as ``interpolated`` - measured on this recording, 7608 phantom
+    repairs - which is what really stopped the run, before the railed electrodes
+    ever mattered. This is the rate of the delivered data, not a change to the
+    recording.
+    """
+
+    if args.pre_resample == "off":
+        return float(args.sfreq)
+    if args.pre_resample == "auto":
+        wanted = None if model is None else model.contract.get("input_sfreq")
+        return float(args.sfreq if wanted is None else wanted)
+    return float(args.pre_resample)
+
+
+
 def build(app_state: dict, args):
     """Build the session and the producer: the factory the REST path calls.
 
@@ -182,11 +375,24 @@ def build(app_state: dict, args):
         warmup_seconds=args.warmup,
         frame_seconds=args.frame_seconds,
         source_unit_exponent=int(args.source_unit_exponent),
-        # Run policy, printed and recorded: Repair's absolute-level guard has to sit
-        # above this recording's own rail (83 333 uV measured), or every railed
-        # stretch is an unsafe endpoint and the run stops (plan section 3.11).
-        saturation_limit_uv=float(args.saturation_limit_uv),
+        # Run policy, printed and recorded. A railed electrode is handled by
+        # naming it (``--exclude-channels``), not by widening a limit that guards
+        # every channel: the guard stays at the chain's own default unless the
+        # operator moves it explicitly (plan sections 3.11 and 4-V4).
+        saturation_limit_uv=(
+            None
+            if getattr(args, "saturation_limit_uv", None) is None
+            else float(args.saturation_limit_uv)
+        ),
+        exclude_channels=tuple(app_state["excluded"]),
     )
+    # `AttentionSession` reads the chain settings off the SOURCE, so the source
+    # must declare the rate the adapter actually delivers (see `chain_rate`).
+    # The outlet was already pre-flighted at its own `--sfreq`; this is the rate
+    # of the data the chain is handed, and the contract records it.
+    declared = app_state.get("chain_rate")
+    if declared is not None:
+        source.sample_rate = float(declared)
     session = AttentionSession(
         source=source, decoder=model, references=references, policy=policy
     )
@@ -287,6 +493,16 @@ def coverage_against_markers(labels: np.ndarray, decided: list, rate: float) -> 
         ),
         "labelled_samples": int(np.count_nonzero(labels >= 0)),
         "unknown_samples": int(np.count_nonzero(labels < 0)),
+        # The null this recording itself sets: with this label balance, always
+        # answering the more common class scores `majority_class_rate_on_labelled`.
+        "label_balance": {
+            "A_samples": int(np.count_nonzero(labels == 0)),
+            "B_samples": int(np.count_nonzero(labels == 1)),
+            "unknown_samples": int(np.count_nonzero(labels < 0)),
+            "A_share_of_labelled": (
+                float(np.count_nonzero(labels == 0) / max(np.count_nonzero(labels >= 0), 1))
+            ),
+        },
     }
     if not decided:
         result["note"] = "no committed window to score"
@@ -302,6 +518,28 @@ def coverage_against_markers(labels: np.ndarray, decided: list, rate: float) -> 
     result["decided_windows"] = int(len(guess))
     result["decided_windows_labelled"] = int(np.count_nonzero(known))
     result["decided_windows_in_unknown_band"] = int(np.count_nonzero(~known))
+    # False selection changes: pairs of consecutive COMMITTED frames (in the
+    # order they were published) that name different candidates. Nothing is
+    # dropped to make this number look better - abstentions are not carried
+    # forward, so a flickering decoder is visible as a large count.
+    changes = np.flatnonzero(np.diff(guess) != 0) if len(guess) > 1 else np.empty(0, int)
+    result["decided_pairs"] = int(max(len(guess) - 1, 0))
+    result["false_selection_changes"] = int(changes.size)
+    result["false_selection_change_rate"] = (
+        float(changes.size / max(len(guess) - 1, 1)) if len(guess) > 1 else None
+    )
+    result["false_selection_changes_series"] = [
+        {"window_index": int(position), "seconds": float(decided[position][0])}
+        for position in changes.tolist()
+    ]
+    # The truth's own switching, over the same committed frames: a decoder that
+    # changes less often than the stimulus does cannot be following it.
+    if len(guess) > 1:
+        truth_pairs = truth[:-1][known[:-1] & known[1:]]
+        next_pairs = truth[1:][known[:-1] & known[1:]]
+        result["true_selection_changes_between_decided_pairs"] = int(
+            np.count_nonzero(truth_pairs != next_pairs)
+        )
     if not np.any(known):
         result["note"] = "every committed window fell in the operator's unknown band"
         return result
@@ -375,7 +613,62 @@ def markdown(record: dict) -> str:
     ]
     for row in record["probe"]["rejected"]:
         lines.append(f"| {row['counter-check']} | {row['error']} |")
+    point = record["operating_point"]
+    excluded = list(point["excluded_channels"])
+    census = record.get("decision_census") or {}
     lines += [
+        "",
+        "## Channel policy: a declared railed electrode, not a wider limit",
+        "",
+        f"- excluded electrodes: {excluded or 'none'}; `Repair` saturation guard "
+        f"{point['repair_saturation_limit_uv']:.0f} uV "
+        f"({point['saturation_limit_source']}), amplitude guard "
+        f"{point['repair_amplitude_limit_uv']:.0f} uV - the guards themselves are "
+        "unchanged for every channel",
+        f"- measured on the published window: "
+        + (
+            "; ".join(
+                f"{row['channel']} peak {row['peak_microvolts']:.1f} uV railed "
+                f"{100 * row['railed_fraction']:.1f} %"
+                for row in point["excluded_channels_justification"]
+            )
+            or "no electrode declared"
+        ),
+        f"- every other electrode in the window peaks below "
+        f"{point['rail_profile']['rail_fraction_threshold']:.0%} railed, so the "
+        "guard still judges them: a railed channel that is NOT declared excluded "
+        "still stops the run",
+        f"- excluded electrodes keep their columns: {point['excluded_channels_stay_in_the_run']}",
+        "",
+        "## Decisions against the session's own marker labels",
+        "",
+        f"- status `{(record.get('session_record') or {}).get('status')!r}`, decisions "
+        f"{json.dumps(record['session'].get('decisions') or {})}",
+        f"- session failure {json.dumps(record['session'].get('failure'))}",
+        f"- decision census: {census.get('decided')} decided "
+        f"(A {census.get('A')}, B {census.get('B')}), "
+        f"{census.get('uncertain')} uncertain, {census.get('unavailable')} "
+        f"unavailable, {census.get('evidence_gap')} evidence_gap, of "
+        f"{census.get('windows')} windows "
+        f"({record['session'].get('windows')} counted by the session)",
+        f"- decided windows {labels.get('decided_windows')} of "
+        f"{record['session'].get('windows')} windows; "
+        f"{labels.get('decided_windows_in_unknown_band')} of them fell in the "
+        f"operator's unknown band and are excluded",
+        f"- accuracy on labelled windows "
+        f"{labels.get('window_accuracy_on_labelled')}, majority-class rate on the "
+        f"same windows {labels.get('majority_class_rate_on_labelled')} (this is the "
+        f"null the recording's own balance sets: A "
+        f"{labels.get('label_balance', {}).get('A_samples')} vs B "
+        f"{labels.get('label_balance', {}).get('B_samples')} labelled samples), "
+        f"balanced {labels.get('balanced_accuracy_on_labelled')}",
+        f"- per-class recall on decided frames: "
+        f"{json.dumps(labels.get('recall_on_labelled'))}",
+        f"- false selection changes: {labels.get('false_selection_changes')} of "
+        f"{labels.get('decided_pairs')} consecutive committed pairs "
+        f"(rate {labels.get('false_selection_change_rate')}); the labels themselves "
+        f"switch {labels.get('true_selection_changes_between_decided_pairs')} times "
+        "between the same pairs",
         "",
         "## Transport diagnostics (the live path's own counters)",
         "",
@@ -396,20 +689,6 @@ def markdown(record: dict) -> str:
         f"repaired samples {transport['repaired_samples']}, "
         f"bad-channel census {transport['bad_channel_census'] or 'none'}",
         "",
-        "## Decisions against the session's own marker labels",
-        "",
-        f"- status `{(record.get('session_record') or {}).get('status')!r}`, decisions "
-        f"{json.dumps(record['session'].get('decisions') or {})}",
-        f"- session failure {json.dumps(record['session'].get('failure'))}",
-        f"- decided windows {labels.get('decided_windows')} of "
-        f"{record['session'].get('windows')} windows; "
-        f"{labels.get('decided_windows_in_unknown_band')} of them fell in the "
-        f"operator's unknown band and are excluded",
-        f"- accuracy on labelled windows "
-        f"{labels.get('window_accuracy_on_labelled')}, majority-class rate on the "
-        f"same windows {labels.get('majority_class_rate_on_labelled')}, balanced "
-        f"{labels.get('balanced_accuracy_on_labelled')}",
-        "",
         "## Frontend gate (Node-side evidence, not a browser)",
         "",
         f"- gain gate open: {gate.get('gate_open')} at "
@@ -423,7 +702,10 @@ def markdown(record: dict) -> str:
         "Proves: the recorded ANT session drives the live route - LSL transport, "
         "20-channel pre-flight by name, 500 Hz, microvolts after the import's "
         "conversion - and produces decisions, packets and gain frames on this "
-        "machine, with the transport's own timing counters recorded above.",
+        "machine, with the transport's own timing counters recorded above. A "
+        "railed electrode, declared with `--exclude-channels` and measured railed "
+        "on the published window, cannot stop the run while the endpoint guard "
+        "keeps its own value for every other channel.",
         "",
         "Does not prove: that an amplifier works (no amplifier was present); "
         "anything about a live participant (the input is a recording); the "
@@ -540,9 +822,9 @@ def run(args, lines: list[str]) -> tuple[dict, int]:
     window, first_index = slice_window(trial, args.clip_start, args.clip)
     audio_offset = audio_start_of(trial, args.audio_start_offset)
     log(
-        f"session audio offset {audio_offset:g}s (derived from the recording: the "
-        f"first row the played stimulus reaches; the import's Start anchor is "
-        f"5.006s for session 1 and the stimulus begins there)",
+        f"session audio offset {audio_offset:g}s (the operator-given start offset "
+        f"{args.audio_start_offset:g}s from the recording's own Start anchor, "
+        f"section 3.12; never derived from the envelope)",
         lines,
     )
     channels = tuple(model.contract["eeg_channels"])
@@ -566,6 +848,44 @@ def run(args, lines: list[str]) -> tuple[dict, int]:
         f"{first_index} ({args.clip_start:g}s + {args.clip:g}s)",
         lines,
     )
+    # The channel policy for this run, measured on the window about to be
+    # published and decided before the session exists. A railed electrode is a
+    # declared, measured exclusion rather than a raised global limit: the limit
+    # guards every other channel and must keep doing so (plan sections 3.11, 4-V4).
+    profile = rail_profile(window.eeg, tuple(trial.channel_names))
+    excluded = tuple(args.exclude_channels)
+    guard = saturation_guard_uv(args)
+    try:
+        exclusion_lines = check_excluded_channels(
+            profile,
+            excluded,
+            saturation_limit_uv=guard,
+            allow_unrailed=bool(args.allow_unrailed_exclusion),
+        )
+    except ValueError as error:
+        print(f"{error}", file=sys.stderr)
+        return {}, 2
+    log(
+        f"declared channel policy: exclude_channels={list(excluded)}; "
+        f"Repair's saturation guard stays at {guard:.0f} uV "
+        f"({'chain default' if args.saturation_limit_uv is None else 'explicit'}), "
+        f"amplitude guard 500 uV",
+        lines,
+    )
+    log(
+        "measured rail profile over the published window: "
+        + (
+            ", ".join(
+                f"{name} peak {profile['per_channel'][name]['peak_microvolts']:.1f} uV "
+                f"railed {100 * profile['per_channel'][name]['railed_fraction']:.1f} %"
+                for name in profile["railed_channels"]
+            )
+            or "no electrode is railed"
+        ),
+        lines,
+    )
+    for line in exclusion_lines:
+        log(line, lines)
     references = ReferenceEnvelopes.load(tuple(ENVELOPES), config, labels=("left", "right"))
     log(
         f"reference envelopes named explicitly (an ANT session has no story name): "
@@ -656,6 +976,13 @@ def run(args, lines: list[str]) -> tuple[dict, int]:
                 max_lag_seconds=args.max_lag_seconds,
             )
             log(
+                f"chain rate declaration: source outlet at {args.sfreq:g} Hz, chain "
+                f"fed at {chain_rate(args, model):g} Hz (adapter {args.pre_resample!r}); the "
+                f"contract records the fed rate, or Repair would read every step as "
+                f"a gap",
+                lines,
+            )
+            log(
                 f"live source ready: window sample 0 is time zero; audio anchor "
                 f"{trial.timestamps[first_index] + audio_offset:.3f}s on the "
                 f"session's own clock (start offset {audio_offset:g}s from the "
@@ -664,7 +991,8 @@ def run(args, lines: list[str]) -> tuple[dict, int]:
             )
             exit_code, record = stream_session(
                 args, lines, source, references, model, timeline, media_report, began,
-                probe_report, window, trial, first_index, audio_offset,
+                probe_report, window, trial, first_index, audio_offset, profile,
+                excluded,
             )
         finally:
             if stream.connected:
@@ -684,7 +1012,7 @@ def run(args, lines: list[str]) -> tuple[dict, int]:
 
 def stream_session(
     args, lines, source, references, model, timeline, media_report, began,
-    probe_report, window, trial, first_index, audio_offset,
+    probe_report, window, trial, first_index, audio_offset, profile, excluded,
 ) -> tuple[int, dict]:
     """Run the transport and the session around an already-connected source."""
 
@@ -696,6 +1024,8 @@ def stream_session(
         "holder": {},
         "audio_first_timestamp": float(trial.timestamps[first_index]),
         "audio_offset": float(audio_offset),
+        "excluded": tuple(excluded),
+        "chain_rate": chain_rate(args, model),
     }
 
     def factory():
@@ -823,6 +1153,9 @@ def stream_session(
     # 3.11/3.17-4 want the *audio-to-EEG* loopback, which needs an audio device;
     # this is reported so the difference is explicit rather than blurred.
     resampler = getattr(processor, "resampler", None)
+    # A pass-through stage (the fed rate already equals the output rate) has no
+    # delay to report; calling it "QQ" would be a lie about a stage that does not
+    # resample at all.
     transport["chain_resampler_startup_delay_seconds"] = (
         None if resampler is None else float(resampler.startup_delay_seconds)
     )
@@ -880,9 +1213,37 @@ def stream_session(
             "window_seconds": summary.get("window_seconds"),
             "timebase": args.timebase,
             "policy": summary.get("policy"),
+            # Run policy, not contract: adding a key to `AuditoryProcessor.contract`
+            # would invalidate every trained decoder, so the channel exclusions and
+            # the endpoint guard are recorded here instead, next to their evidence.
+            "excluded_channels": list(excluded),
+            "excluded_channels_justification": [
+                {
+                    "channel": name,
+                    "peak_microvolts": profile["per_channel"][name]["peak_microvolts"],
+                    "railed_fraction": profile["per_channel"][name]["railed_fraction"],
+                    "railed": profile["per_channel"][name]["railed"],
+                }
+                for name in excluded
+            ],
+            "rail_profile": profile,
+            "repair_saturation_limit_uv": saturation_guard_uv(args),
+            "repair_amplitude_limit_uv": 500.0,
+            "saturation_limit_source": (
+                "chain default"
+                if args.saturation_limit_uv is None
+                else "explicit --saturation-limit-uv"
+            ),
+            "excluded_channels_stay_in_the_run": (
+                "excluded electrodes keep their columns, are still repaired and "
+                "still counted in the bad-channel census; no column is dropped"
+            ),
         },
         "session_summary": summary,
         "session_record": state.get("final"),
+        "decision_census": decision_census(
+            summary, summary.get("decision_stream") or []
+        ),
         "media": media_report,
         "media_client": state.get("media"),
         "frontend_evidence": evidence,
@@ -983,13 +1344,37 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--timebase", default="grid", choices=("grid", "stamps"))
     parser.add_argument(
+        "--exclude-channels",
+        type=parse_channel_list,
+        default=(),
+        help=(
+            "comma-separated electrodes (e.g. F8,F3) declared railed or dead. An "
+            "excluded electrode cannot stop the run - not through the repair "
+            "endpoint check's saturation guard, not through its amplitude guard - "
+            "while every other channel keeps the chain's own limits. Its column "
+            "stays in the run, is still repaired and is still counted in the "
+            "bad-channel census. Each declared electrode is checked against the "
+            "published window's measured rail and refused unless it is railed."
+        ),
+    )
+    parser.add_argument(
+        "--allow-unrailed-exclusion",
+        action="store_true",
+        help=(
+            "declare an electrode dead even though this window does not measure it "
+            "as railed. Off by default: excluding a healthy electrode would blind "
+            "the endpoint check for a channel that still carries signal."
+        ),
+    )
+    parser.add_argument(
         "--saturation-limit-uv",
         type=float,
-        default=90000.0,
-        help=("Repair's absolute-level guard, in uV. It must sit above this "
-              "recording's own rail (83 333 uV), or every railed stretch becomes an "
-              "unrepairable fault and stops the run; the effective value is printed "
-              "and recorded."),
+        default=None,
+        help=("Repair's absolute-level guard, in uV. Unset by default, which keeps "
+              "the chain's own 75000 uV so the guard protects every channel; a "
+              "railed electrode is handled by --exclude-channels instead of by "
+              "widening this number. Setting it moves the guard for ALL channels "
+              "and the effective value is printed and recorded."),
     )
     parser.add_argument("--max-lag-seconds",
         type=float,

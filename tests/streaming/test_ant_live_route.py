@@ -250,14 +250,47 @@ class BlockPathTests(unittest.TestCase):
     """
 
     def _deliver(self, rows, stamps, **kwargs):
+        # The band is driven through the generator the run itself uses. An
+        # acquire that answers `read()` is injected in place of the inlet; a
+        # `_queue` attribute would be dead code (nothing in `Acquire` reads one),
+        # which is how a test can look like it covers `chunks` and cover nothing.
+        class StubAcquire:
+            stopped = False
+            pending_samples = 0
+            max_lag = 0.0
+            gaps = 0
+            max_gap = 0.0
+            max_gap_seconds = 0.0
+
+            def __init__(self, blocks):
+                self._blocks = list(blocks)
+
+            def close(self):
+                self._blocks = []
+
+            def read(self, timeout=None):
+                if not self._blocks:
+                    raise TimeoutError("no more blocks")
+                return self._blocks.pop(0)
+
+        blocks = [rows] if isinstance(rows, tuple) else list(rows)
+        clock = list(stamps)
+        if clock and isinstance(clock[0], (int, float, np.floating)):
+            clock = [np.asarray(clock)]
+        clock = [np.asarray(part) for part in clock]
+        assert len(blocks) == len(clock)
         delivered = []
-        stream = FakeStream(names=rows[0][1], nchan=len(rows[0][1]))
+        stream = FakeStream(names=blocks[0][1], nchan=len(blocks[0][1]))
         source = AntStreamSource(stream, channels=CHANNELS, sfreq=RATE, **kwargs)
-        source._queue = [(data, ts) for data, ts in rows]
+        source.acquire = StubAcquire(zip([block[0] for block in blocks], clock))
+        # The stop event must NOT be pre-set: `chunks` checks it before reading,
+        # so a pre-set event makes the generator yield nothing at all - green,
+        # and empty, which is how this helper passed while covering nothing.
         stop = threading.Event()
-        stop.set()
         for _, data, times in source.chunks(stop):
             delivered.append((data, times))
+            if len(delivered) >= len(blocks):
+                stop.set()
         return source, delivered
 
     def test_extra_columns_are_reordered_by_name_on_the_delivered_block(self):
@@ -285,6 +318,51 @@ class BlockPathTests(unittest.TestCase):
         # withheld, not as the end of the source.
         self.assertEqual(out.shape[0], 0)
         self.assertEqual(times.shape[0], 0)
+
+    def test_the_blocks_delivered_are_in_contract_order_by_name(self):
+        # `contract.reorder` on the *delivered* block, not just on the contract
+        # object: the outlet's first column is F9 and its last is F10, so a
+        # write that drops the reorder truncates instead of mapping by name, and
+        # the chain would be fed F9 where it asked for Fp1.
+        names = ("F9",) + CHANNELS + ("F10",)
+        rows = np.zeros((3, len(names)))
+        for index, name in enumerate(names):
+            rows[:, index] = index + 1
+        _, delivered = self._deliver(
+            (rows, names), [np.arange(3) / RATE + 5.0], pre_resample_sfreq=None
+        )
+        self.assertEqual(len(delivered), 1)
+        data = delivered[0][0]
+        self.assertEqual(data.shape, (3, len(CHANNELS)))
+        np.testing.assert_array_equal(
+            data, rows[:, 1 : 1 + len(CHANNELS)]
+        )
+
+    def test_an_empty_converted_block_is_withheld_not_yielded(self):
+        # The guard that keeps a resampler's warm-up from looking like the end of
+        # the source: the first block converts to nothing, the second delivers.
+        # Without the guard the empty block is yielded and `delivered[0]` has no
+        # samples - which is what the surviving mutant did.
+        warmup = np.zeros((25, len(CHANNELS)))
+        long_block = np.zeros((4000, len(CHANNELS)))
+        tail = np.zeros((2000, len(CHANNELS)))
+        offsets = (0, 25, 4025)
+        sizes = (len(warmup), len(long_block), len(tail))
+        stamps = [
+            (offset + np.arange(size)) / RATE + 5.0
+            for offset, size in zip(offsets, sizes)
+        ]
+        _, delivered = self._deliver(
+            [(warmup, CHANNELS), (long_block, CHANNELS), (tail, CHANNELS)],
+            stamps,
+            pre_resample_sfreq=128.0,
+        )
+        self.assertTrue(delivered, "the source yielded nothing at all")
+        self.assertGreater(delivered[0][0].shape[0], 0)
+        for data, times in delivered:
+            self.assertEqual(data.shape[0], times.shape[0])
+            self.assertGreater(data.shape[0], 0, "an empty block was yielded")
+            self.assertEqual(data.shape[1], len(CHANNELS))
 
 
 class ContractTests(unittest.TestCase):

@@ -3,6 +3,8 @@
 import math
 from types import SimpleNamespace
 
+import numpy as np
+
 from nova2026.streaming import Recovery, UnrepairableError
 from nova2026.streaming.circular_buffer import CircularBuffer
 from nova2026.streaming.judges import collect_verdict
@@ -20,6 +22,38 @@ from nova2026.streaming.window import EEGWindow
 # 0 at the call site instead.
 DEFAULT_SOURCE_UNIT_EXPONENT = -6
 SUPPORTED_SOURCE_UNIT_EXPONENTS = (0, -3, -6, -9)
+
+
+class _PassThroughResampler:
+    """A chain stage for the case ``input_sfreq == output_sfreq``.
+
+    ``Resampler`` refuses equal rates (a resampler that resamples to the same
+    rate is a bug), but a caller that has already converted the source - the live
+    ANT route's pre-chain adapter, which brings a 500 Hz outlet to the 128 Hz the
+    decoder contract records - feeds this chain at its output rate. The chain
+    still needs a stage here: the recovery guard resets it, ``feed`` calls it,
+    and ``AuditoryProcessor.contract`` reads its ``quality``. It carries no
+    state, invents no sample, and its startup delay is exactly zero, which is
+    true in a way a 1:1 ``Resampler`` could not be.
+    """
+
+    quality = "pass-through"
+
+    def __init__(self) -> None:
+        """Nothing to configure: the rate is already the output rate."""
+
+        self.startup_delay_seconds = 0.0
+        self.max_delay_seconds = 0.0
+
+    def reset(self) -> None:
+        """A stateless stage has nothing to forget."""
+
+    def __call__(
+        self, data: np.ndarray, timestamps: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Return the block unchanged."""
+
+        return data, timestamps
 
 
 def stream_config(
@@ -115,9 +149,17 @@ class AuditoryProcessor:
             exclude_channels=exclude_channels,
         )
         self.bandpass = SosFilter(design_bandpass(*settings.bandpass, 3, settings.input_sfreq), n)
-        self.resampler = Resampler(
-            settings.input_sfreq, settings.output_sfreq, n, quality="auto",
-            max_age_seconds=3.0, reserve_seconds=1.0, allow_qq=True, strict=True,
+        # A source that already arrives at the output rate (the live ANT route's
+        # pre-chain 500 -> 128 adapter) must not be resampled again: equal rates
+        # are refused by `Resampler`, and the chain's rate declaration has to be
+        # the rate it is actually fed or `Repair` reads every step as a gap.
+        self.resampler = (
+            _PassThroughResampler()
+            if math.isclose(settings.input_sfreq, settings.output_sfreq)
+            else Resampler(
+                settings.input_sfreq, settings.output_sfreq, n, quality="auto",
+                max_age_seconds=3.0, reserve_seconds=1.0, allow_qq=True, strict=True,
+            )
         )
         self.buffer = CircularBuffer(
             round(settings.window_seconds * settings.output_sfreq),
