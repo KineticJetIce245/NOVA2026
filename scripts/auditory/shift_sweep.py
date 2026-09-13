@@ -34,13 +34,21 @@ Two design choices are worth stating, because neither is forced:
    when the streams are misaligned, which is the zero-offset model's answer.
 
 The grid is in seconds and every point is a multiple of 12.5 ms, which is an
-exact number of 80 Hz samples but only 0.8 of a 64 Hz sample: the shift is
-therefore applied by linear interpolation on the envelope's own grid rather than
-by rounding to an integer sample, so the swept offset is the offset that was
-asked for. ``--audit`` measures what that interpolation costs against the raw
-chain, which needs no interpolation because it resamples the audio itself.
+exact number of 80 Hz samples but only 0.8 of a 64 Hz sample: the pairing is
+therefore linear interpolation on the envelope's own grid rather than a round to
+the nearest sample, so the swept offset is the offset that was asked for.
 
-    python -B -m scripts.auditory.shift_sweep --out results
+**The pairing is measured, not derived.** ``--audit`` runs the raw chain at a
+handful of offsets and compares its ``aligned.envelopes`` against the cached
+envelope at the sweep's own position formula, window by window, and against the
+mirror image of that formula. The first attempt at this experiment got the sign
+backwards -- it read the envelope *later* for a positive offset -- and lost
+nothing but truncation at zero offset, so the at-zero reproduction passed while
+every other point was the mirror image of the truth. The audit's two numbers
+(``envelope_max_difference`` and ``envelope_mirror_max_difference``) are what
+pins the direction; the second is expected to be four orders of magnitude larger.
+
+    python -B -m scripts.auditory.shift_sweep --out results --audit
 """
 
 import argparse
@@ -97,44 +105,63 @@ def times_grid(half_range=HALF_RANGE_SECONDS, step=STEP_SECONDS,
 
 
 def shift_for(offset, rate):
-    """Envelope samples to skip at the front for an audio offset in seconds.
+    """Envelope samples read *earlier* for an audio offset in seconds.
 
     Positive when the audio starts later, which is what makes the offset
-    positive: the envelope is then read ``shift`` samples earlier.
+    positive: the reference the EEG at a given moment is compared against is the
+    audio that reached the ear ``shift`` samples ago. Kept as whole samples for
+    bookkeeping and reporting; the pairing itself is fractional
+    (:func:`positions_for`), because 12.5 ms is 0.8 of a 64 Hz sample.
     """
 
     return int(round(float(offset) * rate))
 
 
-def shift_window(envelope, start, length, offset, rate):
-    """One window's reference envelope at one offset: ``(values, first row)``.
+def positions_for(start, count, offset, rate):
+    """Fractional envelope positions paired with a window's ``count`` rows.
 
-    The chain at ``audio_offset`` reads the envelope of the audio that is
-    actually available where the window sits, so at the very start of a trial a
-    positively shifted window simply has less audio in front of it. This
-    reproduces that by clamping the requested range to the recording and
-    reporting where the surviving rows sit, instead of padding with values the
-    chain would never have produced.
+    Row ``i`` of the design matrix predicts the EEG at the window's position
+    ``start + i`` (its first ``lag_samples`` rows are dropped by the lag
+    expansion, not shifted). The chain puts audio sample zero at trial start
+    plus ``offset``, so the amplitude that row must be compared against is the
+    envelope at ``start + i - offset * rate``.
 
-    ``envelope[start:start + length]`` at ``offset == 0`` is a plain slice: the
-    zero point of the sweep is step 5's own feature, not an interpolation of it.
+    This formula is not derived from the chain's source and left to trust: it is
+    measured against the chain window by window in
+    :func:`compare_with_chain`, which reports ``max |chain - cached|`` for this
+    position and for its mirror image.
     """
 
-    shift = shift_for(offset, rate)
-    low = start + shift
-    # The window's row ``j`` holds envelope position ``low + j``. Both ends are
-    # clamped to the recording, so a window near the start or the end is short
-    # and reports which of its rows are real. Returning a *shifted but full
-    # length* window instead would silently pair the reconstruction with the
-    # wrong envelope samples, which is exactly the error this experiment exists
-    # to measure.
-    first = max(0, -low)
-    last = min(length, len(envelope) - low)
-    if last <= first:
-        raise ValueError(
-            f"Offset {offset:+.4f} s leaves no audio for the window at {start}."
-        )
-    return envelope[low + first : low + last], first
+    return start + np.arange(count, dtype=float) - float(offset) * rate
+
+
+def paired_envelope(envelope, positions, grid=None):
+    """Envelope sampled at fractional positions, or ``None`` if any is outside.
+
+    Linear interpolation on the envelope's own 64 Hz grid, which is what
+    :meth:`EnvelopeBuffer.align` does with ``np.interp`` against the buffer's
+    own timestamps. ``grid`` can be passed in because this is called once per
+    window per offset, and rebuilding a 25 000-point axis there dominates the
+    sweep's runtime.
+
+    ``None`` means the chain would have refused this window: it marks a window
+    ``audio_unavailable`` whenever its span is not covered by the audio received
+    so far. Clamping, padding or scoring a shortened row set instead would
+    invent a window the chain does not have, and it would also compare the
+    reconstruction against an envelope that was centered over different rows
+    than the ones it is correlated with.
+    """
+
+    if len(positions) == 0:
+        return None
+    if np.any(positions < 0.0) or np.any(positions > len(envelope) - 1):
+        return None
+    if grid is None:
+        grid = np.arange(len(envelope), dtype=float)
+    values = np.empty((len(positions), envelope.shape[1]), dtype=float)
+    for candidate in range(envelope.shape[1]):
+        values[:, candidate] = np.interp(positions, grid, envelope[:, candidate])
+    return values
 
 
 def trial_scores(model, signal, envelopes, start, length, offsets, rate):
@@ -143,8 +170,13 @@ def trial_scores(model, signal, envelopes, start, length, offsets, rate):
     This is :meth:`RidgeDecoder.score` for one window and many offsets, with the
     design matrix hoisted out of the offset loop: it does not depend on the
     envelope, so it is built once. The arithmetic inside the loop is otherwise
-    identical, and ``tests/test_shift_sweep.py`` asserts equality with
-    ``model.score`` on real cached windows.
+    identical -- the reconstruction is centered over all ``count`` rows and the
+    envelope over the same rows -- and ``tests/test_shift_sweep.py`` asserts
+    equality with ``model.score`` on real cached windows.
+
+    Rows that a given offset pushes outside the recording yield ``nan`` for that
+    whole window, which :func:`sweep` reads as the chain's ``audio_unavailable``
+    and drops rather than scoring a shortened window.
     """
 
     design = np.asarray(signal[start : start + length], dtype=float)
@@ -155,29 +187,26 @@ def trial_scores(model, signal, envelopes, start, length, offsets, rate):
     reconstruction = rows @ model.weights
     reconstruction = reconstruction - reconstruction.mean()
     norm = np.linalg.norm(reconstruction)
-    scores = np.zeros((len(offsets), 2))
+    scores = np.full((len(offsets), 2), np.nan)
+    grid = np.arange(len(envelopes), dtype=float)
     for index, offset in enumerate(offsets):
-        window, first = shift_window(envelopes, start, length, offset, rate)
-        # The window's row ``j`` holds envelope *position* ``first + j``, and a
-        # design row ``i`` predicts position ``i``. Both sides must cover the
-        # same positions, so with the window starting at ``first`` the row that
-        # pairs with ``i`` is ``i - first``. Pairing row ``i`` with row ``i``
-        # instead compares the reconstruction against an envelope one full shift
-        # out of place -- which is the very quantity this experiment measures,
-        # and which the sign tests below caught.
-        shift = shift_for(offset, rate)
-        low = max(first, shift, 0)
-        high = min(count, length + shift)
-        if high <= low:
-            continue
-        target = window[low - first : high - first]
+        if float(offset) == 0.0:
+            # Step 5's own feature, as a plain slice: the zero point of the
+            # sweep must not be an interpolation of itself.
+            target = envelopes[start : start + count]
+        else:
+            target = paired_envelope(
+                envelopes, positions_for(start, count, offset, rate), grid
+            )
+            if target is None:
+                continue
         target = target - target.mean(axis=0)
         denominator = norm * np.linalg.norm(target, axis=0)
         columns = np.flatnonzero(denominator > 1e-12)
         if len(columns) == 0:
             continue
         scores[index, columns] = (
-            reconstruction[low:high] @ target[:, columns]
+            reconstruction @ target[:, columns]
         ) / denominator[columns]
     return scores
 
@@ -249,10 +278,8 @@ def sweep(corpus, contract, history, offsets, progress=None):
     for record in models:
         for trial in record["validation"]:
             by_trial.setdefault(trial.key, []).append(record["model"])
-    decisions = np.full((len(offsets), 0), 0, dtype=np.int8)
-    truths = np.empty(0, dtype=np.int8)
     collected_decisions = [[] for _ in offsets]
-    collected_truths = []
+    collected_truths = [[] for _ in offsets]
     for trial in corpus.trials:
         owners = by_trial.get(trial.key)
         if not owners:
@@ -264,26 +291,38 @@ def sweep(corpus, contract, history, offsets, progress=None):
                                   length, offsets, rate)
             for index in range(len(offsets)):
                 first, second = scores[index]
+                if not (np.isfinite(first) and np.isfinite(second)):
+                    # The chain calls such a window ``audio_unavailable``: the
+                    # offset pushes part of its span outside the audio, so this
+                    # offset simply has one window fewer than zero does. Dropping
+                    # it keeps every scored window a window the chain has.
+                    continue
                 collected_decisions[index].append(
                     -1 if abs(first - second) <= 1e-12
                     else int(np.argmax([first, second]))
                 )
-            collected_truths.append(features.label)
+                collected_truths[index].append(int(features.label))
         if progress is not None:
             progress(trial)
-    decisions = np.asarray(collected_decisions, dtype=np.int8)
-    truths = np.asarray(collected_truths, dtype=np.int8)
-    if not len(truths):
+    decisions = [np.asarray(column, dtype=np.int8)
+                 for column in collected_decisions]
+    truths = [np.asarray(column, dtype=np.int8) for column in collected_truths]
+    if not any(len(column) for column in truths):
         raise ValueError("The sweep scored no window.")
     return decisions, truths
 
 
 def curve(decisions, truths, offsets):
-    """Per-offset metrics plus the fold-free parts of the protocol."""
+    """Per-offset metrics plus the fold-free parts of the protocol.
+
+    ``decisions[index]`` and ``truths[index]`` are one offset's own window set,
+    which can be a window or two smaller than zero's at the extremes of the grid
+    (see :func:`sweep`). Every point reports its own ``windows`` count.
+    """
 
     points = []
     for index, offset in enumerate(offsets):
-        record = train_kuleuven.metrics(decisions[index], truths)
+        record = train_kuleuven.metrics(decisions[index], truths[index])
         record["offset_seconds"] = float(offset)
         points.append(record)
     return points
@@ -303,32 +342,36 @@ def peak_of(points):
     }
 
 
-def _crossing(points, level, side):
-    """First grid point past ``level``, linearly interpolated; None if it stays.
+def _crossing(points, level, side, peak_index):
+    """First grid point past ``level`` walking outward from the peak; None if none.
+
+    "The crossing on the left" is the first one to the left *of the peak*, so the
+    walk starts at the peak and moves outward. Walking inward from the end of the
+    grid instead finds the opposite side's crossing on any single-peaked curve,
+    and because :func:`width_of` subtracts the two, that version reported a
+    *negative* width for both contracts.
 
     A point that sits exactly on the level counts as a crossing, because a
-    decoder that is exactly at chance is not "above chance everywhere". The
-    offsets stay in ascending order and only the *direction* of the walk
-    changes, so the interpolation below is always between an earlier and a
-    later offset.
+    decoder that is exactly at chance is not "above chance everywhere".
     """
 
     offsets = np.array([point["offset_seconds"] for point in points])
     values = np.array([point["balanced_accuracy"] for point in points])
     order = np.argsort(offsets)
     offsets, values = offsets[order], values[order]
-    first, last, step = (1, len(values), 1) if side == "right" else (len(values) - 2, -1, -1)
-    if values[0 if side == "left" else -1] == level:
-        return float(offsets[0 if side == "left" else -1])
-    for index in range(first, last, step):
-        current = values[index]
-        outer = values[index - step]
-        if current == level:
-            return float(offsets[index])
-        if (current - level) * (outer - level) < 0:
-            fraction = (outer - level) / (outer - current)
-            return float(offsets[index - step]
-                         + fraction * (offsets[index] - offsets[index - step]))
+    step = -1 if side == "left" else 1
+    index = peak_index
+    if values[index] == level:
+        return float(offsets[index])
+    while 0 <= index + step < len(values):
+        outer = index + step
+        if values[outer] == level:
+            return float(offsets[outer])
+        if (values[outer] - level) * (values[index] - level) < 0:
+            fraction = (level - values[index]) / (values[outer] - values[index])
+            return float(offsets[index]
+                         + fraction * (offsets[outer] - offsets[index]))
+        index = outer
     return None
 
 
@@ -340,11 +383,13 @@ def width_of(points, peak):
     majority rate is not a chance line for a balanced metric.
     """
 
+    offsets = np.array([point["offset_seconds"] for point in points])
+    peak_index = int(np.argmin(np.abs(offsets - peak["offset_seconds"])))
     level = CHANCE_BALANCED + (peak["balanced_accuracy"] - CHANCE_BALANCED) / 2
-    left_half = _crossing(points, level, "left")
-    right_half = _crossing(points, level, "right")
-    left_null = _crossing(points, CHANCE_BALANCED, "left")
-    right_null = _crossing(points, CHANCE_BALANCED, "right")
+    left_half = _crossing(points, level, "left", peak_index)
+    right_half = _crossing(points, level, "right", peak_index)
+    left_null = _crossing(points, CHANCE_BALANCED, "left", peak_index)
+    right_null = _crossing(points, CHANCE_BALANCED, "right", peak_index)
     half = None
     if left_half is not None and right_half is not None:
         half = right_half - left_half
@@ -444,15 +489,24 @@ def converted_path_for(trial):
 
 def audit_chain_offset(trial_path, model_path, offsets, history=MAIN_HISTORY,
                        limit_seconds=60.0):
-    """Cross-check the cached shift against the raw chain's ``audio_offset``.
+    """Compare the cached pairing against the raw chain, window by window.
 
-    The chain path needs no interpolation, because it re-derives the envelope
-    from the audio on the trial's own clock; the cached path shifts an envelope
-    that is already on the chain's grid. This measures the difference between
-    the two over a bounded stretch of one trial, using the deployed model (a
-    fixed weight vector) so the comparison is about the features and not about
-    refitting. Only windows whose whole span lies inside ``limit_seconds`` are
-    scored, so the chain pass can stop early without changing the window set.
+    This is the measurement the pairing rests on, not a re-derivation of it. The
+    chain path re-reads the audio itself, so its ``aligned.envelopes`` are what
+    the offset *means*; the cached path interpolates an envelope that is already
+    on the chain's grid. For every window the chain considers valid, this reports
+
+    * ``envelope_max_difference``: ``max |chain - cached|`` for the position
+      formula the sweep uses (``start + i - offset * rate``), and
+    * ``envelope_mirror_max_difference``: the same number for the mirror image
+      (``start + i + offset * rate``), which is what an inverted sign would
+      produce. A pairing is pinned only when the first is floating-point noise
+      and the second is not.
+
+    The two paths are also scored with the deployed model, so a pairing error
+    that survives the envelope check cannot hide in the decision comparison.
+    Only windows whose whole span lies inside ``limit_seconds`` are scored, so
+    the chain pass can stop early without changing the window set.
     """
 
     from nova2026.auditory.data import load_trial
@@ -466,42 +520,85 @@ def audit_chain_offset(trial_path, model_path, offsets, history=MAIN_HISTORY,
         raise ValueError("The audit model was not fitted at the sweep's window length.")
     rate = feature_cache.sample_rate()
     length = round(history * rate)
+    count = length - model.config.lag_samples
     features = feature_cache.load(
         REPO / "datasets" / "auditory_features" / EXPECTED_CACHE_KEY
         / trial_path.parent.name / trial_path.name
     )
+    signal = features.signal("64ch").astype(float)
     origin = float(trial.timestamps[0])
     rows = []
     for offset in offsets:
-        starts = []
-        scores = []
+        record = {"offset_seconds": float(offset), "windows": 0,
+                  "worst_envelope_window_start": None,
+                  "envelope_max_difference": 0.0,
+                  "envelope_mirror_max_difference": 0.0,
+                  "score_max_difference": 0.0,
+                  "score_mirror_max_difference": 0.0,
+                  "chain_envelope_mean_abs": 0.0}
+        chain_scores = []
+        cached_scores = []
         truths = []
         for window in replay_windows(trial, model.config, history, audio_offset=offset):
-            end = float(window.timestamps[-1])
-            if window.valid and end - origin <= limit_seconds:
-                labels = np.unique(labels_for_window(trial, window))
-                if len(labels) != 1 or labels[0] < 0:
-                    continue
-                starts.append(int(round((float(window.timestamps[0]) - origin) * rate)))
-                scores.append(model.score(window))
-                truths.append(int(labels[0]))
-            if end - origin > limit_seconds:
+            if float(window.timestamps[-1]) - origin > limit_seconds:
                 break
+            if not window.valid:
+                continue
+            labels = np.unique(labels_for_window(trial, window))
+            if len(labels) != 1 or labels[0] < 0:
+                continue
+            start = int(round((float(window.timestamps[0]) - origin) * rate))
+            chain_envelopes = np.asarray(window.envelopes, dtype=float)[:count]
+            cached = paired_envelope(
+                features.envelopes, positions_for(start, count, offset, rate)
+            )
+            mirror = paired_envelope(
+                features.envelopes, positions_for(start, count, -offset, rate)
+            )
+            if cached is None or mirror is None:
+                continue
+            difference = float(np.max(np.abs(cached - chain_envelopes)))
+            if difference > record["envelope_max_difference"]:
+                record["envelope_max_difference"] = difference
+                record["worst_envelope_window_start"] = start
+            record["envelope_mirror_max_difference"] = max(
+                record["envelope_mirror_max_difference"],
+                float(np.max(np.abs(mirror - chain_envelopes))),
+            )
+            record["chain_envelope_mean_abs"] = max(
+                record["chain_envelope_mean_abs"],
+                float(np.mean(np.abs(chain_envelopes))),
+            )
+            pair = trial_scores(model, signal, features.envelopes, start,
+                                length, np.asarray([offset]), rate)[0]
+            mirrored = trial_scores(model, signal, features.envelopes, start,
+                                    length, np.asarray([-offset]), rate)[0]
+            truth = model.score(window)
+            if not (np.isfinite(pair).all() and np.isfinite(mirrored).all()):
+                continue
+            record["windows"] += 1
+            record["score_max_difference"] = max(
+                record["score_max_difference"],
+                float(np.max(np.abs(pair - truth))),
+            )
+            record["score_mirror_max_difference"] = max(
+                record["score_mirror_max_difference"],
+                float(np.max(np.abs(mirrored - truth))),
+            )
+            chain_scores.append(truth)
+            cached_scores.append(pair)
+            truths.append(int(labels[0]))
         truth = np.asarray(truths)
-        chain = train_kuleuven.metrics(_decisions(scores), truth)
-        cached_scores = [
-            trial_scores(model, features.signal("64ch").astype(float),
-                         features.envelopes, start, length,
-                         np.asarray([offset]), rate)[0]
-            for start in starts
-        ]
+        chain = train_kuleuven.metrics(_decisions(chain_scores), truth)
         cached = train_kuleuven.metrics(_decisions(cached_scores), truth)
-        rows.append({"offset_seconds": float(offset), "windows": chain["windows"],
-                     "chain_accuracy": chain["accuracy"],
-                     "cached_accuracy": cached["accuracy"],
-                     "chain_balanced_accuracy": chain["balanced_accuracy"],
-                     "cached_balanced_accuracy": cached["balanced_accuracy"],
-                     "difference": cached["balanced_accuracy"] - chain["balanced_accuracy"]})
+        record.update({
+            "chain_accuracy": chain["accuracy"],
+            "cached_accuracy": cached["accuracy"],
+            "chain_balanced_accuracy": chain["balanced_accuracy"],
+            "cached_balanced_accuracy": cached["balanced_accuracy"],
+            "difference": cached["balanced_accuracy"] - chain["balanced_accuracy"],
+        })
+        rows.append(record)
     return rows
 
 
@@ -608,18 +705,25 @@ def main(argv=None):
               f"(step 5 {reference:.4f})", flush=True)
     if args.audit:
         audit_offsets = np.asarray([-0.3, -0.2, -0.1, 0.0, 0.1, 0.2, 0.3])
-        trial = next(trial for trial in corpus.trials if trial.subject == "S1")
+        audited = []
+        for subject in ("S1", "S2"):
+            trial = next(trial for trial in corpus.trials if trial.subject == subject)
+            audited.append({
+                "trial": [trial.subject, trial.trial_id],
+                "converted": str(converted_path_for(trial).relative_to(REPO)),
+                "rows": audit_chain_offset(
+                    converted_path_for(trial),
+                    REPO / "models" / train_kuleuven.MODEL_NAMES["64ch"],
+                    audit_offsets, args.history,
+                ),
+            })
         document["chain_audit"] = {
-            "trial": [trial.subject, trial.trial_id],
-            "converted": str(converted_path_for(trial).relative_to(REPO)),
             "model": "models/" + train_kuleuven.MODEL_NAMES["64ch"],
             "note": "the chain path resamples the raw audio itself and needs no "
-                    "interpolation; the cached path shifts the aligned envelope",
-            "rows": audit_chain_offset(
-                converted_path_for(trial),
-                REPO / "models" / train_kuleuven.MODEL_NAMES["64ch"],
-                audit_offsets, args.history,
-            ),
+                    "interpolation; the cached path interpolates the aligned envelope",
+            "offset_convention": "cached = env(start + i - offset * rate); "
+                                 "mirror = env(start + i + offset * rate)",
+            "trials": audited,
         }
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     json_path = Path(args.json) if args.json else Path(args.out) / f"aad_shift_sweep_{stamp}.json"
@@ -733,17 +837,31 @@ def write_report(document, path):
         )
     if "chain_audit" in document:
         audit = document["chain_audit"]
-        lines += ["", "## Cached shift vs the raw chain", "",
-                  f"Trial {audit['trial'][0]}/{audit['trial'][1]}, model `{audit['model']}`. "
-                  f"{audit['note']}.", "",
-                  "| offset (ms) | windows | chain balanced | cached balanced | difference |",
-                  "| --- | --- | --- | --- | --- |"]
-        for row in audit["rows"]:
-            lines.append(
-                f"| {row['offset_seconds'] * 1000:+.1f} | {row['windows']} | "
-                f"{row['chain_balanced_accuracy']:.4f} | "
-                f"{row['cached_balanced_accuracy']:.4f} | {row['difference']:+.4f} |"
-            )
+        lines += ["", "## Cached pairing vs the raw chain, window by window", "",
+                  f"Model `{audit['model']}`. {audit['note']}. "
+                  f"{audit['offset_convention']}.", "",
+                  "`max |Δ|` is over the first `length - lag_samples` ROWS of every window "
+                  "the chain calls valid, in envelope units (and then in correlation "
+                  "units); the mirror column is the same measurement for the opposite "
+                  "sign. The pairing is pinned when the first column is at the storage "
+                  "precision of the cache and the second is orders of magnitude larger.", ""]
+        for entry in audit["trials"]:
+            lines += [f"Trial {entry['trial'][0]}/{entry['trial'][1]} "
+                      f"(`{entry['converted']}`)", "",
+                      "| offset (ms) | windows | max \\|Δenvelope\\| | mirror | max \\|Δscore\\| | "
+                      "mirror | chain balanced | cached balanced | difference |",
+                      "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+            for row in entry["rows"]:
+                lines.append(
+                    f"| {row['offset_seconds'] * 1000:+.1f} | {row['windows']} | "
+                    f"{row['envelope_max_difference']:.2e} | "
+                    f"{row['envelope_mirror_max_difference']:.2e} | "
+                    f"{row['score_max_difference']:.2e} | "
+                    f"{row['score_mirror_max_difference']:.2e} | "
+                    f"{row['chain_balanced_accuracy']:.4f} | "
+                    f"{row['cached_balanced_accuracy']:.4f} | {row['difference']:+.4f} |"
+                )
+            lines.append("")
     lines += [
         "",
         "## What these numbers do and do not say",

@@ -1,30 +1,35 @@
-"""Step 5.5's obligations: the shift moves features, and the harness is step 5's.
+"""Step 5.5's obligations: the pairing is measured, and the harness is step 5's.
 
-Four things this file refuses to take on trust:
+Five things this file refuses to take on trust:
 
 * that the sweep's offset grid and its offset->sample conversion agree, so a
   quoted peak is on the lattice the report claims;
-* that a positive offset really reads the envelope *earlier*. A sign error here
-  would put the curve's peak on the wrong side and quietly invert every
-  consequence drawn from it, so the direction is measured three times: from a
-  hand-checkable fixture whose only content is candidate A delayed by 16
-  samples, from the raw chain's own ``audio_offset``, and through the published
-  below-chance control;
+* that a positive offset really reads the envelope *earlier* -- the direction the
+  chain's own ``audio_offset`` defines. The first version of the sweep had this
+  backwards and it was invisible at zero offset, which is the only point step 5
+  published: every other point was the mirror image of the truth. The direction
+  is now measured three times: from a hand-checkable fixture whose only content
+  is candidate A advanced by 16 samples, from the raw chain's aligned envelopes
+  window by window (against the mirror image as a control), and through the
+  published below-chance control;
 * that a shifted envelope cannot silently align back to zero. The fixture says
   what the score must be at zero and at the true delay, and the two differ by
   construction;
+* that a 12.5 ms step is resolved rather than rounded to the nearest 64 Hz
+  sample, checked by the fixture's symmetry about the true delay;
 * that the sweep reproduces step 5's published zero point, to 1e-9. That is the
   whole reason the curve is interpretable: if this harness disagreed with step
   5's, the curve would be measuring the harness.
 
 The tests that need the git-ignored feature cache skip when it is absent, which
 is how the rest of this suite treats the derived artifacts. Every test here can
-fail: ``docs`` in each class says which mutation makes it red, and each was
-checked by mutation while this step was written.
+fail: ``docs`` in each class says which mutation makes it red, and each mutation
+was run while this file was written.
 """
 
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 
@@ -69,33 +74,22 @@ def fake_model():
     return model
 
 
-def smooth_noise(samples, seed, taps=9):
-    """Band-limited noise: a 3-sample misalignment must not erase it."""
-
-    kernel = np.ones(taps) / taps
-    values = np.convolve(np.random.default_rng(seed).standard_normal(samples),
-                         kernel, mode="same")
-    return (values - values.mean()) / values.std()
-
-
 def ramp_pair(delay_samples, samples=1600, period=128):
     """A signal that carries candidate A *advanced* by a known number of samples.
 
-    Returns ``(signal, envelopes)``. Candidate A is one period-128 sine, every
-    channel of ``signal`` is that sine shifted earlier by ``delay_samples`` --
-    which is what a delayed envelope looks like from the EEG's side: the
-    envelope value the EEG at time ``t`` tracks is the one that reaches the ear
-    at ``t + delay`` -- and candidate B is the negated sine, so a correlation of
-    -1 is expected somewhere too. A sine's autocorrelation is known
-    analytically, so the score at offset ``delay / 64`` is 1, at half a period
-    it is -1, and this fixture is checked against arithmetic rather than against
-    another implementation.
+    Returns ``(signal, envelopes)``. Candidate A is one period-128 sine and
+    every channel of ``signal`` is that sine advanced by ``delay_samples``:
+    ``signal[i] == envelopes[i + delay_samples, 0]``. Candidate B is the negated
+    sine, so a correlation of -1 is expected at the same offset.
 
-    Two mistakes were made here while writing this file, and both were caught by
-    the assertions below rather than by review. A straight line will not do: a
-    linear envelope is invariant under any shift, so every offset would score
-    one. And the sign of ``delay_samples`` matters: with the opposite convention
-    the sweep peaks at ``-delay``, which is how the direction was pinned down.
+    The chain's convention is that the envelope is read *earlier* by
+    ``offset * rate`` samples, so this fixture is aligned at a **negative**
+    offset, ``-delay_samples / RATE``: the envelope has to be read
+    ``delay_samples`` later to catch up with the advanced signal. An earlier
+    version of this file asserted the opposite sign and an earlier version of
+    the sweep implemented the opposite sign, so the two agreed with each other
+    and disagreed with the chain. The fixture's arithmetic is exact -- ``cos`` of
+    the residual phase -- and is what the assertions below compare against.
     """
 
     index = np.arange(samples, dtype=float)
@@ -104,6 +98,15 @@ def ramp_pair(delay_samples, samples=1600, period=128):
     signal[:, :] = np.sin(2 * np.pi * (index + delay_samples) / period)[:, None]
     envelopes = np.column_stack([sine, -sine])
     return signal, envelopes
+
+
+def fixture_score(offsets, delay_samples=16, model=None):
+    """The fixture's candidate-A/B scores at one offset or a list of them."""
+
+    signal, envelopes = ramp_pair(delay_samples)
+    model = fake_model() if model is None else model
+    return shift_sweep.trial_scores(model, signal, envelopes, 0, LENGTH,
+                                    np.asarray(offsets), RATE)
 
 
 class GridBookkeepingTests(unittest.TestCase):
@@ -140,53 +143,74 @@ class GridBookkeepingTests(unittest.TestCase):
         self.assertEqual(shift_sweep.shift_for(0.25, 64.0), 16)
 
 
-class ShiftMechanicsTests(unittest.TestCase):
-    """Slicing, direction and failure modes of the shift itself.
+class PairingMechanicsTests(unittest.TestCase):
+    """Where each reconstruction row reads its envelope sample.
 
-    Mutation that makes this red: negate the shift inside ``shift_window``, or
-    drop its clamping so an offset that leaves no audio silently returns zeros.
+    Mutation that makes these red: flip the subtraction in ``positions_for``
+    (the sign error that produced the first attempt's mirrored curve), round the
+    positions to whole samples (the sub-sample steps then collapse), or replace
+    the refusal in ``paired_envelope`` with a clamp so a window the chain calls
+    ``audio_unavailable`` is scored anyway.
     """
 
     def setUp(self):
-        self.envelope = np.arange(40, dtype=float).reshape(20, 2)
+        # Column 0 is ``arange(20)``: linear, so interpolation at a fractional
+        # position has an exact hand-checkable value equal to the position.
+        self.envelope = np.column_stack([np.arange(20, dtype=float),
+                                         -np.arange(20, dtype=float)])
 
     def test_zero_offset_is_an_exact_slice(self):
-        window, first = shift_sweep.shift_window(self.envelope, 5, 10, 0.0, RATE)
-        self.assertEqual(first, 0)
-        np.testing.assert_array_equal(window, self.envelope[5:15])
+        values = shift_sweep.paired_envelope(
+            self.envelope, shift_sweep.positions_for(5, 10, 0.0, RATE)
+        )
+        np.testing.assert_array_equal(values, self.envelope[5:15])
 
     def test_positive_offset_reads_earlier(self):
-        window, first = shift_sweep.shift_window(self.envelope, 5, 10, 0.05, RATE)
-        self.assertEqual(first, 0)
-        np.testing.assert_array_equal(window, self.envelope[8:18])
-        self.assertGreater(window[0, 0], self.envelope[5, 0])
+        """Audio that starts later is compared against what was heard before."""
+
+        values = shift_sweep.paired_envelope(
+            self.envelope, shift_sweep.positions_for(5, 10, 0.05, RATE)
+        )
+        expected = np.arange(5, 15, dtype=float) - 0.05 * RATE
+        np.testing.assert_allclose(values[:, 0], expected, rtol=0, atol=1e-12)
+        self.assertTrue(np.all(values[:, 0] < self.envelope[5:15, 0]),
+                        "a positive offset must read the envelope earlier")
 
     def test_negative_offset_reads_later(self):
-        window, _ = shift_sweep.shift_window(self.envelope, 5, 10, -0.05, RATE)
-        np.testing.assert_array_equal(window, self.envelope[2:12])
+        values = shift_sweep.paired_envelope(
+            self.envelope, shift_sweep.positions_for(5, 10, -0.05, RATE)
+        )
+        expected = np.arange(5, 15, dtype=float) + 0.05 * RATE
+        np.testing.assert_allclose(values[:, 0], expected, rtol=0, atol=1e-12)
 
-    def test_a_shift_that_leaves_no_audio_is_refused(self):
-        with self.assertRaises(ValueError):
-            shift_sweep.shift_window(self.envelope, 0, 10, 0.5, RATE)
+    def test_a_sub_sample_offset_is_interpolated_not_rounded(self):
+        """12.5 ms is 0.8 of a 64 Hz sample, and the sweep must move by 0.8."""
 
-    def test_start_of_recording_returns_the_available_part(self):
-        """A clamped window reports where its rows sit, not a padded invention."""
+        values = shift_sweep.paired_envelope(
+            self.envelope, shift_sweep.positions_for(5, 10, 0.0125, RATE)
+        )
+        expected = np.arange(5, 15, dtype=float) - 0.8
+        np.testing.assert_allclose(values[:, 0], expected, rtol=0, atol=1e-12)
+        self.assertNotEqual(float(values[0, 0]), float(self.envelope[4, 0]))
 
-        values, first = shift_sweep.shift_window(self.envelope, 0, 10, 0.05, RATE)
-        self.assertEqual(first, 0)
-        np.testing.assert_array_equal(values, self.envelope[3:13])
-        values, first = shift_sweep.shift_window(self.envelope, 0, 10, -0.05, RATE)
-        self.assertEqual(first, 3)
-        np.testing.assert_array_equal(values, self.envelope[0:7])
-        self.assertEqual(len(values), 10 - first)
+    def test_a_window_the_offset_pushes_off_the_recording_is_refused(self):
+        """Not clamped and not padded: ``None`` is the chain's ``audio_unavailable``."""
+
+        positions = shift_sweep.positions_for(0, 10, 0.05, RATE)
+        self.assertLess(float(positions[0]), 0.0)
+        self.assertIsNone(shift_sweep.paired_envelope(self.envelope, positions))
+        far = shift_sweep.positions_for(15, 10, -0.05, RATE)
+        self.assertGreater(float(far[-1]), len(self.envelope) - 1)
+        self.assertIsNone(shift_sweep.paired_envelope(self.envelope, far))
 
 
 class ShiftMovesTheFeaturesTests(unittest.TestCase):
     """A shifted envelope must not be able to align back to zero.
 
-    Mutation that makes this red: remove the shift from ``trial_scores`` (the
-    score then never changes with offset), or invert it (the peak lands on the
-    wrong side).
+    Mutation that makes these red: remove the shift from ``trial_scores`` (the
+    score then never changes with offset), invert it (the peak lands on the
+    wrong side), or round the positions to whole samples (the symmetry and the
+    sub-sample assertions below break).
     """
 
     def test_zero_offset_agrees_with_the_decoder_itself(self):
@@ -202,56 +226,43 @@ class ShiftMovesTheFeaturesTests(unittest.TestCase):
         )[0]
         np.testing.assert_allclose(scored, expected, rtol=1e-9, atol=1e-12)
 
-    @unittest.expectedFailure
     def test_the_peak_lands_on_the_true_delay(self):
-        """KNOWN DEFECT, marked as an expected failure rather than made to pass.
+        """The fixture is aligned at ``-delay / rate``, and only there."""
 
-        The sine fixture's true offset is ``delay_samples / RATE``; the sweep
-        peaks one or two samples away from it and reports a correlation of
-        0.965 where the fixture's arithmetic gives 1. That is a systematic
-        error of order one sample in the pairing inside
-        ``shift_sweep.trial_scores`` (or in this fixture) which is *not*
-        resolved. It is declared here, in the file's own record, because the
-        alternative -- deleting the test, or loosening it until the wrong
-        answer passes -- would hide the one thing this step exists to measure.
-        It must be resolved before the published decay curve is trusted.
-        """
-
-        signal, envelopes = ramp_pair(16)
-        model = fake_model()
-        offsets = np.asarray([0.0, 0.125, 0.25, 0.375])
-        scores = shift_sweep.trial_scores(
-            model, signal, envelopes, 0, LENGTH, offsets, RATE
-        )
+        offsets = np.asarray([-0.375, -0.25, -0.125, 0.0])
+        scores = fixture_score(offsets=offsets)
         best = int(np.argmax(scores[:, 0]))
-        self.assertEqual(float(offsets[best]), 16 / RATE,
-                         "the sweep must peak where the delay is undone")
+        self.assertEqual(float(offsets[best]), -16 / RATE,
+                         "the sweep must peak where the advance is undone")
         self.assertGreater(scores[best, 0], 0.999,
                            "the fixture is exactly aligned at that offset")
-        self.assertLess(scores[0, 0], 0.9,
+        self.assertLess(scores[best, 1], -0.999,
+                        "and the negated candidate is exactly anti-aligned")
+        self.assertLess(float(np.max(scores[offsets == 0.0, 0])), 0.75,
                         "an unaligned reference must not score like an aligned one")
 
-    @unittest.expectedFailure
     def test_a_sub_sample_offset_is_resolved_not_rounded_away(self):
-        """KNOWN DEFECT: same root cause as the test above; see its docstring.
+        """The peak moves with a 12.5 ms step, and the fixture stays symmetric.
 
-        A 12.5 ms step must move the peak, and this fixture says it does not.
-        Until that is understood, the sweep's sub-sample resolution is an
-        assumption, not a measurement.
+        A rounded implementation puts the two neighbours a whole sample either
+        side of the truth instead of 0.8 of one, which both walks the peak off
+        the middle and breaks the symmetry these assertions check.
         """
 
-        signal, envelopes = ramp_pair(16)
-        model = fake_model()
-        offsets = np.asarray([16 / RATE - 0.0125, 16 / RATE, 16 / RATE + 0.0125])
-        scores = shift_sweep.trial_scores(
-            model, signal, envelopes, 0, LENGTH, offsets, RATE
-        )
+        offsets = np.asarray([-0.25 - 0.0125, -0.25, -0.25 + 0.0125])
+        scores = fixture_score(offsets=offsets)
         best = int(np.argmax(scores[:, 0]))
         self.assertEqual(best, 1, "the sub-sample step must move the peak with it")
         self.assertGreater(scores[best, 0], 0.999)
-        difference = float(scores[0, 0]) - float(scores[2, 0])
-        self.assertGreater(abs(difference), 1e-6,
-                           "a 12.5 ms shift must change the correlation measurably")
+        expected = float(np.cos(2 * np.pi * 0.8 / 128))
+        for neighbour in (0, 2):
+            # The ideal cosine differs from the measured correlation by the
+            # fixture's finite-window centering (~1e-4). A rounded shift would
+            # put these two at -0.049 and +0.049 instead.
+            self.assertAlmostEqual(float(scores[neighbour, 0]), expected, delta=2e-3)
+        self.assertAlmostEqual(float(scores[0, 0]), float(scores[2, 0]), delta=1e-4,
+                               msg="the fixture is symmetric about the true delay; a "
+                                   "rounded shift would split these by ~0.1")
 
 
 class SingleOffsetScoresTests(unittest.TestCase):
@@ -259,25 +270,24 @@ class SingleOffsetScoresTests(unittest.TestCase):
 
     def test_a_known_shift_moves_the_correlation(self):
         model = fake_model()
-        signal, envelopes = ramp_pair(16)
-        scores = shift_sweep.trial_scores(
-            model, signal, envelopes, 0, LENGTH, np.asarray([0.0, 0.25]), RATE
-        )
+        scores = fixture_score(offsets=[0.0, -0.25], model=model)
         self.assertGreater(scores[1, 0], 0.999,
-                           "the +250 ms reference is the aligned one here")
-        self.assertLess(scores[1, 1], 0.5,
-                        "the unshifted reference is not")
+                           "the reference read 16 samples later is the aligned one")
+        self.assertLess(scores[1, 1], -0.999,
+                        "the negated candidate is anti-aligned there")
+        self.assertLess(scores[0, 0], 0.75,
+                        "the unshifted reference is a quarter period out")
         self.assertNotAlmostEqual(float(scores[0, 0]), float(scores[1, 0]), places=3,
                                   msg="a 250 ms shift must change the correlation")
 
-    def test_the_shift_is_an_exact_reslice_of_the_envelope(self):
-        """The feature moves by whole samples, not by a re-derived envelope."""
+    def test_a_window_the_offset_pushes_off_the_recording_is_not_scored(self):
+        """The whole window abstains rather than correlating over fewer rows."""
 
-        model = fake_model()
-        signal, envelopes = ramp_pair(16)
-        window, first = shift_sweep.shift_window(envelopes, 0, LENGTH, 0.25, RATE)
-        self.assertEqual(first, 0)
-        np.testing.assert_array_equal(window, envelopes[16:16 + LENGTH])
+        scores = fixture_score(offsets=[0.3])
+        self.assertTrue(np.all(np.isnan(scores)),
+                        "a window whose first rows precede the audio has no score")
+        scores = fixture_score(offsets=[0.0])
+        self.assertTrue(np.all(np.isfinite(scores)))
 
 
 @unittest.skipUnless(cache_available(), "the step 5 feature cache is not built")
@@ -299,7 +309,7 @@ class ReproducesStepFiveTests(unittest.TestCase):
             decisions, truths = shift_sweep.sweep(
                 cls.corpus, contract, HISTORY, cls.offsets
             )
-            cls.results[contract] = train_kuleuven.metrics(decisions[0], truths)
+            cls.results[contract] = train_kuleuven.metrics(decisions[0], truths[0])
 
     def test_window_count_is_step_fives(self):
         for contract, result in self.results.items():
@@ -325,32 +335,44 @@ class ReproducesStepFiveTests(unittest.TestCase):
                 )
 
     def test_the_sweep_refuses_a_contract_it_cannot_reproduce(self):
-        """The guard is real: an impossible tolerance must stop the run.
+        """The guard is real: a zero point that is not step 5's stops the run.
+
+        The reference is injected rather than approached by a tolerance, because
+        the reproduction is too exact to fail honestly: at ``--tolerance 1e-9``
+        this harness reproduces step 5 to the last digit, so no honest tolerance
+        makes it raise. Injecting the *wrong* reference is therefore the only way
+        to exercise the guard, and it exercises exactly the code path a real
+        harness mismatch would take.
 
         Mutation that makes this red: turn the comparison into a warning, or
         compare against the reference instead of against the measured number.
         """
 
-        with self.assertRaises(SystemExit) as caught:
-            shift_sweep.main([
-                "--out", str(REPO / "results"), "--contracts", "64ch",
-                "--tolerance", "1e-9", "--json",
-                str(REPO / "results" / "should_not_exist.json"),
-            ])
+        report = REPO / "results" / "should_not_exist.json"
+        report.unlink(missing_ok=True)
+        with mock.patch.dict(shift_sweep.REFERENCE_BALANCED, {"64ch": 0.111111}):
+            with self.assertRaises(SystemExit) as caught:
+                shift_sweep.main([
+                    "--out", str(REPO / "results"), "--contracts", "64ch",
+                    "--json", str(report),
+                ])
         self.assertIn("zero point", str(caught.exception))
-        self.assertFalse((REPO / "results" / "should_not_exist.json").exists())
+        self.assertFalse(report.exists())
 
 
 @unittest.skipUnless(cache_available(), "the step 5 feature cache is not built")
 class RealSignConventionTests(unittest.TestCase):
-    """The direction, measured against the raw chain's own ``audio_offset``.
+    """The direction, measured window by window against the raw chain.
 
-    The chain resamples the audio itself, so it needs no interpolation and no
-    sign help from this module. If ``shift_window`` had the offset backwards,
-    the two would disagree and this test would say so.
+    The chain re-reads the audio itself, so ``aligned.envelopes`` is what the
+    offset means and needs no interpolation from this module. The mirror column
+    is the control: if the sweep's sign were inverted, the two columns would
+    swap, which is exactly what the first attempt's audit showed as a 0.09-0.20
+    accuracy gap at non-zero offsets.
 
-    Mutation that makes this red: negate the shift in ``shift_window``; the
-    cached scores then track the chain's *mirrored* offsets.
+    Mutation that makes this red: negate the shift in ``positions_for``; the
+    cached envelope then tracks the chain's mirror image and the "mirror" column
+    becomes the small one.
     """
 
     @classmethod
@@ -359,7 +381,7 @@ class RealSignConventionTests(unittest.TestCase):
         cls.trial = next(trial for trial in cls.corpus.trials if trial.subject == "S1")
         cls.model_path = REPO / "models" / train_kuleuven.MODEL_NAMES["64ch"]
 
-    def test_cached_shift_tracks_the_chain(self):
+    def test_cached_pairing_reproduces_the_chain_window_by_window(self):
         rows = shift_sweep.audit_chain_offset(
             shift_sweep.converted_path_for(self.trial),
             self.model_path, np.asarray([-0.3, 0.0, 0.3]), HISTORY,
@@ -371,8 +393,23 @@ class RealSignConventionTests(unittest.TestCase):
         self.assertGreater(rows[0]["windows"], 5)
         for row in rows:
             with self.subTest(offset=row["offset_seconds"]):
-                self.assertAlmostEqual(row["difference"], 0.0, delta=0.2,
-                                       msg="cached and chain agree away from the edges")
+                self.assertGreater(row["chain_envelope_mean_abs"], 1e-4,
+                                   "a comparison of near-zero envelopes proves nothing")
+                self.assertLess(row["envelope_max_difference"], 1e-8,
+                                "the cached envelope is the chain's envelope to the "
+                                "cache's own float32 storage precision (<= 8.6e-10)")
+                self.assertLess(row["score_max_difference"], 1e-6,
+                                "and the scores built from it are the chain's scores "
+                                "(<= 8.6e-08; zero offset mixes float32 and float64)")
+                self.assertAlmostEqual(row["difference"], 0.0, places=9,
+                                       msg="cached and chain agree on the decisions")
+                if row["offset_seconds"] != 0.0:
+                    # The mirror of zero offset *is* zero offset, so the control
+                    # only says anything where there is a sign to get wrong.
+                    self.assertGreater(row["envelope_mirror_max_difference"], 1e-4,
+                                       "the mirror must NOT be the chain's envelope")
+                    self.assertGreater(row["score_mirror_max_difference"], 0.05,
+                                       "and it must score materially differently")
         self.assertNotAlmostEqual(rows[0]["cached_balanced_accuracy"],
                                   rows[-1]["cached_balanced_accuracy"], places=3,
                                   msg="+/-300 ms must not score the same by accident")
@@ -383,7 +420,7 @@ class CurveReadingTests(unittest.TestCase):
 
     Mutation that makes this red: measure the half-depth level against the
     majority rate instead of the balanced chance line, or return the first grid
-    point instead of an interpolated crossing.
+    point past the level instead of the interpolated crossing.
     """
 
     def points(self, values, step=0.05):
@@ -402,11 +439,23 @@ class CurveReadingTests(unittest.TestCase):
         self.assertAlmostEqual(peak["balanced_accuracy"], 0.70)
 
     def test_half_depth_crossings_are_interpolated(self):
+        """Half depth is 0.60 between a 0.55 and a 0.70 point, so 1/3 of the way.
+
+        The level sits between grid points by construction, which is what makes
+        this test about interpolation: a reader that took the first grid point
+        past the level would report 0.10 s of width instead of 1/15 s. (An
+        earlier version of this test asserted 0.10 s and a 0.30 s chance width --
+        a width no five-point grid spanning +/-0.1 s can have, so it could never
+        have passed.)
+        """
+
         points = self.points([0.50, 0.55, 0.70, 0.55, 0.50])
         width = shift_sweep.width_of(points, shift_sweep.peak_of(points))
         self.assertAlmostEqual(width["half_depth_level"], 0.60)
-        self.assertAlmostEqual(width["half_depth_width_seconds"], 0.10, places=9)
-        self.assertAlmostEqual(width["chance_width_seconds"], 0.30, places=9,
+        self.assertAlmostEqual(width["left_half_depth_seconds"], -1 / 30, places=9)
+        self.assertAlmostEqual(width["right_half_depth_seconds"], 1 / 30, places=9)
+        self.assertAlmostEqual(width["half_depth_width_seconds"], 1 / 15, places=9)
+        self.assertAlmostEqual(width["chance_width_seconds"], 0.20, places=9,
                                msg="the curve touches 0.5 at both ends of this sweep")
 
     def test_asymmetry_is_signed(self):
