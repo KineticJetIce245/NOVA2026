@@ -25,9 +25,21 @@ position that the gain gate demands (decision D-02) is supplied by
 :class:`~scripts.auditory_ui.media.SimulatedMediaClient`, which speaks
 ``mediaController.js``'s protocol exactly - because the acceptance run has no
 browser, and a backend that invented a playback position would be violating the
-one rule the frontend checks field by field. A human can watch the same run at
-the printed URL; ``--browser`` additionally waits after the replay so the page
-stays up.
+one rule the frontend checks field by field.
+
+**The stand-in and the page want the same slot, so the winner is stated, not
+raced** (decision D-52). The transport allows one media controller at a time, and
+before this flag the stand-in always claimed it first, so a page that arrived
+second was refused its ``prepare`` - and ``mediaController.play()`` sends
+``prepare`` before ``element.play()``, so it never played anything at all. That
+silent loss is the "I can't hear anything" report. ``--media-owner`` says which
+client should win: ``demo`` (the stand-in at once, the old unattended behaviour),
+``standby`` (the page is offered the slot for ``--standby-seconds``; the stand-in
+takes it only if nothing claimed it), ``page`` (the stand-in never competes), and
+``auto``, which is ``page`` when ``--open-browser`` is given and ``standby``
+otherwise. The mode, the window and the outcome are printed and recorded. A human
+can watch the same run at the printed URL; ``--browser`` additionally waits after
+the replay so the page stays up.
 
 **The operating point.** ``--margin`` defaults to
 :data:`~nova2026.auditory.config.CALIBRATED_MARGIN` (0.05), the point measured on
@@ -347,9 +359,7 @@ async def capture(port: int, packets: list, stop: asyncio.Event, client, arrival
         return
 
 
-async def drive(
-    port: int, args, session, media_report: dict, stop: asyncio.Event, media=None, owner: str = "demo"
-) -> dict:
+async def drive(port: int, args, session, media_report: dict, stop: asyncio.Event) -> dict:
     """Start the transport session, run the client, and watch it end.
 
     Three things happen at once, and they are separate on purpose: the simulated
@@ -359,10 +369,17 @@ async def drive(
     the replay is over.
 
     **Who gets the media slot** is decided before the stand-in sends anything, by
-    ``owner`` (see :func:`media_owner`) - never by which client was quicker. In
-    ``standby`` the stand-in waits for the page and, if the page takes the slot,
-    never sends a command at all: the loser here is *out*, not refused, so there
-    is no 409 for the page to turn into ``fail()`` and no silent dead player.
+    :func:`media_owner` and :func:`settle_media_owner` - never by which client was
+    quicker. In ``standby`` the stand-in waits for the page and, if the page takes
+    the slot, never sends a command at all: the loser here is *out*, not refused,
+    so there is no 409 for the page to turn into ``fail()`` and no silent dead
+    player.
+
+    The two things that decision needs - the live timeline and the resolved mode -
+    arrive on ``args`` (``media`` and ``media_owner_mode``) rather than as new
+    parameters, so this signature stays exactly what it was: ``test_demo_serve``
+    wraps this function in a five-argument double, and a demo fix that breaks the
+    test guarding the demo is not a fix.
 
     **Two events, and the difference is the whole point.** ``stop`` is the *run's*
     shutdown signal: Ctrl-C sets it, and so does the end of the stay-open window
@@ -376,6 +393,8 @@ async def drive(
 
     import httpx
 
+    owner = args.media_owner_mode
+    media = args.media
     base = f"http://127.0.0.1:{port}"
     packets: list = []
     packets_arrival: list = []
@@ -594,7 +613,9 @@ async def main_async(args) -> int:
         open_task = None
         if args.open_browser:
             open_task = asyncio.create_task(asyncio.to_thread(open_browser, url, lines))
-        state = await drive(port, args, None, media_report, stop, media, owner)
+        args.media = media
+        args.media_owner_mode = owner
+        state = await drive(port, args, None, media_report, stop)
         if open_task is not None:
             await open_task
         if args.browser or args.serve_seconds > 0:

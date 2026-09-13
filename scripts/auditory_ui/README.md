@@ -97,3 +97,54 @@ console output is packet types, counts and assertion verdicts — never packet
 payloads. The packet stream is written to `output/auditory_ui/` as the run's
 evidence: it holds decision words, correlations, gains and candidate file names,
 and nothing that identifies a participant.
+
+## Who owns the media slot — `--media-owner` (one slot, so it is decided, not raced)
+
+The transport allows **exactly one** media controller at a time
+(`MediaTimeline.control` refuses every other `client_id` with a 409, and only that
+owner's own `stopped` releases it). Two clients want it: the browser page, and
+this demo's own `SimulatedMediaClient` stand-in. The stand-in used to prepare the
+instant `/api/session/start` answered, so it won by construction and the page
+lost — and the page's loss was silent: `mediaController.play()` sends `prepare`
+*before* `element.play()`, so a refused `prepare` means the element is never
+played at all. That is the defect recorded as **D-52**, and it is why "I can't
+hear anything" was true on some runs and false on others with no code change.
+
+`--media-owner` states the intent instead of hoping for the quicker client:
+
+| mode | who claims the slot | use it for |
+| --- | --- | --- |
+| `demo` | the stand-in, immediately — the behaviour of every run before this flag | unattended runs, exactly as before |
+| `standby` | the page is offered the slot for `--standby-seconds` (default 10); the stand-in takes it only if nothing claimed it | a URL you open yourself |
+| `page` | the page only; the stand-in never sends a command | a window certain to be watched |
+| `auto` | `--open-browser` → `page`; otherwise `standby` | the default |
+
+The mode, the window and the outcome are printed and written into the run record
+(`media_owner`), so "who owned the slot" is never a guess after the fact.
+
+**What it costs.** Only `page` is free. `standby` spends up to `--standby-seconds`
+of a run in which nothing claims the slot, and then there is **no attenuation at
+all** — the gain gate needs a genuinely reporting controller, and this process is
+forbidden from inventing a playback position (decision D-02). That is why the
+default is not `demo`: an unattended run pays ten seconds, while a person who
+opens the URL by hand otherwise loses the entire demo. `standby` is not a timing
+heuristic about how fast somebody clicks — the fact it reads is the transport's own
+record of a *completed* handshake (`MediaTimeline.claimed`), which no probe can be
+overtaken on. What the window decides is only how long the slot stays reserved for
+a page that has not arrived yet; a page arriving after it is refused exactly as it
+is today, and that refusal is recorded.
+
+`--open-browser` therefore also means "the page owns the slot": this process opens
+the page itself, so there is no race to lose and no window to wait out.
+
+**Known limit, in the frontend, not fixed here.** When the page *is* refused it
+prints "Playback synchronization unavailable. Stop, then Play to reconnect." The
+retry that suggests does not work: `stopped` is refused for the same ownership
+reason, so the operator is told to do something that cannot succeed. The fix
+belongs in `apps/attune-ui/src/mediaController.js` (report the refusal as an
+ownership conflict and name the recovery, or re-`prepare` only after a `stop` the
+frontend itself has confirmed), and that file is owned by another agent.
+
+`scripts/auditory/tests/test_media_ownership.py` locks all of it against a real
+`MediaTimeline` over a real socket; `mutate_media_ownership.py` in the same
+directory restores each half of the defect and shows which test goes red.

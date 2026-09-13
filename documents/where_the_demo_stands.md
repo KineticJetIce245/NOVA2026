@@ -386,6 +386,40 @@ The minimum score gap (now calibrated, 3.3) and the electrode-quality limit (now
 declarable, 5.6) were both originally guesses. The gain applied to the unattended
 stream (6 dB) is still a guess. So is the 0.4-second ramp used when changing volume.
 
+### 5.10 Whether you heard anything depended on a race
+
+The transport allows exactly one media controller at a time, and the demo's own
+stand-in and the browser page both want that slot. The stand-in prepared the
+instant the session started, so it won by construction; the page's `prepare` was
+refused with a 409, and because the frontend sends `prepare` *before*
+`element.play()`, a refused `prepare` means the audio element was never played at
+all. Nothing was logged, and nothing on the page said "I could not play". The same
+code and the same command therefore produced "it works" on one run and "I can't
+hear anything" on the next — and the successful runs recorded in `results/` are
+examples of the race being won, not evidence that the code was sound.
+
+This is now decided rather than raced. `--media-owner` states who may claim the
+slot: `demo` (the stand-in, the old unattended behaviour), `standby` (the page is
+offered the slot for `--standby-seconds`, default 10; the stand-in takes it only if
+nothing claimed it), `page` (the stand-in never sends a command), and `auto`
+(`--open-browser` → `page`, otherwise `standby`). The mode, the window and the
+outcome are printed and recorded, so who owned the slot is never reconstructed
+after the fact. The decision reads the transport's own record of a completed
+handshake, so it is not a timing guess about how fast somebody clicks; the window
+only decides how long the slot stays *reserved* for a page that has not arrived.
+
+Two costs are real and are written down rather than hidden. In `page` mode an
+unattended run attenuates nothing at all, because the gain gate requires a
+controller that is genuinely reporting a position and this process may not invent
+one (D-02). In `standby` mode an unattended run spends the window before the
+stand-in takes over. That is why the default is `standby` and not `demo`: ten
+seconds of an unattended run is cheaper than a person losing the whole demo.
+
+One part is not fixed and is not ours to fix: when the page *is* refused it tells
+the operator "Stop, then Play to reconnect", and that retry cannot work, because
+`stopped` is refused for the same ownership reason. The message and the recovery
+both live in `apps/attune-ui/src/mediaController.js`.
+
 ---
 
 ## 6. What the end goal actually requires
@@ -469,7 +503,9 @@ anyone hears better.
 Read `final_connection.md` section 5 for the step-by-step plan with evidence, and
 `VALIDATION.md` for the claim boundaries. Then:
 
-- to see it work: `python -B -m scripts.auditory_ui.demo`
+- to see it work: `python -B -m scripts.auditory_ui.demo` (this opens no page, so
+  the stand-in owns media playback — for a window you watch yourself, use
+  `--open-browser`, which also gives the page the media slot; see 5.10)
 - to see the fault behaviour: `python -B -m scripts.auditory_ui.demorun`
 - to reproduce any number in section 3: the corresponding script is named in 4.1,
   and its output is in `results/`.
