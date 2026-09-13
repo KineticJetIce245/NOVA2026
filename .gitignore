@@ -72,6 +72,13 @@ results/*
 # under models/.
 !results/aad_*.json
 !results/aad_*.md
+# Exception: the ANT test-set reference report. Every fact in it was measured from
+# the user's own recording, and every value an outside reader needs (channels,
+# units, markers, timeline, audio identity) is stated with the command that
+# produced it, so it can be cited instead of re-derived. It is operator-confirmed
+# where the files cannot settle a question, and says so. The recording it
+# describes stays out of git under tmp/.
+!results/antneuro_testset_report.md
 
 # macOS metadata. On exFAT (this repository lives on one) macOS cannot store
 # extended attributes, so it writes an AppleDouble sidecar next to every file it
