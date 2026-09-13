@@ -135,6 +135,7 @@ class MediaTimeline:
         self.reference: float | None = None
         self.last_received: float | None = None
         self.valid = False
+        self.ever_claimed_at: float | None = None
 
     def descriptor(self) -> dict[str, Any]:
         """Return the asset identity the controller needs, without its path."""
@@ -153,6 +154,30 @@ class MediaTimeline:
             if self.session_id != session_id:
                 self.stop()
                 self.session_id = session_id
+                self.ever_claimed_at = None
+
+    def claimed(self) -> bool:
+        """Whether any controller has held this slot since the session was bound.
+
+        This is the question a client that is *deciding whether to compete* needs
+        answered, and it is deliberately a different question from "is the slot
+        free": :meth:`stop` clears ``client_id`` whether it was the controller
+        that stopped or a fresh one taking over, so a second preparer asking
+        "is it mine?" cannot tell an idle slot from an abandoned one. Here the
+        answer stays ``True`` for the rest of the session once the first
+        ``prepare`` has been accepted, which is what makes a stand-in able to
+        stand down for good instead of racing for the slot.
+
+        Read-only: it takes the lock, reads one field and changes nothing, so it
+        cannot alter any acknowledgement or refusal :meth:`control` produces.
+
+        Returns:
+            ``True`` once a ``prepare`` has been accepted since :meth:`bind`
+            attached this timeline to its current session.
+        """
+
+        with self.lock:
+            return self.ever_claimed_at is not None
 
     def stop(self) -> None:
         """Return to the neutral stopped state and bump the revision.
@@ -274,6 +299,9 @@ class MediaTimeline:
                 self.reference = now
                 self.playback = "paused"
                 self.valid = True
+                # Sticky for the rest of the session, so a stand-in can see that
+                # the slot has an owner even after that owner stops.
+                self.ever_claimed_at = now
             elif self.client_id is None:
                 if action != "stopped":
                     raise ValueError("prepare must be accepted before any other action.")

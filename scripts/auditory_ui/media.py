@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -317,6 +318,128 @@ class SimulatedMediaClient:
         self.media_id = str(media_id)
 
 
+STANDBY_POLL_SECONDS = 0.25
+"""How often the stand-in re-reads :meth:`MediaTimeline.claimed` while waiting."""
+
+
+class StandbyMediaClient:
+    """A stand-in that refuses to race the page the demo is being watched through.
+
+    The transport has one media slot and it is sticky: ``MediaTimeline.control``
+    refuses any ``client_id`` other than the current owner, and the owner is only
+    dropped by a ``stopped`` that owner itself sends. So when the demo's own
+    stand-in prepares first, the browser's ``mediaController.play()`` gets a 409
+    on its ``prepare`` and - by ``mediaController.js``'s own control flow - never
+    reaches ``element.play()`` at all. The person watching hears nothing, and
+    which process wins is decided by nothing but latency: the stand-in prepares
+    the moment ``/api/session/start`` answers, and the page prepares when a human
+    clicks Play.
+
+    This class is the stand-in holding off. :meth:`wait_for_owner` reads the
+    transport's own answer to "has any controller held this slot since the
+    session was bound" - ``MediaTimeline.claimed``, which is sticky for the
+    session - and reports whether the page got there first. The loser is decided
+    *before a single command is sent*, so the loser never issues a command that
+    can be refused: no 409, no ``fail()``, no silent dead player.
+
+    What it is not: a wait-and-see guess about timing. The fact it reads is the
+    server's own record of a *completed* handshake, so no probe can be overtaken
+    by a page that already prepared - a probe that reports the slot unclaimed
+    cannot be wrong about the past. What the window does decide is the future:
+    it is how long the slot is reserved for a page that has not arrived yet, and
+    a page that arrives after it is refused exactly as it is today. That is why
+    the window is explicit and configurable, and why the outcome it produced is
+    written into the run record.
+
+    Args:
+        client: The stand-in that claims the slot if no page does.
+        timeline: The live ``MediaTimeline`` this process is serving. Reading it
+            in process is deliberate: it is the same object ``server.py`` binds
+            the session to and its ``control`` mutates, so there is no extra
+            endpoint, no client-supplied state and no second copy of the truth.
+        deadline_seconds: How long the page is given to claim the slot first.
+            ``None`` waits indefinitely - the correct choice when this same
+            process opened the browser itself, because then the page is not a
+            possibility but a fact.
+        poll_seconds: Interval between ownership probes.
+
+    Raises:
+        ValueError: If ``poll_seconds`` is not finite and positive.
+    """
+
+    def __init__(
+        self,
+        client: SimulatedMediaClient,
+        timeline: Any,
+        *,
+        deadline_seconds: float | None,
+        poll_seconds: float = STANDBY_POLL_SECONDS,
+    ) -> None:
+        if (
+            isinstance(poll_seconds, bool)
+            or not isinstance(poll_seconds, (int, float))
+            or not math.isfinite(poll_seconds)
+            or poll_seconds <= 0
+        ):
+            raise ValueError("poll_seconds must be a finite positive number of seconds.")
+        self.client = client
+        self.timeline = timeline
+        self.deadline_seconds = None if deadline_seconds is None else float(deadline_seconds)
+        self.poll_seconds = float(poll_seconds)
+        self.probes = 0
+        self.waited_seconds = 0.0
+
+    async def wait_for_owner(self) -> dict[str, Any]:
+        """Return who owns the media slot, after giving the page its window.
+
+        Returns:
+            A JSON-safe record: ``owner`` is ``"page"`` when a controller had
+            already claimed the slot (or claimed it while this waited) and
+            ``"demo"`` when the window closed with the slot untouched,
+            ``probing`` is what the last probe saw, ``waited_seconds`` is the
+            time given up, and ``window_seconds`` is the window that applied
+            (``None`` for unbounded).
+        """
+
+        began = time.monotonic()
+        claimed = False
+        while True:
+            self.probes += 1
+            claimed = bool(self.timeline.claimed())
+            if claimed:
+                self.waited_seconds = time.monotonic() - began
+                return {
+                    "owner": "page",
+                    "why": "a controller had already prepared the timeline",
+                    "probing": True,
+                    "waited_seconds": round(self.waited_seconds, 3),
+                    "window_seconds": self.deadline_seconds,
+                    "probes": self.probes,
+                }
+            if (
+                self.deadline_seconds is not None
+                and time.monotonic() - began >= self.deadline_seconds
+            ):
+                break
+            try:
+                await asyncio.sleep(self.poll_seconds)
+            except asyncio.CancelledError:  # pragma: no cover - shutdown race
+                break
+        self.waited_seconds = time.monotonic() - began
+        return {
+            "owner": "demo",
+            "why": (
+                f"no controller claimed the slot within {self.deadline_seconds:g}s"
+                if self.deadline_seconds is not None
+                else "no controller claimed the slot"
+            ),
+            "probing": claimed,
+            "waited_seconds": round(self.waited_seconds, 3),
+            "window_seconds": self.deadline_seconds,
+            "probes": self.probes,
+        }
+
+
 def _short(text: str, limit: int = 200) -> str:
     """One line of an error body, bounded; the log is evidence, not a dump."""
 
@@ -334,8 +457,10 @@ __all__ = [
     "ACKNOWLEDGEMENT_TIMEOUT_SECONDS",
     "CONTROL_TIMEOUT_SECONDS",
     "MEDIA_TICK_SECONDS",
+    "STANDBY_POLL_SECONDS",
     "ControlExchange",
     "MediaClientResult",
     "SimulatedMediaClient",
+    "StandbyMediaClient",
     "load_control_log",
 ]
