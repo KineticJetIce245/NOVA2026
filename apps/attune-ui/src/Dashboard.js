@@ -1,6 +1,7 @@
 import React from 'react';
 import { MediaPlayback } from './MediaPlayback.js';
 import { FeedbackPanel } from './FeedbackPanel.js';
+import { DecisionStory, DifferenceTrace, SourceComparison, storyLayout } from './decisionStory.js';
 import { Header, PredictionCard, StatusCard, SecondaryMetrics, LiveSignalPanel, SessionControls, displayValue } from './DashboardParts.js';
 const h = React.createElement;
 export function Dashboard({ state, command, busy = false, commandError = null, mediaConfig = null, mediaRest, stopSignal = 0 }) {
@@ -16,7 +17,12 @@ export function Dashboard({ state, command, busy = false, commandError = null, m
       h('strong', null, 'ARTIFICIAL DEMO DATA'),
       h('p', null, 'The interface is exercising the real ATTUNE transport path. These values are not participant measurements.')),
     mediaConfig ? h(MediaPlayback, { config: mediaConfig, rest: mediaRest, state, stopSignal },
-      ({ inactive: mediaInactive }) => h(PredictionCard, { stream: latest('attention'), inactive: inactive || mediaInactive, gain, mediaMode: true })) :
+      ({ inactive: mediaInactive }) => h(React.Fragment, null,
+        h(DecisionStory, { history: state.history, state, inactive: inactive || mediaInactive }),
+        h('section', { className: 'trace-card', 'aria-label': 'Score difference history' },
+          h(DifferenceTrace, { layout: storyLayout(state.history, { currentTime: latest('attention')?.values.mediaTime ?? null, duration: latest('media')?.values.duration }) })),
+        h(SourceComparison, { history: state.history, state, inactive: inactive || mediaInactive }),
+        h(PredictionCard, { stream: latest('attention'), inactive: inactive || mediaInactive, gain, mediaMode: true }))) :
       h(PredictionCard, { stream: latest('attention'), inactive, sources: latest('audio_sources')?.values.sources, gain }),
     mediaConfig && h(SecondaryMetrics, { vigilance, sync: latest('sync')?.values, quality: latest('signal_quality')?.values, inactive }),
     h(mediaConfig ? 'details' : 'div', { className: mediaConfig ? 'additional-status' : undefined },

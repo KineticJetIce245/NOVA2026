@@ -26,7 +26,7 @@ function harness(restOverride) {
 
 test('F02-T01 attention decoder preserves decisions and correlations', () => {
   const d = decodePacket(packet(1, 'attention', { attended: 'B', correlation_a: 0, correlation_b: -.3, simulated: true }));
-  assert.deepEqual(d.values, { attended: 'B', correlationA: 0, correlationB: -.3 });
+  assert.deepEqual(d.values, { attended: 'B', correlationA: 0, correlationB: -.3, reasons: [] });
   assert.equal(d.simulated, true); assert.equal(d.known, true);
 });
 test('F02-T02 vigilance decoder preserves valid zero and rejects unavailable scores', () => {
@@ -52,7 +52,7 @@ test('F02-T06 missing optional fields remain unavailable in all decoders', () =>
   for (const type of ['attention', 'vigilance', 'sync', 'eeg_display']) {
     const d = decodePacket(packet(1, type));
     assert.equal(d.simulated, null);
-    assert.ok(Object.values(d.values).every(v => v === null));
+    assert.ok(Object.values(d.values).every(v => v === null || (Array.isArray(v) && v.length === 0)));
   }
 });
 test('F02-T07 malformed envelopes and nonfinite JSON are rejected', () => {

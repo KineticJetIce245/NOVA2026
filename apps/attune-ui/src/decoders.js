@@ -38,6 +38,7 @@ export const decoders = new Map([
     const attended = explicit ? decision : p.attended;
     return { ...mediaReference(p), attended: ['A', 'B'].includes(attended) ? attended : null,
       correlationA: number(p.correlation_a), correlationB: number(p.correlation_b),
+      reasons: Array.isArray(p.reasons) ? p.reasons.filter(reason => typeof reason === 'string') : [],
       ...(explicit ? { decision } : {}) };
   }],
   ['vigilance', p => ({
