@@ -4,7 +4,7 @@
 // the other suites; these tests cover what the page puts on screen.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -26,7 +26,12 @@ function replay(packets) {
 }
 const historyOf = packets => replay(packets).history;
 
-const recorded = readFileSync(FIXTURE, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+// The packet log is a demo artifact and is not committed, so a clean clone has
+// no copy of it. Its absence must not take the whole module down: the tests that
+// need it skip with the reason below and the rest still run and still assert.
+const MISSING_RUN = existsSync(FIXTURE) ? false
+  : `no recorded run at ${FIXTURE} — create it with: python -B -m scripts.auditory_ui.demo`;
+const recorded = MISSING_RUN ? [] : readFileSync(FIXTURE, 'utf8').trim().split('\n').map(line => JSON.parse(line));
 // The decoded media stream only carries a duration once the browser has
 // reported one; the trial itself is 125 s. The page reads whichever it has.
 const trialDuration = 125;
@@ -34,7 +39,7 @@ const replayed = replay(recorded);
 const recordedAttention = recorded.filter(p => p.type === 'attention').map(p => p.payload);
 const count = decision => recordedAttention.filter(p => p.decision === decision).length;
 
-test('STORY-F01 the display ledger keeps every received frame, in order', () => {
+test('STORY-F01 the display ledger keeps every received frame, in order', { skip: MISSING_RUN }, () => {
   const attention = recordedAttention.length, gains = recorded.filter(p => p.type === 'gain').length;
   const frames = replayed.history.filter(frame => frame.kind === 'attention');
   assert.equal(frames.length, attention);
@@ -46,7 +51,7 @@ test('STORY-F01 the display ledger keeps every received frame, in order', () => 
   assert.equal(appendFrame(replayed.history, 'gain', decodePacket(recorded.find(p => p.type === 'gain'))), replayed.history);
 });
 
-test('STORY-F02 the timeline draws exactly the frames that arrived', () => {
+test('STORY-F02 the timeline draws exactly the frames that arrived', { skip: MISSING_RUN }, () => {
   assert.ok(trialDuration > 0, 'the recorded run must declare a media duration');
   const positioned = replay([...recorded, envelope('media', { duration_s: trialDuration, media_time_s: 60, playback_state: 'playing', revision: 2, media_id: 'm' }, 99999)]);
   const stream = { type: 'attention', values: { mediaTime: 60 } };
@@ -103,7 +108,7 @@ test('STORY-F04 the two scores share one axis and the difference is named', () =
   assert.match(htmlBelow, /shared scale ±0\.100/);
 });
 
-test('STORY-F05 the difference trace is raw, unscaled data with the margin band', () => {
+test('STORY-F05 the difference trace is raw, unscaled data with the margin band', { skip: MISSING_RUN }, () => {
   const layout = storyLayout(replayed.history, { currentTime: 60, duration: 125 });
   const html = render(DifferenceTrace, { layout });
   assert.equal((html.match(/<circle/g) ?? []).length, layout.points.length);
@@ -117,12 +122,15 @@ test('STORY-F05 the difference trace is raw, unscaled data with the margin band'
   assert.match(html, /class="trace-margin"/);
 });
 
-test('STORY-F06 empty and pre-session states claim nothing', () => {
+test('STORY-F06 empty and pre-session states claim nothing', t => {
   const empty = plain(render(DecisionStory, { history: [], state: emptyState() }));
   assert.match(empty, /<p class="verdict-value">No data<\/p>/);
   assert.equal(marks(empty), 0);
   assert.match(empty, /0 attention frames received/);
   assert.match(render(DifferenceTrace, { layout: storyLayout([], {}) }), /for every scored window/);
+  // Only this last pre-session check replays the recording; the empty-state
+  // assertions above run on their own packets and have already been made.
+  if (MISSING_RUN) return t.skip(MISSING_RUN);
   const notLive = plain(render(DecisionStory, { history: replayed.history, state: replayed, inactive: true }));
   assert.match(notLive, /Playback is not live/);
 });
