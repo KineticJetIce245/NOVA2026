@@ -190,6 +190,29 @@ class Acquire:
             # Sleep briefly; stop() wakes this wait immediately.
             self._stop.wait(self._poll_interval)
 
+    def flush(self) -> int:
+        """Drop every buffered sample without closing the inlet; return the count.
+
+        This exists for a live consumer that attaches behind a source which is
+        already streaming. Samples buffered before the consumer's own session
+        began are not signal to analyse, and ``_take_block`` cuts blocks off the
+        *front* of the buffer, so a backlog makes every block it hands back look
+        old -- ``_check_age`` then refuses it as if the source had stalled.
+
+        Unlike :meth:`close` this detaches nothing: the callback stays wired and
+        the next :meth:`read` starts from whatever is current. The drop is a
+        discontinuity, so the spacing bookkeeping that compares each block with
+        the one before it is reset rather than allowed to see a step across the
+        hole.
+        """
+
+        dropped = self._pending_samples
+        self._data = []
+        self._timestamps = []
+        self._pending_samples = 0
+        self._previous_timestamp = None
+        return dropped
+
     def stop(self) -> None:
         """Request shutdown; a blocked ``read()`` returns by raising RuntimeError."""
 

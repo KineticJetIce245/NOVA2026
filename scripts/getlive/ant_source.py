@@ -214,22 +214,8 @@ class AntStreamSource:
 
         self.policy = GridPolicy.for_rate(self.sample_rate)
         self._timebase = TimeBase(self.policy) if timebase == "grid" else None
-        # Drop what the inlet buffered before this process attached, BEFORE
-        # ``Acquire`` wires its callback: anything already buffered is from before
-        # the connection and must not reach the chain.
-        #
-        # On the rig the amplifier is streaming before the demo is started -- that
-        # is the documented procedure -- so the first read is a backlog several
-        # seconds deep, and ``Acquire``'s age guard refuses it as if the source had
-        # stalled: the transport ends with "Source samples are N seconds old"
-        # having acquired no block at all. Measured on a synthetic source that had
-        # been publishing for ~8 s: 3.713 s old, 1525 samples left pending, zero
-        # minutes of signal. Dropping the backlog is what makes "connect the EEG
-        # first, then start the demo" the ordinary case instead of a fault.
-        #
-        # The count is reported (``diagnostics.discarded_backlog_samples``) rather
-        # than swallowed, so a run says how much it threw away before it started.
-        self.discarded_backlog = self._discard_initial_backlog()
+        # Filled in when consumption actually begins; see ``chunks``.
+        self.discarded_backlog = 0
         self.acquire = Acquire(
             stream,
             int(block_samples),
@@ -244,9 +230,7 @@ class AntStreamSource:
         # (``lead_seconds`` in ``ant_publish``) keeps that backlog short, but the
         # lag is a measurement, not a thing to hide: it stays in
         # ``diagnostics.max_lag_seconds``.
-        self.diagnostics = TransportDiagnostics(
-            discarded_backlog_samples=self.discarded_backlog
-        )
+        self.diagnostics = TransportDiagnostics()
 
         # Optional pre-chain rate conversion. It exists because a model's
         # contract names the rate its training trials were at, and the live path
@@ -302,6 +286,13 @@ class AntStreamSource:
 
         if not self.stream.connected:
             return 0
+        # Only a real LSL inlet has a buffer to drop. A source that does not expose
+        # the acquisition API -- a test double, or any deterministic stand-in --
+        # has no backlog, and reaching for methods it does not have would be a
+        # requirement invented by this drain rather than by the source.
+        for needed in ("acquire", "get_data", "n_new_samples"):
+            if not hasattr(self.stream, needed):
+                return 0
         discarded = 0
         deadline = time.monotonic() + budget_seconds
         while time.monotonic() < deadline:
@@ -329,6 +320,27 @@ class AntStreamSource:
 
         diagnostics = self.diagnostics
         diagnostics.ended = "running"
+        # Drop everything that arrived before consumption actually began.
+        #
+        # This is deliberately here and not at construction. On the rig the
+        # amplifier is streaming before the demo is started -- the documented
+        # procedure -- so the inlet's first read is a backlog; and the gap between
+        # attaching and consuming is seconds long (the media is rendered, the
+        # contract is checked, the URL is printed), during which the backlog grows
+        # rather than drains. ``Acquire._take_block`` cuts from the FRONT of the
+        # buffer, so that backlog makes every block handed back look old and the
+        # age guard ends the run: measured, "Source samples are 3.467 seconds old"
+        # with zero blocks acquired, after an earlier attempt had already dropped
+        # 15 000 samples at construction time.
+        #
+        # Dropping it here is what makes "connect the EEG, then start the demo"
+        # the ordinary case instead of a fault. What was dropped is reported
+        # (``diagnostics.discarded_backlog_samples``), never silently swallowed.
+        self.discarded_backlog += self._discard_initial_backlog()
+        flush = getattr(self.acquire, "flush", None)
+        if callable(flush):
+            flush()
+        diagnostics.discarded_backlog_samples = self.discarded_backlog
         try:
             while not stop.is_set():
                 try:
