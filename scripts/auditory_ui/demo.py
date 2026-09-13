@@ -79,6 +79,7 @@ from nova2026.auditory.render import (  # noqa: E402
     PRESENTATION_MODES,
     presentation_mode,
     render_stereo,
+    truncate_to_eeg,
 )
 from nova2026.auditory.session import AttentionSession, RunPolicy  # noqa: E402
 from nova2026.auditory.sources import (  # noqa: E402
@@ -111,6 +112,32 @@ def log(message: str, lines: list[str]) -> None:
     lines.append(line)
 
 
+def display_channel(args, channel_names) -> str | None:
+    """The electrode the ``eeg_display`` tap carries, and why, for this run.
+
+    ``--eeg-display-channel`` wins when given. Without it the panel keeps
+    working the way it always did -- the tap is off -- because turning a new
+    per-frame packet on silently would be a change no run record asked for. A
+    caller that wants the tap without naming an electrode gets ``Cz`` when the
+    contract lists it and the first channel otherwise; either way the reason is
+    free text the producer records in the packet's ``channel_source``.
+
+    Returns:
+        The label, or ``None`` when no display was requested.
+    """
+
+    if not args.eeg_display_channel:
+        return None
+    names = tuple(str(name) for name in channel_names)
+    if args.eeg_display_channel in names:
+        return args.eeg_display_channel
+    if "Cz" in names:
+        return "Cz"
+    if not names:
+        return None
+    return names[0]
+
+
 def build(app_state: dict, args):
     """Build the session, the producer and the media timeline for one run.
 
@@ -134,6 +161,7 @@ def build(app_state: dict, args):
         margin=float(args.margin),
         warmup_seconds=args.warmup,
         frame_seconds=args.frame_seconds,
+        display_channel=display_channel(args, trial.channel_names),
     )
     session = AttentionSession(
         source=source, decoder=model, references=references, policy=policy
@@ -145,18 +173,40 @@ def build(app_state: dict, args):
 
 
 def prepare_media(trial, args) -> tuple[MediaTimeline, dict]:
-    """Render the trial's candidates to the stereo file the browser plays."""
+    """Render the trial's candidates to the stereo file the browser plays.
+
+    The candidates are cut to the session's own EEG *before* they are rendered:
+
+    the conversion already drops the candidate tail past the last EEG sample, but
+
+    ``trial.audio`` still carries it, and rendering it produced a 394.00 s file
+
+    for a 389 s replay (section 3.3's rule, ``usable_audio_samples``). The
+
+    browser reads ``duration`` from this file, so a longer file is a browser that
+
+    is playing a different session from the one the decoder is scoring. The cut
+
+    and its size are recorded in the report.
+    """
 
     out = Path(args.media_out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    report = render_stereo(
+    candidates, truncation = truncate_to_eeg(
         trial.audio,
+        eeg_samples=len(trial.timestamps),
+        eeg_rate=float(trial.sample_rate),
+        audio_rate=float(trial.audio_rate),
+    )
+    report = render_stereo(
+        candidates,
         out,
         sample_rate=round(trial.audio_rate),
         presentation=presentation_mode(args.presentation),
         crossmix_weight=args.crossmix_weight,
     )
-    report["candidate_seconds"] = round(float(len(trial.audio)) / trial.audio_rate, 3)
+    report["truncation"] = truncation
+    report["candidate_seconds"] = round(truncation["candidate_seconds"], 3)
     report["eeg_seconds"] = round(float(trial.timestamps[-1] - trial.timestamps[0]), 3)
     timeline = MediaTimeline(out, args.media_title)
     report["media_id"] = timeline.media_id
@@ -207,6 +257,15 @@ async def drive(port: int, args, session, media_report: dict, stop: asyncio.Even
     the stream over the WebSocket, and a polling loop watches the session record
     for its terminal status. The polling loop is what ends an unattended demo when
     the replay is over.
+
+    **Two events, and the difference is the whole point.** ``stop`` is the *run's*
+    shutdown signal: Ctrl-C sets it, and so does the end of the stay-open window
+    that follows this function. The replay reaching its terminal status is not
+    that signal - the page is supposed to outlive it (``--serve-seconds``,
+    ``--browser``) - so the drive phase ends on an event of its own, ``finished``.
+    Signalling ``stop`` here, which is what this function used to do in its
+    ``finally``, is why those two flags printed "still serving" and shut the
+    transport down in the same second.
     """
 
     import httpx
@@ -214,6 +273,9 @@ async def drive(port: int, args, session, media_report: dict, stop: asyncio.Even
     base = f"http://127.0.0.1:{port}"
     packets: list = []
     packets_arrival: list = []
+    # The end of *this* phase only. `stop` stays reserved for the operator and
+    # for the serve loop, which decide when the run - not the replay - is over.
+    finished = asyncio.Event()
     state: dict = {
         "started": None, "media": None, "final": None,
         "packets": packets, "arrivals": packets_arrival,
@@ -234,14 +296,14 @@ async def drive(port: int, args, session, media_report: dict, stop: asyncio.Even
         else:
             raise RuntimeError("the transport never became ready on loopback")
 
-        listener = asyncio.create_task(capture(port, packets, stop, client, packets_arrival))
+        listener = asyncio.create_task(capture(port, packets, finished, client, packets_arrival))
         state["started"] = (await http.post("/api/session/start")).json()
         client.configure(state["started"]["id"], media_report["media_id"])
         client.state["prepared"] = False
         await asyncio.sleep(0)
         # The simulated client reports from *its own* clock, so playback starts
         # when the session does rather than when a human presses play.
-        playback = asyncio.create_task(client.play(stop))
+        playback = asyncio.create_task(client.play(finished))
         try:
             while not stop.is_set():
                 await asyncio.sleep(args.poll)
@@ -251,7 +313,9 @@ async def drive(port: int, args, session, media_report: dict, stop: asyncio.Even
                     state["final"] = last
                     break
         finally:
-            stop.set()
+            # `finished`, never `stop`: the page outlives the replay, and the
+            # serve loop in `runner()` is waiting on exactly that distinction.
+            finished.set()
             state["media"] = (await playback).to_dict()
             listener.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -332,6 +396,13 @@ async def main_async(args) -> int:
         f"(left sha256 {media_report['sha256']['left'][:12]}...)",
         lines,
     )
+    cut = media_report["truncation"]
+    log(
+        f"media cut to the EEG: candidates {cut['candidate_seconds']:.3f}s, "
+        f"EEG {cut['eeg_seconds']:.3f}s, dropped {cut['samples_dropped']} samples "
+        f"({cut['dropped_seconds']:.3f}s); file is {media_report['seconds']:.3f}s",
+        lines,
+    )
 
     app_state = {
         "trial": trial,
@@ -368,6 +439,11 @@ async def main_async(args) -> int:
     thread.start()
 
     url = f"http://{args.host}:{port}/"
+    # Printed before the replay rather than after it (where the run record's own
+    # `open:` line is): an operator - or a driver that opened this page itself -
+    # needs the URL while the session is still running, and a URL that only
+    # appears when the run is over is a page nobody can watch.
+    log(f"serving the demo at {url}", lines)
     stop = asyncio.Event()
     loop_holder: dict = {}
 
@@ -718,6 +794,12 @@ def finish(
             "presentation": args.presentation,
             "speed": float(args.speed),
             "clip_seconds": args.seconds,
+            "eeg_display_channel": args.eeg_display_channel,
+            "eeg_display_channel_source": (
+                "explicit --eeg-display-channel"
+                if args.eeg_display_channel
+                else "not set: no eeg_display packet is published"
+            ),
         },
         "media": media_report,
         "static_dir": args.static_dir,
@@ -816,6 +898,15 @@ def main(argv=None) -> int:
     parser.add_argument("--speed", type=float, default=1.0, help="replay speed; 1.0 is real time")
     parser.add_argument("--warmup", type=float, default=2.0)
     parser.add_argument("--frame-seconds", type=float, default=0.25)
+    parser.add_argument(
+        "--eeg-display-channel",
+        default=None,
+        help=(
+            "publish the eeg_display packet for this electrode (e.g. Cz). Omitted "
+            "publishes none: the tap and the packet exist only when a channel is "
+            "named, so a run without this flag is the run it was before."
+        ),
+    )
     parser.add_argument("--poll", type=float, default=0.5, help="seconds between status polls")
     parser.add_argument("--media-tick", type=float, default=MEDIA_TICK_SECONDS)
     parser.add_argument("--media-out", default=DEFAULT_MEDIA_OUT)

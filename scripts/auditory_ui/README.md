@@ -19,7 +19,8 @@ transport — live in `src/nova2026/`.
 .venv\Scripts\python.exe -B -m scripts.auditory_ui.session --synthetic `
   --seconds 20 --speed 4 --out results/auditory_session_synthetic.json
 
-# A real KU Leuven trial, replayed at 1x (124 s).
+# A real KU Leuven trial, replayed at 1x. trial_008 is one of the short trials
+# (~125 s); most S1 trials are 389-399 s (trial_004: 388.992 s, measured).
 .venv\Scripts\python.exe -B -m scripts.auditory_ui.session `
   --trial datasets/AAD-KULeuven/converted/S1/trial_008.npz `
   --model models/auditory_kuleuven.npz --speed 1 `
@@ -54,6 +55,26 @@ itself — the same modules the browser runs — counts what the client rejected
 renders the dashboard to HTML with `react-dom/server`. It prints one line per
 check. The HTML is the evidence artifact; it is static markup, not a screenshot,
 and it shows the card as it looked at the moment of the last A/B decision.
+
+## Starting the page yourself (Windows)
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\auditory_ui\serve.ps1
+```
+
+`serve.ps1` is a flag-remembering wrapper around the demo above: it serves
+`apps/attune-ui/dist`, opens the printed loopback URL in the default browser and
+reads that URL back out of the demo's own output (the port is ephemeral). Useful
+switches: `-Rebuild` (run `npm run build` in `apps/attune-ui` first — `dist/` is
+git-ignored and goes stale as `src/` changes), `-Trial`, `-Seconds`, `-Margin`,
+`-NoBrowser`, `-NoKeepAlive`.
+
+It restarts the demo when it exits, which was a workaround for a defect that is
+now fixed: `drive()` used to end with an unconditional `stop.set()`, so
+`--serve-seconds` and `--browser` printed "still serving" and then exited at the
+end of the replay. The drive phase now ends on an event of its own, so the demo
+serves out its stay-open window on the same port, and the restart is no longer
+what keeps a page up.
 
 ## Run policy
 
