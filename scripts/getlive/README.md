@@ -90,10 +90,62 @@ still printed and written.
 | `--stream-name`, `--source-id`, `--stream-type` | Pin the outlet when several publish. |
 | `--notch` | 60 Hz default; use `--notch 50` on 50 Hz mains. |
 | `--resample-quality` | `LQ` default (lowest latency); `auto` measures the presets. |
+| `--timebase stamps\|grid` | `stamps` (default): keep the outlet's own timestamps. `grid`: place every received sample on a regular grid at `--sfreq` from a counted index. See [The timeline](#the-timeline---timebase). |
+| `--timebase-relock-samples` | `grid` only: disagreement tolerated before the grid re-anchors; default 0.5 samples. |
+| `--timebase-max-step-samples` | `grid` only: a single timestamp step this large is reported as suspicious; default 1.5. |
 | `--reference`, `--ground` | Provenance strings; default to what the resolved profile asserts. |
 | `--record` with `--subject/--session/--run` | Write the raw run (SQLite + FIF) under that root. |
 | `--out` | Write the acceptance report as JSON. |
 | `--quiet` | No per-window lines. |
+
+### The timeline: `--timebase`
+
+The outlet's own timestamps are not always usable for placement. On the EE-511 rig
+0.48% of the steps were shorter than half a sample, which `Repair` refuses at any
+tolerance, so the run died after about two seconds with `Too many data faults` -
+every time, on data whose samples were provably intact.
+
+`--timebase grid` stops trusting the stamps for placement and counts instead:
+sample *n* is placed at `anchor + n / --sfreq`, and the stamps are read for one
+thing only - to measure how far the anchors have drifted from that count. That
+measurement is reported, and past `--timebase-relock-samples` the grid re-anchors
+by slewing the correction over enough samples that no single step leaves the
+consumer's tolerance.
+
+What it will not do is fabricate or drop a sample. The grid has exactly one slot
+per sample received, which is the point: the code before it read a stamp step as
+lost samples, inserted slots for them, and `Repair` then repaired rows that never
+existed.
+
+Use it whenever the source's stamps cannot be trusted:
+
+```powershell
+# the rig, and any source whose ts_check fatal% is not 0
+.venv/Scripts/python.exe -B -m scripts.getlive --sfreq 500 --source-units uV `
+    --cap declared --eog drop --timebase grid --duration 30
+
+# a chunk-stamped recorder lands on a clean grid the same way
+.venv/Scripts/python.exe -B -m scripts.getlive --sfreq 250 --source-units uV `
+    --timebase grid --cap declared --eog drop --duration 30
+```
+
+Read the result in three places: the `timebase` line of the verdict, and
+`timebase_relocked_samples`, `timebase_anchor_rate`, `timebase_relocks` and
+`timebase_large_steps` in the JSON report and in the recording's `meta`.
+`timebase_relocked_samples` is how much drift the grid absorbed - the number the
+old reports called "gaps"; `timebase_anchor_rate` is the source clock's own rate,
+so its distance from `--sfreq` is that clock's ppm error.
+
+Two things to know before reading those numbers:
+
+* a **chunk-stamped** source reports one suspicious step per block. That is its
+  stamping shape, not damage: fed a fixture with 8 samples per block, the grid came
+  out at exactly one sample per step and `Repair` accepted it.
+* `--timebase` still defaults to `stamps`. The grid path reproduces the rig's
+  failure and its fix against synthetic timelines
+  (`documents/streaming_explained.md` §11.15), but it has not been confirmed on the
+  amplifier itself, so the default does not move until `ts_check` reports
+  `fatal% = 0` there. See `documents/TIMEBASE_DESIGN.md`.
 
 ### Which cap contract is used
 
@@ -249,8 +301,9 @@ a time-based downstream analysis inherits.
 | `Input samples are 3 s old` / high `input_lag` | source publishes in large bursts, or the host is busy | reduce the amplifier's LSL chunk size, close other load |
 | `no valid window` with `data_flow` ok | warm-up plus resampler delay exceeded the run | stream longer than 10 s |
 | flat electrodes | gel/contact, or an electrode not connected | fix contact, re-run; impedance lives in the control software, not in the LSL stream |
-| `Cannot repair source damage (irregular_timestamps)`, repeatedly | the source's timestamps jitter by more than `Repair`'s tolerance | measure the grid with `ts_check` (below) before changing anything else |
-| the same, and `ts_check` reports a high `compressed%` | the source is chunk-stamped: a whole block shares one timestamp | relay it with `--regrid` (below); no tolerance can fix this |
+| `Cannot repair source damage (irregular_timestamps)`, repeatedly | the source's timestamps jitter by more than `Repair`'s tolerance | `--timebase grid`; measure with `ts_check` (below) first if you want the numbers |
+| `Too many data faults` after a second or two | the same, and the recovery budget ran out before a single window | `--timebase grid`; the EE-511 rig does this on every run without it |
+| the same, and `ts_check` reports a high `compressed%` | the source is chunk-stamped: a whole block shares one timestamp | `--timebase grid` lands it on a clean grid; the relay's `--regrid` (below) is the older route |
 
 ## Repairing a chunk-stamped source: `relay.py --regrid`
 
@@ -292,6 +345,13 @@ run before and after the relay:
 | --- | --- | --- | --- |
 | raw fixture | 89.39 | 89.39 | 9 |
 | through `--regrid` | 0.58 | 0.58 | 1 |
+
+`--timebase grid` does the same job in process, with no second LSL hop, no block
+of held-back latency and no `+regrid` suffix: fed the same chunk-stamped shape it
+produced one slot per sample at exactly one sample per step, and `Repair` accepted
+the result. The relay keeps its grid modes for a source whose *metadata* is also
+unusable - that is a separate job it still does - and they can be retired once the
+in-process path has been confirmed on the amplifier.
 
 ## Diagnosing a bad timestamp grid
 

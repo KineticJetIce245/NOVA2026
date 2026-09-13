@@ -332,6 +332,7 @@ src/nova2026/streaming/
   recovery.py                # Recovery         - bounded recovery (A2)
   spatial.py                 # SpatialOperator, fit_ssp, processing_contract (C)
   stats.py                   # StreamStats      - run counters (E)
+  timebase.py                # GridPolicy/TimeBase - one owner for the timeline
   window.py                  # EEGWindow        - window + verdict for consumers
   preprocess/
     __init__.py              # re-exports the preprocessing pieces
@@ -1092,8 +1093,11 @@ python -B -m scripts.streaming_demo --duration 8 --record records
 python -B -m scripts.streaming_demo --duration 8 --compute 0.8 --workers 0
 python -B -m scripts.streaming_demo --duration 8 --compute 0.8 --workers 2
 
-# Full test suite for the package (258 tests):
-python -B -m unittest discover -s tests/streaming -t .
+# Every suite in the repository (504 tests, 5 suites, ~80 s):
+python -B scripts/run_tests.py
+
+# Just this package (357 tests):
+python -B -m unittest discover -s tests/streaming
 
 # Real-recording check (needs the COG-BCI dataset in datasets/):
 python -B scripts/verify_realdata.py

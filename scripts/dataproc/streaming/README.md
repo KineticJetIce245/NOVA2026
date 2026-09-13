@@ -1,5 +1,17 @@
 # Live streaming and artifact calibration
 
+> **Frozen: do not add features here.** This folder is the live implementation as
+> it stood before `nova2026.streaming` and `scripts/getlive/` replaced it. It is
+> kept because `scripts/dataproc/riemann/` still imports `window`, `config`,
+> `interpolator` and `processor` from it - `riemann/checks.py` even imports this
+> folder's test module. New work belongs in `src/nova2026/streaming/` (the
+> package) or `scripts/getlive/` (the hardware path). Its recording format is not
+> the one the package writes.
+>
+> Successors: `documents/streaming_explained.md` for the package,
+> `documents/TIMEBASE_DESIGN.md` for the timeline, `scripts/run_tests.py` for the
+> suites.
+
 The live implementation keeps the two-thread runner and adds recording,
 bounded recovery, and a reusable fixed spatial correction. This round changes only
 this streaming folder. The existing offline preprocessing and model code remain
