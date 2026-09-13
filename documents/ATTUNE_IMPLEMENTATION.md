@@ -85,11 +85,12 @@ Do not set `ATTUNE_NOVA_PLAYER_RAW` for a physical source.
 ## Automated verification
 
 ```powershell
-.venv/Scripts/python.exe -m pytest tests scripts/auditory/tests -q
+npm ci --prefix frontend
+npm run build --prefix frontend
+.venv/Scripts/python.exe -m pytest tests scripts/auditory/tests backend/tests -q
 .venv/Scripts/python.exe -m unittest discover -s backend/tests -q
 $env:ATTUNE_PYTHON = 'C:/coding/git/NOVA2026/.venv/Scripts/python.exe'
 npm test --prefix frontend
-npm run build --prefix frontend
 .venv/Scripts/python.exe -m scripts.attune.test_end_to_end --trial datasets/attune/Lacroix_Flo2_2026-09-12_19-41-11.npz --model models/attune_eego24.npz --seconds 240 --out results/attune-240
 .venv/Scripts/python.exe -m scripts.attune.test_end_to_end --trial datasets/attune/Lacroix_Flo2_2026-09-12_19-41-11.npz --model models/attune_eego24.npz --seconds 35 --presentation diotic --stop-after 8 --managed-player --out results/attune-managed
 ```
@@ -113,5 +114,5 @@ least two distinct audio pairs is still needed before a participant demo.
 The UI source was incorporated from the supplied attune-ui checkout at commit
 `c331022`, retaining its design and tests. Calibration and XDF tools are implemented
 directly in `scripts/attune/`; no separate engine snapshot is required. Only
-NOVA2026/audio_flo is published. The earlier sibling-repository commits were never
+the `audio_flo` branch in NOVA2026 is published. The earlier sibling-repository commits were never
 pushed and are not required to install, test or run this branch.
