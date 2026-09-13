@@ -119,7 +119,16 @@ results/*
 # output/auditory_ui/.
 !results/demo_run_*.json
 !results/demo_run_*.md
-
+
+# Exception: step 10.5's perturbation matrix run is the acceptance record for V9 -
+# one clean path, fifteen injected faults and seven adversarial EEG inputs, each
+# judged against its row with the three answers the matrix demands (crash,
+# explicitness, contamination). It holds counters, reason vocabulary, terminal
+# statuses and packet excerpts, never signal or participant data; the per-case
+# packet streams, frame series and rendered WAVs stay out of git under
+# output/auditory_ui/demorun/.
+!results/perturbation_*.json
+!results/perturbation_*.md
 # Exception: step 9.5's ANT import review. It is the marker table the operator has
 # to check against the recording - every onset, code, name, candidate and
 # disposition, including the excluded and the disputed ones - beside the per

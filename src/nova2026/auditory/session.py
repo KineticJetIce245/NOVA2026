@@ -263,6 +263,28 @@ class SessionSummary:
     "artifact" boolean cannot say which electrode it was.
     """
 
+    recovery_events: list = field(default_factory=list)
+    """The streaming chain's own recovery decisions, in order.
+
+    ``{kind, recovery, segment, gap}`` as
+    :class:`~nova2026.streaming.recovery.Recovery` recorded them: which fault
+    (``irregular_timestamps``, ``large_gap``, ``nonfinite_run``,
+    ``unsafe_endpoints``), which restart, and the gap size when there was one.
+    Carried into the run record because the plan's perturbation matrix asks for a
+    handled fault to be *auditable* (cases C4, C5, C6, E2, E5, E6): a recovery
+    that repaired a chunk and restarted the chain leaves no window behind, so
+    without this field a fault the chain handled perfectly would look exactly
+    like a fault that never happened. It is a record of what the chain did, never
+    an input to a decision.
+    """
+
+    recovery_segment: int = 0
+    """Processing segment the run ended on; one more than the number of recoveries."""
+
+    repaired_samples: int = 0
+    """Rows the chain's :class:`~nova2026.streaming.preprocess.repair.Repair`
+    reconstructed, the counter behind the ``interpolated`` reason."""
+
     failure: dict | None = None
 
     def to_dict(self) -> dict:
@@ -288,6 +310,9 @@ class SessionSummary:
             "decisions": dict(self.decisions),
             "decision_stream": [[time_s, word] for time_s, word in self.decision_stream],
             "bad_channel_census": dict(self.bad_channel_census),
+            "recovery_events": [dict(event) for event in self.recovery_events],
+            "recovery_segment": self.recovery_segment,
+            "repaired_samples": self.repaired_samples,
             "failure": dict(self.failure) if self.failure else None,
         }
 
@@ -386,6 +411,15 @@ class AttentionSession:
         self._next_item = 0
         self._drops_seen = 0
         self._offload: TaskOffloader | None = None
+        self.processor = None
+        """The chain that ran the last :meth:`run`, or ``None`` before one.
+
+        Public because the chain's own diagnostics are part of the run record:
+        :attr:`SessionSummary.recovery_events` and
+        :attr:`SessionSummary.repaired_samples` are read from here after the run,
+        and a caller that wants the quality monitor's or the repair stage's
+        counters can reach them without this class re-exporting every one.
+        """
         self._failure: SessionFailed | None = None
         self._census: dict[str, int] = {}
 
@@ -486,6 +520,10 @@ class AttentionSession:
         processor = AuditoryProcessor(
             self.settings, source_channels=self.source_channels
         )
+        # Kept reachable after the run: the chain's recovery decisions and repair
+        # counter are part of the run record (see ``SessionSummary``), and a
+        # handled fault that left no window behind would otherwise be invisible.
+        self.processor = processor
         offload = TaskOffloader(
             self._analyze,
             workers=self.offload_workers,
@@ -549,6 +587,11 @@ class AttentionSession:
             decisions=dict(self._census),
             decision_stream=list(self.decisions),
             bad_channel_census=dict(self.bad_channel_census),
+            recovery_events=[
+                dict(event) for event in getattr(processor.recovery, "events", [])
+            ],
+            recovery_segment=int(getattr(processor.recovery, "segment", 0)),
+            repaired_samples=int(getattr(processor.repair, "repaired_samples", 0)),
             failure=(
                 {"code": failure.code, "timestamp": failure.timestamp, "detail": failure.detail}
                 if failure is not None
