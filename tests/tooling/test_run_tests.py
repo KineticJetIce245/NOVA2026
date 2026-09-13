@@ -6,10 +6,15 @@
 does it - an empty suite is a failure, not a pass - is worth a test of its own.
 """
 
+import contextlib
+import io
+import shutil
+import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.run_tests import Result, Suite, commands, parse
+from scripts import run_tests
+from scripts.run_tests import Result, Suite, commands, failure_report, parse
 
 UNITTEST_OK = """
 ....................
@@ -41,6 +46,46 @@ OK (skipped=5)
 """
 
 SILENT_ZERO = "no tests ran here at all\n"
+
+# Two modules' outputs, concatenated the way ``run()`` collects them when one
+# process runs per module: both failures are in the first, and the second prints
+# enough afterwards that the old "last lines" report showed neither header.
+TWO_FAILURES_THEN_A_LONG_TAIL = """\
+test_a: F
+======================================================================
+FAIL: test_beta (tests.a.Thing)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "tests/a.py", line 10, in test_beta
+    self.assertEqual(1, 2)
+AssertionError: 1 != 2
+
+======================================================================
+ERROR: test_alpha (tests.a.Thing)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "tests/a.py", line 20, in test_alpha
+    raise RuntimeError("boom")
+RuntimeError: boom
+
+Ran 2 tests in 0.021s
+
+FAILED (failures=1, errors=1)
+test_b: ..........
+frame 0 aligned
+frame 1 aligned
+frame 2 aligned
+frame 3 aligned
+frame 4 aligned
+frame 5 aligned
+frame 6 aligned
+frame 7 aligned
+frame 8 aligned
+frame 9 aligned
+Ran 10 tests in 0.900s
+
+OK
+"""
 
 
 class ParseTests(unittest.TestCase):
@@ -122,6 +167,73 @@ class CommandTests(unittest.TestCase):
         for command in found:
             self.assertTrue(command[-1].endswith(".py"), command)
             self.assertIn("test_", Path(command[-1]).name)
+
+
+class FailureReportTests(unittest.TestCase):
+    """A red run must print *which* tests failed, not ten lines of the last one."""
+
+    def test_every_failure_header_is_named(self) -> None:
+        report = "\n".join(failure_report(TWO_FAILURES_THEN_A_LONG_TAIL))
+        self.assertIn("FAIL: test_beta", report)
+        self.assertIn("ERROR: test_alpha", report)
+        self.assertIn(
+            "AssertionError: 1 != 2",
+            report,
+            "the message under the header is what makes the name actionable",
+        )
+
+    def test_the_tail_alone_would_have_named_neither(self) -> None:
+        """The fixture this pins would not have caught the old report either."""
+
+        tail = TWO_FAILURES_THEN_A_LONG_TAIL.strip().splitlines()[-10:]
+        self.assertFalse(
+            [line for line in tail if line.startswith(("FAIL:", "ERROR:"))],
+            "make the fixture longer: its tail must not contain a header",
+        )
+
+    def test_output_with_no_header_keeps_the_tail(self) -> None:
+        crash = (
+            "Traceback (most recent call last):\n"
+            '  File "tests/x.py", line 1, in <module>\n'
+            "ModuleNotFoundError: No module named 'pytest'\n"
+        )
+        self.assertEqual(failure_report(crash), crash.splitlines()[-10:])
+        self.assertIn("No module named", "\n".join(failure_report(crash)))
+
+
+class ReportedFailureTests(unittest.TestCase):
+    """End to end: ``main`` on a red suite prints the failing test's own name."""
+
+    def test_a_red_suite_prints_the_failing_test(self) -> None:
+        directory = Path(tempfile.mkdtemp(prefix="run-tests-report-"))
+        (directory / "test_deliberate.py").write_text(
+            "import unittest\n"
+            "\n"
+            "\n"
+            "class DeliberateFailureTests(unittest.TestCase):\n"
+            "    def test_this_one_is_named(self):\n"
+            "        print('padding to push the header out of the tail')\n"
+            "        print('padding to push the header out of the tail')\n"
+            "        self.assertEqual(1, 2, 'a deliberate failure')\n",
+            encoding="utf-8",
+        )
+        original = run_tests.SUITES
+        printed = io.StringIO()
+        try:
+            run_tests.SUITES = [Suite("temp-suite", str(directory))]
+            with contextlib.redirect_stdout(printed):
+                code = run_tests.main(["--suite", "temp-suite"])
+        finally:
+            run_tests.SUITES = original
+            shutil.rmtree(directory, ignore_errors=True)
+        output = printed.getvalue()
+        self.assertEqual(code, 1, "a failing suite must still exit 1")
+        self.assertIn("failing tests:", output)
+        self.assertIn(
+            "FAIL: test_this_one_is_named",
+            output,
+            "the header, not just the test name the traceback also carries",
+        )
 
 
 if __name__ == "__main__":
