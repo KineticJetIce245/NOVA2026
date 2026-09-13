@@ -1,0 +1,423 @@
+{
+  "kind": "auditory session run record; plumbing evidence, not an accuracy claim",
+  "started_at": "2026-09-13T08:29:22.531591+00:00",
+  "seconds": 124.5,
+  "command": [
+    "C:\\Files\\git\\NOVA2026\\scripts\\auditory_ui\\session.py",
+    "--trial",
+    "datasets/AAD-KULeuven/converted/S1/trial_008.npz",
+    "--model",
+    "models/auditory_kuleuven.npz",
+    "--speed",
+    "1",
+    "--out",
+    "results/auditory_session_trial008.json",
+    "--stream-out",
+    "output/auditory_ui/packets_trial008.jsonl"
+  ],
+  "trial": {
+    "subject": "S1",
+    "trial_id": "8",
+    "group": "rep_part1_track1_dry.wav|rep_part1_track2_dry.wav",
+    "samples": 15872,
+    "source_seconds": 123.992,
+    "audio_seconds": 125.0
+  },
+  "model": {
+    "path": "models/auditory_kuleuven.npz",
+    "channels": [
+      "Fp1",
+      "AF7",
+      "AF3",
+      "F1",
+      "F3",
+      "F5",
+      "F7",
+      "FT7",
+      "FC5",
+      "FC3",
+      "FC1",
+      "C1",
+      "C3",
+      "C5",
+      "T7",
+      "TP7",
+      "CP5",
+      "CP3",
+      "CP1",
+      "P1",
+      "P3",
+      "P5",
+      "P7",
+      "P9",
+      "PO7",
+      "PO3",
+      "O1",
+      "Iz",
+      "Oz",
+      "POz",
+      "Pz",
+      "CPz",
+      "Fpz",
+      "Fp2",
+      "AF8",
+      "AF4",
+      "AFz",
+      "Fz",
+      "F2",
+      "F4",
+      "F6",
+      "F8",
+      "FT8",
+      "FC6",
+      "FC4",
+      "FC2",
+      "FCz",
+      "Cz",
+      "C2",
+      "C4",
+      "C6",
+      "T8",
+      "TP8",
+      "CP6",
+      "CP4",
+      "CP2",
+      "P2",
+      "P4",
+      "P6",
+      "P8",
+      "P10",
+      "PO8",
+      "PO4",
+      "O2"
+    ],
+    "window_seconds": 5.0,
+    "step_seconds": 1.0
+  },
+  "envelopes": {
+    "paths": [
+      "datasets\\audio\\rep_part1_track1_dry.npz",
+      "datasets\\audio\\rep_part1_track2_dry.npz"
+    ],
+    "covered_media_seconds": [
+      [
+        0.0,
+        124.984375
+      ],
+      [
+        0.0,
+        124.984375
+      ]
+    ],
+    "candidates": [
+      {
+        "id": "A",
+        "label": "rep_part1_track1_dry.wav"
+      },
+      {
+        "id": "B",
+        "label": "rep_part1_track2_dry.wav"
+      }
+    ]
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": 59433,
+    "static_dir": "C:\\Files\\git\\NOVA2026\\apps\\attune-ui\\dist",
+    "health": {
+      "status": "ok",
+      "protocol_version": 1
+    },
+    "index": {
+      "status": 200,
+      "content_type": "text/html; charset=utf-8",
+      "bytes": 369
+    }
+  },
+  "session": {
+    "kind": "kuleuven_replay",
+    "simulated": false,
+    "policy": {
+      "check_channels": false,
+      "max_bad_channels": 0,
+      "exclude_channels": [],
+      "source_unit_exponent": -6,
+      "warmup_seconds": 2.0,
+      "frame_seconds": 0.25
+    },
+    "channel_count": 64,
+    "window_seconds": 5.0,
+    "step_seconds": 1.0,
+    "started": 0.0,
+    "ended": 123.9921875,
+    "wall_seconds": 123.99315619998379,
+    "windows": 119,
+    "submitted": 117,
+    "scored": 117,
+    "invalid": 2,
+    "evidence_gaps": 0,
+    "failed": 0,
+    "frames": 496,
+    "decisions": {
+      "unavailable": 19,
+      "uncertain": 465,
+      "A": 12
+    },
+    "failure": null
+  },
+  "packets": {
+    "total": 1616,
+    "by_type": {
+      "session": 2,
+      "audio_sources": 1,
+      "sync": 6,
+      "attention": 496,
+      "gain": 496,
+      "signal_quality": 496,
+      "prediction": 119
+    },
+    "first": [
+      {
+        "version": 1,
+        "type": "session",
+        "timestamp": 0,
+        "sequence": 1,
+        "source": "server",
+        "session_id": "b55a41fb-676a-408a-9d89-f35908564eb1",
+        "payload": {
+          "id": "b55a41fb-676a-408a-9d89-f35908564eb1",
+          "status": "running",
+          "simulated": false
+        }
+      },
+      {
+        "version": 1,
+        "type": "audio_sources",
+        "timestamp": 0.0,
+        "sequence": 2,
+        "source": "nova-aad",
+        "session_id": "b55a41fb-676a-408a-9d89-f35908564eb1",
+        "payload": {
+          "sources": [
+            {
+              "id": "A",
+              "label": "rep_part1_track1_dry.wav",
+              "input_type": "kuleuven_replay",
+              "reference": "rep_part1_track1_dry.wav"
+            },
+            {
+              "id": "B",
+              "label": "rep_part1_track2_dry.wav",
+              "input_type": "kuleuven_replay",
+              "reference": "rep_part1_track2_dry.wav"
+            }
+          ],
+          "policy": {
+            "check_channels": false,
+            "max_bad_channels": 0,
+            "exclude_channels": [],
+            "source_unit_exponent": -6,
+            "warmup_seconds": 2.0,
+            "frame_seconds": 0.25
+          },
+          "simulated": false
+        }
+      },
+      {
+        "version": 1,
+        "type": "sync",
+        "timestamp": 0.0,
+        "sequence": 3,
+        "source": "nova-aad",
+        "session_id": "b55a41fb-676a-408a-9d89-f35908564eb1",
+        "payload": {
+          "status": "unobserved",
+          "offset_ms": null,
+          "drift_warning": null,
+          "timeline": "eeg_source_clock",
+          "fixed_latency_ms": null,
+          "reasons": [],
+          "simulated": false
+        }
+      }
+    ],
+    "last": [
+      {
+        "version": 1,
+        "type": "signal_quality",
+        "timestamp": 123.9921875,
+        "sequence": 1615,
+        "source": "nova-aad",
+        "session_id": "b55a41fb-676a-408a-9d89-f35908564eb1",
+        "payload": {
+          "quality": 1.0,
+          "artifact": false,
+          "simulated": false
+        }
+      },
+      {
+        "version": 1,
+        "type": "session",
+        "timestamp": 124.01275369999348,
+        "sequence": 1616,
+        "source": "server",
+        "session_id": "b55a41fb-676a-408a-9d89-f35908564eb1",
+        "payload": {
+          "id": "b55a41fb-676a-408a-9d89-f35908564eb1",
+          "status": "stopped",
+          "simulated": false
+        }
+      }
+    ],
+    "transitions": [
+      {
+        "version": 1,
+        "type": "attention",
+        "timestamp": 0.0,
+        "sequence": 4,
+        "source": "nova-aad",
+        "session_id": "b55a41fb-676a-408a-9d89-f35908564eb1",
+        "payload": {
+          "decision": "unavailable",
+          "correlation_a": null,
+          "correlation_b": null,
+          "reasons": [
+            "warmup"
+          ],
+          "simulated": false
+        }
+      },
+      {
+        "version": 1,
+        "type": "attention",
+        "timestamp": 4.75,
+        "sequence": 63,
+        "source": "nova-aad",
+        "session_id": "b55a41fb-676a-408a-9d89-f35908564eb1",
+        "payload": {
+          "decision": "uncertain",
+          "correlation_a": null,
+          "correlation_b": null,
+          "reasons": [
+            "no_decision"
+          ],
+          "simulated": false
+        }
+      },
+      {
+        "version": 1,
+        "type": "attention",
+        "timestamp": 40.0,
+        "sequence": 522,
+        "source": "nova-aad",
+        "session_id": "b55a41fb-676a-408a-9d89-f35908564eb1",
+        "payload": {
+          "decision": "A",
+          "correlation_a": 0.22021879975954947,
+          "correlation_b": -0.40728738512413365,
+          "reasons": [],
+          "simulated": false,
+          "attended": "A"
+        }
+      },
+      {
+        "version": 1,
+        "type": "attention",
+        "timestamp": 43.0,
+        "sequence": 562,
+        "source": "nova-aad",
+        "session_id": "b55a41fb-676a-408a-9d89-f35908564eb1",
+        "payload": {
+          "decision": "uncertain",
+          "correlation_a": 0.07991583275193204,
+          "correlation_b": -0.34960721930431504,
+          "reasons": [
+            "no_decision"
+          ],
+          "simulated": false
+        }
+      }
+    ],
+    "transition_count": 4
+  },
+  "assertions": [
+    {
+      "name": "every packet passes the version-1 validator",
+      "ok": true,
+      "detail": "1616 packets"
+    },
+    {
+      "name": "all packet types the frontend decodes are present",
+      "ok": true,
+      "detail": "attention, audio_sources, gain, prediction, session, signal_quality, sync"
+    },
+    {
+      "name": "the snapshot is delivered before newer events",
+      "ok": true,
+      "detail": "cursor=3, snapshot packets=3, later=1613"
+    },
+    {
+      "name": "the snapshot's streams all arrive",
+      "ok": true,
+      "detail": "cursor=3, received 1616 distinct sequences"
+    },
+    {
+      "name": "sequence is strictly increasing across the stream",
+      "ok": true,
+      "detail": "1616 packets"
+    },
+    {
+      "name": "decision is one of the four allowed words",
+      "ok": true,
+      "detail": "A, unavailable, uncertain"
+    },
+    {
+      "name": "gains are attenuation only (never above 0 dB)",
+      "ok": true,
+      "detail": "992 gain values, max 0.0"
+    },
+    {
+      "name": "audio_sources carries exactly the two candidates A and B",
+      "ok": true,
+      "detail": "[{\"id\": \"A\", \"label\": \"rep_part1_track1_dry.wav\", \"input_type\": \"kuleuven_replay\", \"reference\": \"rep_part1_track1_dry.wav\"}, {\"id\": \"B\", \"label\": \"rep_part1_track2_dry.wav\", \"input_type\": \"kuleuven_replay\", \"reference\": \"rep_part1_track2_dry.wav\"}]"
+    },
+    {
+      "name": "the session lifecycle is published by the transport, not duplicated",
+      "ok": true,
+      "detail": "2 lifecycle packets, last stopped"
+    },
+    {
+      "name": "the stream ends with the terminal session packet",
+      "ok": true,
+      "detail": "session"
+    },
+    {
+      "name": "the producer stopped and the session record agrees",
+      "ok": true,
+      "detail": "{\"id\": \"b55a41fb-676a-408a-9d89-f35908564eb1\", \"status\": \"stopped\", \"simulated\": false}"
+    },
+    {
+      "name": "no packet was published after the stop record",
+      "ok": true,
+      "detail": "session status stopped"
+    },
+    {
+      "name": "the run policy is recorded with the run",
+      "ok": true,
+      "detail": "{\"check_channels\": false, \"max_bad_channels\": 0, \"exclude_channels\": [], \"source_unit_exponent\": -6, \"warmup_seconds\": 2.0, \"frame_seconds\": 0.25}"
+    },
+    {
+      "name": "the enabled chain judged windows",
+      "ok": true,
+      "detail": "windows=119 scored=117 invalid=2"
+    }
+  ],
+  "plumbing": {
+    "label": [
+      0
+    ],
+    "decided": 12,
+    "agree": 12,
+    "note": "plumbing only: a window-level agreement count is not an accuracy claim"
+  }
+}

@@ -1,0 +1,83 @@
+<main class="dashboard"><header class="dashboard-header"><div><h1>ATTUNE</h1><p>Neuro-Adaptive Hearing</p></div><div class="header-status" role="status"><span class="status-pill">Connection: connected</span><span class="status-pill">Session: running</span></div></header><p class="development-notice">RESEARCH PROTOTYPE · DEVELOPMENT ONLY</p><section class="card focus-card" aria-label="Focus prediction"><div class="card-heading"><h2>Focus prediction</h2><span class="status-pill">Source status not declared</span></div><p class="focus-title">Which voice are you focusing on?</p><p class="focus-result" role="status" aria-live="polite">Focused on Speaker A</p><div class="voice-grid"><div class="voice-source selected" aria-label="Speaker A, focused"><div class="voice-orbit" aria-hidden="true"><span>A</span></div><h3>Source A</h3><strong class="focused-badge">FOCUSED</strong><p>rep_part1_track1_dry.wav</p><p>Input type: kuleuven_replay</p><p class="source-reference">rep_part1_track1_dry.wav</p><p>Gain: 0 dB</p><div class="correlation"><span>Correlation</span><strong>0.13204422876800082</strong></div></div><div class="voice-source" aria-label="Speaker B"><div class="voice-orbit" aria-hidden="true"><span>B</span></div><h3>Source B</h3><p>rep_part1_track2_dry.wav</p><p>Input type: kuleuven_replay</p><p class="source-reference">rep_part1_track2_dry.wav</p><p>Gain: -6 dB</p><div class="correlation"><span>Correlation</span><strong>-0.37896539009051683</strong></div></div></div><div class="focus-summary"><span>Prediction state: A</span><span>Confidence: Unavailable</span></div></section><div><div class="status-grid"><section class="card"><h2>System status</h2><dl class="metric-list"><div><dt>Backend</dt><dd>connected</dd></div><div><dt>EEG source</dt><dd>Unavailable</dd></div><div><dt>EEG hardware status</dt><dd>Unavailable</dd></div><div><dt>Sync offset</dt><dd>Unavailable</dd></div><div><dt>Synchronization</dt><dd>unobserved</dd></div><div><dt>Session</dt><dd>running</dd></div></dl></section><section class="card"><h2>Live status</h2><dl class="metric-list"><div><dt>Vigilance score</dt><dd>Unavailable</dd></div><div><dt>Lapse score</dt><dd>Unavailable</dd></div><div><dt>Gain A</dt><dd>0 dB</dd></div><div><dt>Gain B</dt><dd>-6 dB</dd></div><div><dt>Signal quality</dt><dd>1</dd></div><div><dt>Artifact</dt><dd>Not detected</dd></div></dl></section></div></div><section class="card signal-card"><div class="card-heading"><h2>Live signal / history</h2><span class="status-pill">Display data</span></div><div class="signal-empty">Awaiting EEG display data</div><p class="muted">A space for incoming signal samples. No measurements available yet.</p></section><section class="card session-controls" aria-label="Session controls"><div><h2>Your session</h2><p>Development stream · no hardware or audio playback</p></div><div class="button-group"><button class="primary">Start mock session</button><button>Stop session</button></div></section><p>Session Time: 42.75 s</p><p>Session: b55a41fb-676a-408a-9d89-f35908564eb1 · Sequence: 559 · Rejected packets: 0</p><p>null = unavailable; unknown packet types are retained without interpretation. Timestamps are session-relative seconds.</p><section class="feedback-panel" aria-label="Feedback"><h2>Feedback</h2><strong class="development-badge">SIMULATED · DEVELOPMENT ONLY</strong><p role="status">Feedback status: none</p><p>No development feedback received.</p><p>Severity: info · Timestamp: unavailable</p><p>Reason: waiting for mock results</p><p>Cooldown remaining at this event: 0 s</p><p>Visual test only. No scientific interpretation, audio, haptic, or device action.</p></section><details class="card diagnostics"><summary>Stream diagnostics · decoded results</summary><section><h2>session / server</h2><p>Unknown packet fallback · Simulation status unavailable / not declared · t=0 · seq=1</p><pre>{
+  &quot;id&quot;: &quot;b55a41fb-676a-408a-9d89-f35908564eb1&quot;,
+  &quot;status&quot;: &quot;running&quot;,
+  &quot;simulated&quot;: false
+}</pre></section><section><h2>audio_sources / nova-aad</h2><p>Registered decoder · Simulation status unavailable / not declared · t=0 · seq=2</p><pre>{
+  &quot;sources&quot;: [
+    {
+      &quot;id&quot;: &quot;A&quot;,
+      &quot;label&quot;: &quot;rep_part1_track1_dry.wav&quot;,
+      &quot;inputType&quot;: &quot;kuleuven_replay&quot;,
+      &quot;reference&quot;: &quot;rep_part1_track1_dry.wav&quot;
+    },
+    {
+      &quot;id&quot;: &quot;B&quot;,
+      &quot;label&quot;: &quot;rep_part1_track2_dry.wav&quot;,
+      &quot;inputType&quot;: &quot;kuleuven_replay&quot;,
+      &quot;reference&quot;: &quot;rep_part1_track2_dry.wav&quot;
+    }
+  ]
+}</pre></section><section><h2>sync / nova-aad</h2><p>Registered decoder · Simulation status unavailable / not declared · t=40 · seq=526</p><pre>{
+  &quot;status&quot;: &quot;unobserved&quot;,
+  &quot;offsetMs&quot;: null,
+  &quot;driftWarning&quot;: null,
+  &quot;timeline&quot;: &quot;eeg_source_clock&quot;,
+  &quot;fixedLatencyMs&quot;: null
+}</pre></section><section><h2>Prediction result</h2><p role="status">Current session prediction</p><p>Provider: nova2026.ridge · Task: auditory_attention · Status: ok</p><p>correlation_a · Value: 0.13204422876800082 · Semantic type: correlation · correlation_b · Value: -0.37896539009051683 · Semantic type: correlation · decision · Value: A · Semantic type: decision</p><pre>{
+  &quot;status&quot;: &quot;ok&quot;,
+  &quot;providerId&quot;: &quot;nova2026.ridge&quot;,
+  &quot;providerName&quot;: &quot;Ridge envelope decoder&quot;,
+  &quot;providerVersion&quot;: &quot;1&quot;,
+  &quot;task&quot;: &quot;auditory_attention&quot;,
+  &quot;timestamp&quot;: 42,
+  &quot;windowId&quot;: &quot;w38&quot;,
+  &quot;windowStart&quot;: 36.578125,
+  &quot;windowEnd&quot;: 41.578125,
+  &quot;outputs&quot;: [
+    {
+      &quot;name&quot;: &quot;correlation_a&quot;,
+      &quot;value&quot;: 0.13204422876800082,
+      &quot;semanticType&quot;: &quot;correlation&quot;,
+      &quot;label&quot;: &quot;Candidate A&quot;
+    },
+    {
+      &quot;name&quot;: &quot;correlation_b&quot;,
+      &quot;value&quot;: -0.37896539009051683,
+      &quot;semanticType&quot;: &quot;correlation&quot;,
+      &quot;label&quot;: &quot;Candidate B&quot;
+    },
+    {
+      &quot;name&quot;: &quot;decision&quot;,
+      &quot;value&quot;: &quot;A&quot;,
+      &quot;semanticType&quot;: &quot;decision&quot;,
+      &quot;label&quot;: &quot;Attended candidate&quot;
+    }
+  ],
+  &quot;reasons&quot;: [],
+  &quot;metadata&quot;: {
+    &quot;decision&quot;: &quot;A&quot;,
+    &quot;evidence_count&quot;: 38,
+    &quot;media_time_s&quot;: 42,
+    &quot;policy&quot;: {
+      &quot;check_channels&quot;: false,
+      &quot;max_bad_channels&quot;: 0,
+      &quot;exclude_channels&quot;: [],
+      &quot;source_unit_exponent&quot;: -6,
+      &quot;warmup_seconds&quot;: 2,
+      &quot;frame_seconds&quot;: 0.25
+    },
+    &quot;source_kind&quot;: &quot;kuleuven_replay&quot;,
+    &quot;simulated&quot;: false
+  }
+}</pre></section><section><h2>gain / nova-aad</h2><p>Registered decoder · Simulation status unavailable / not declared · t=42.5 · seq=557</p><pre>{
+  &quot;a_db&quot;: 0,
+  &quot;b_db&quot;: -6
+}</pre></section><section><h2>signal_quality / nova-aad</h2><p>Registered decoder · Simulation status unavailable / not declared · t=42.5 · seq=558</p><pre>{
+  &quot;quality&quot;: 1,
+  &quot;artifact&quot;: false
+}</pre></section><section><h2>attention / nova-aad</h2><p>Registered decoder · Simulation status unavailable / not declared · t=42.75 · seq=559</p><pre>{
+  &quot;attended&quot;: &quot;A&quot;,
+  &quot;correlationA&quot;: 0.13204422876800082,
+  &quot;correlationB&quot;: -0.37896539009051683,
+  &quot;decision&quot;: &quot;A&quot;
+}</pre></section></details></main>

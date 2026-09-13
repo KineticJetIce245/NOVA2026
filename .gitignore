@@ -83,6 +83,19 @@ results/*
 # account of that check, it is small, and an ignored file is one `git clean -x`
 # away from being lost.
 !results/streaming_test_report.md
+# Exception: step 8's session run records are the reviewable evidence that the
+# replay path, the producer and the transport agree. Each record holds the trial,
+# the explicit run policy, the session summary, the assertion verdicts and a
+# bounded packet excerpt - measurements and packet payloads (decision words,
+# correlations, gains, candidate file names), no signal and nothing that
+# identifies a participant. The packet streams themselves and the rendered
+# dashboard stay out of git under output/auditory_ui/.
+!results/auditory_session_*.json
+# Exception: the same step's frontend evidence is the dashboard rendered to
+# static HTML by the vendored frontend's own components, fed with the packets a
+# session published. It is the closest thing to the screenshot this repository's
+# test path can produce, and it is 8 KB.
+!results/auditory_frontend_*.html
 
 # macOS metadata. On exFAT (this repository lives on one) macOS cannot store
 # extended attributes, so it writes an AppleDouble sidecar next to every file it
