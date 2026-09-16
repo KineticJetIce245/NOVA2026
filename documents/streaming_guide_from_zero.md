@@ -1,0 +1,2079 @@
+# NOVA2026 Real-Time EEG Streaming — Explained From Zero
+
+This guide assumes **no background knowledge** about EEG, LSL, threading or
+this codebase. Read it top to bottom; every term is explained the first time it
+appears. After the "big picture" section you can jump to either the demo tour
+(Section 4) or the module-by-module guide (Section 5).
+
+> Short version: this code reads voltages from an EEG device **while it is
+> recording**, chops the continuous signal into fixed-length "windows", cleans
+> each window with filters, and hands windows to whoever wants to analyse them
+> (today: printing statistics; tomorrow: a trained model).
+
+---
+
+## 1. What are we trying to do?
+
+An EEG amplifier measures the tiny electrical voltages on a person's scalp,
+many times per second. We want to **use those voltages live**, not only after
+the recording ends:
+
+1. Receive data as it arrives, over the network (the protocol is called LSL).
+2. Turn the endless stream of numbers into small fixed-length pieces that
+   algorithms can work with ("windows").
+3. Clean the signal (remove mains hum at 60 Hz, keep only the interesting EEG
+   frequency band, slow it down from 500 samples/second to 128 samples/second).
+4. Make sure the data is usable: reject windows that contain artefacts
+   (a spike, a dead channel, the very first seconds before the filters have
+   "warmed up").
+5. Hand each good window to a consumer. Today the consumer prints statistics
+   so you can watch the pipeline work. Later the consumer will be a trained
+   model that classifies the window (e.g. "concentrating" vs "resting").
+
+A long-term design rule for this code: **every piece is small, does one thing,
+and can be tested or replaced on its own.** The script that runs the demo is
+just the glue that assembles the pieces in the order we want.
+
+---
+
+## 2. Background concepts (no prior knowledge needed)
+
+- **Channel / electrode.** A sensor at one position on the scalp. Each channel
+  has a name, e.g. `F3`, `Cz`, `O1`.
+- **Sample.** One measurement: the voltage of *every* channel at one instant.
+- **Sampling rate (`sfreq`).** How many samples arrive per second, in Hz.
+  500 Hz = 500 samples per second.
+- **Units.** The amplifier delivers volts (tiny numbers like `0.000012`).
+  EEG is normally discussed in microvolts (µV): `1e-6` of a volt, so multiply
+  volts by `1 000 000`. `10^-0` = volts, `10^-6` = µV.
+- **Data layout.** One data block is a 2D array `(samples, channels)`.
+  Column `j` belongs to channel number `j`.
+- **Chunk.** Whatever piece of data happens to arrive at once. The sender
+  decides the size (we deliberately use uneven sizes in the demo to prove the
+  code does not care).
+- **LSL (Lab Streaming Layer).** A standard for streaming time-series data
+  between programs/network. An *outlet* sends, an *inlet* receives.
+- **Manual acquisition.** We open the inlet with `acquisition_delay=None`,
+  which means "do not pull data automatically; pull it only when I ask you to".
+  This keeps control in our code and makes threading simple.
+- **Window.** A fixed-length slice of the signal, e.g. 2 seconds at 128 Hz =
+  256 samples per channel. Windows can **overlap**: with a "hop" of 0.5 s, a
+  new window starts every 0.5 s but each window still contains 2 s of data.
+- **Real-time loop.** A `while` loop that, roughly every 0.1 s: gets a block,
+  processes it, and (sometimes) produces a finished window.
+- **Stateful.** An object that remembers something between calls (a filter
+  remembers its previous outputs). Stateless = no memory between calls.
+- **Thread.** An independent line of execution inside one program. Our
+  acquisition loop runs on the main thread; we let slow "analysis" work run on
+  worker threads so it never blocks data collection.
+- **Copy vs view.** If a component keeps data in a ring buffer that is later
+  overwritten, handing out a *view* would let the next write silently change
+  already-delivered data. We always hand out *copies*.
+
+---
+
+## 3. The big picture
+
+ASCII pipeline (time flows top to bottom for one run):
+
+```text
+   EEG amplifier / PlayerLSL (fake source for the demo)
+        |   publishes chunks of (samples, channels) in VOLTS
+        v
+   StreamLSL inlet (connected with manual acquisition)
+        |
+        v
+   Acquire.read()                 --> one fixed-size block (e.g. 50 samples)
+        |
+        v
+   StreamSession.ingest()         --> channel reorder (ChannelContract)
+        |                            + save raw volts (RunRecorder, optional)
+        v
+   STAGES (defined in the script) --> one ordered tuple, one line per stage:
+        |                            repair short NaN/Inf runs (Repair)
+        |                            scaler (V->uV)
+        |                            quality observer (wrapped as a stage)
+        |                            notch 60 Hz, band-pass 1-45 Hz (filters)
+        |                            SoXR resampler 500 -> 128 Hz
+        v
+   CircularBuffer.push()          --> 0..N finished windows
+        |
+        v
+   StreamSession.wrap()           --> EEGWindow with its verdict
+        |                            (data/eog split, warm-up + judge reasons)
+        v
+   Consumer: print, model, ...    --> runs in the loop, or on TaskOffloader
+        |                            worker threads
+        v
+   RunRecorder.close()            --> lock the run, export .fif (optional)
+```
+
+The runtime ordering of one run:
+
+```text
+parse args  ->  start fake source  ->  connect inlet
+           ->  define the STAGES tuple + judges (in the script!)
+           ->  StreamSession(...)     [builds contract/recorder/acquire/buffer]
+           ->  while running:  read -> ingest -> run STAGES -> push -> wrap -> consume
+           ->  finally:        close acquire, disconnect, close recorder
+```
+
+Two rules that keep the pipeline correct:
+
+- **The script owns preprocessing order**: `STAGES` is an ordered tuple the
+  script defines, and the session never runs or reorders it. Convention:
+  repair first (source units, before filters), quality observes the
+  raw-but-scaled signal before filters, then filters, resampling last.
+- **Copy out of ring buffers**: never let a later write corrupt an earlier
+  window that is already on its way to the consumer.
+
+---
+
+## 4. Tour of `scripts/streaming_demo.py`, step by step
+
+Run it from the repository root:
+
+```powershell
+.venv/Scripts/python.exe -B -m scripts.streaming_demo --duration 8 --record records
+```
+
+The file has three layers: a docstring (the help text), helper functions, and
+`main()`. `main()` is numbered 1-8 in comments; we follow those numbers.
+
+### The docstring
+
+Everything between the first `"""` and its closing `"""` is the **module
+docstring**. Python stores it in `__doc__`, and argparse prints it when you run
+`--help`. So this text explains the demo *and* is the help screen — one source
+of truth. It shows the exact command, the pipeline, and how to compare
+"analysis in the loop" (`--workers 0`) with "offloaded to worker threads"
+(`--workers 2`).
+
+### Imports
+
+- `from time import monotonic, sleep` — `monotonic()` is a clock that only
+  moves forward (for timing the loop and lag); `sleep()` simulates a slow
+  model.
+- `from uuid import uuid4` — makes a unique name for the fake stream so two
+  runs never collide.
+- `import mne, numpy as np` — MNE is the Python EEG toolbox (used to build the
+  fake recording and read recordings back); NumPy is the array library every
+  block of data is made of.
+- `PlayerLSL` — the *outlet* that "plays" our fake recording in real time.
+  `StreamLSL` — the *inlet* that receives it.
+- `TaskOffloader` — runs per-window work on worker threads (see
+  `offload.py`).
+- `StreamSession, parse_args` — the bootstrap helpers (see `bootstrap/`).
+- `QualityMonitor, Repair, Resampler, SosFilter, design_bandpass,
+  design_notch, unit_scaler` — the preprocessing parts, imported here on
+  purpose: the demo wants you to *see* the chain being defined.
+
+### Constants
+
+- `CHANNELS` — the 8 channel names our fake device publishes, in column order.
+- `SOURCE_UNIT_EXPONENT = 0` — the source sends volts (`10^0`), not µV.
+
+### `synthetic_recording(seconds, sfreq)`
+
+Builds the fake data. One clean 10 Hz sine wave per channel; each channel has a
+slightly different amplitude (`(10 + index)` µV, i.e. 10..17 µV), so the
+statistics printed later are easy to eyeball. Returns an `mne.io.RawArray`
+holding volts. In real life you would delete this function and point
+`PlayerLSL` (or the inlet) at the real amplifier.
+
+### `main()` — step 1, start the fake source
+
+- `args = parse_args(description=__doc__)` — the bootstrap argument getter
+  defines all command-line options (rates, window sizes, filter settings,
+  recording identity, consumer mode) with defaults; `description=__doc__`
+  makes the module docstring the `--help` text. Nothing in this script
+  declares argparse options.
+- A unique `name`, then `PlayerLSL(...)` is created and `start()`ed. It
+  "plays" `duration + 6` seconds of data (extra lead time for filter warm-up)
+  in chunks of `--chunk-size` (37 by default — deliberately uneven).
+- `--workers < 0` is rejected early.
+
+### Step 2, connect the inlet
+
+```python
+stream = StreamLSL(bufsize=4.0, name=name)
+stream.connect(acquisition_delay=None, processing_flags=["clocksync"], timeout=10)
+```
+
+`acquisition_delay=None` = manual acquisition (we pull when we want).
+`clocksync` = synchronize the device clock with ours. `bufsize=4.0` = the
+inlet keeps up to 4 seconds of buffered data.
+
+### Step 3a, define the preprocessing chain explicitly
+
+This is the heart of "the script owns the pipeline":
+
+```python
+repair    = Repair(args.sfreq, source_unit_exponent=SOURCE_UNIT_EXPONENT)
+scaler    = unit_scaler(SOURCE_UNIT_EXPONENT, desired_exponent=-6)  # V -> uV
+quality   = QualityMonitor(n_eeg=len(CHANNELS), sfreq=args.sfreq, ...)
+
+def observe(data, timestamps):        # quality is an observer, not a stage:
+    quality.feed(data, timestamps)    # wrap its feed into the stage shape
+    return data, timestamps
+
+notch     = SosFilter(design_notch(args.notch, args.notch_q, args.sfreq), n)
+bandpass  = SosFilter(design_bandpass(args.lpass, args.hpass, args.order, ...), n)
+resampler = Resampler(args.sfreq, args.out_sfreq, n, quality=args.resample_quality)
+STAGES    = (repair, scaler, observe, notch, bandpass, resampler)   # the chain
+```
+
+Every stage, its parameters, and its order are visible and editable here.
+Every stage has the same shape `stage(data, timestamps) -> (data,
+timestamps)`; the loop just folds `STAGES` in order. `design_notch`/
+`design_bandpass` compute filter coefficients; `SosFilter` applies one filter
+continuously (it remembers its state between blocks).
+
+### Step 3b, assemble the rest via `StreamSession`
+
+```python
+session = StreamSession(stream, args, CHANNELS,
+                        judges=(quality, repair),
+                        out_sfreq=resampler.out_sfreq, ...)
+```
+
+`StreamSession` (see `bootstrap/session.py`) builds the boring run-once
+pieces: the channel contract, the optional recorder, the `Acquire` object and
+the `CircularBuffer`. It does **not** define or run the preprocessing — the
+script folds `STAGES` itself. The `judges` are the objects `wrap()` asks for a
+verdict (quality faults and repaired samples both reject windows). If the
+source sent channels we do not want, the contract prints them here as
+"dropping ...".
+
+### Step 4, print the configuration
+
+One block of `print()` that shows what will happen: source rate, chain
+settings, resampler target, window/hop/capacity in *samples at the output
+rate*, consumer mode, and the recording destination. Printing the plan makes
+every run self-explanatory.
+
+### Step 5, consumer state and helpers
+
+- `started = monotonic()` — the wall clock used to stop after `--duration`.
+- `valid_windows` / `rejected_windows` — counters for the final summary.
+- `report(eeg_window)` — prints one line per window: the peak-to-peak
+  amplitude (max - min, in µV) of the window's EEG data. This is our
+  stand-in for "a model".
+- `analyze(item)` — receives an `EEGWindow`, optionally `sleep()`s to pretend
+  analysis is slow, then reports.
+- `offloader = TaskOffloader(analyze, workers=..., capacity=...)` — created
+  *once*, only when `--workers > 0`. It is a bounded queue plus worker
+  threads; workers pick up `EEGWindow` tasks and run `analyze`.
+
+### Step 6, the real-time loop
+
+```text
+while monotonic() - started < args.duration:      # until time is up
+    (a) data, ts = session.acquire.read()         # pull one fixed block
+    (b) data, ts = session.ingest(data, ts)       # reorder + record raw
+    (c) for stage in STAGES: data, ts = stage(data, ts)   # the script's chain
+    (d) for window, w_times, start in session.buffer.push(data, ts):
+        (e) eeg_window = session.wrap(window, w_times, start)  # -> EEGWindow
+            if not eeg_window.valid: count & skip  # warm-up or judge reasons
+        (f) analyze(eeg_window)                    # or offloader.submit(...)
+```
+
+Every iteration is one acquired block. `push()` returns the list of windows
+*completed by this block* — often empty, sometimes several. `wrap()` packages
+each window into an `EEGWindow` that carries its own verdict (`valid` +
+`reasons`, see `window.py`): warm-up windows and windows flagged by a
+registered judge (a quality fault, or a repaired sample) come out
+`valid=False` and are skipped.
+
+### Step 7, shutdown
+
+The `finally:` block always runs, whether the loop ended normally, the user
+pressed Ctrl+C (`KeyboardInterrupt`), or the lag guard raised `RuntimeError`.
+Order matters:
+
+1. `session.acquire.close()` — detach the callback and drop leftover samples;
+2. `stream.disconnect()` — close the LSL inlet;
+3. `player.stop()` — stop the fake source;
+4. `offloader.close(drain=True)` — let queued analysis finish;
+5. `session.close(status="completed")` — locks the run, exports the `.fif`.
+
+### Step 8, summaries
+
+Prints acquisition statistics (`input_samples`, `max_lag`, `gaps`), how many
+samples the resampler emitted, how many windows were valid/rejected, and the
+offloader counters. `max_lag` is the oldest age of any consumed block — if it
+ever exceeds 3 s the lag guard stops the run instead of silently analysing
+stale data.
+
+### Entry point
+
+```python
+if __name__ == "__main__":
+    main()
+```
+
+Runs `main()` only when the file is executed directly (`python -m
+scripts.streaming_demo`), not when it is imported.
+
+---
+
+## 5. Module-by-module guide to `src/nova2026/streaming`
+
+Layout:
+
+```text
+src/nova2026/streaming/
+  __init__.py                # public exports (one import line)
+  acquire.py                 # Acquire          - pull fixed-size blocks
+  circular_buffer.py         # CircularBuffer   - ring storage -> windows
+  offload.py                 # TaskOffloader    - run analysis on workers
+  preflight.py               # ChannelContract + validate_source/prepare (B)
+  recording.py               # RunSpec/RunRecorder + read-back helpers
+  recovery.py                # Recovery         - bounded recovery (A2)
+  spatial.py                 # SpatialOperator, fit_ssp, processing_contract (C)
+  stats.py                   # StreamStats      - run counters (E)
+  timebase.py                # GridPolicy/TimeBase - one owner for the timeline
+  window.py                  # EEGWindow        - window + verdict for consumers
+  preprocess/
+    __init__.py              # re-exports the preprocessing pieces
+    units.py                 # unit_scaler      (stateless)
+    filters.py               # design_* + SosFilter (stateful)
+    quality.py               # QualityMonitor   (stateful observer)
+    repair.py                # Repair           (stateful, stage + judge)
+    resample.py              # Resampler        (stateful, soxr)
+  bootstrap/
+    __init__.py              # re-exports
+    args.py                  # make_parser / parse_args (argument getter)
+    session.py               # StreamSession    (run-once assembly)
+```
+
+Companion scripts and tests live next to the package: `scripts/streaming_demo.py`
+(the runnable walkthrough), `scripts/benchmark_streaming.py` (per-stage
+micro-benchmark), `scripts/verify_realdata.py` (real-recording check: run
+through, save + offline parity, edge cases), and `tests/streaming/test_*.py`
+(unit + end-to-end tests, 181 in total).
+
+Rule of thumb used everywhere: **stateless -> function, stateful -> class**.
+Classes hold their own state, validate arguments in the constructor, expose a
+call/method per data block, and offer `reset()` for a new segment.
+
+---
+
+### 5.1 `__init__.py` — the public door
+
+Re-exports the most-used names so scripts can write one import:
+
+```python
+from nova2026.streaming import Acquire, ChannelContract, CircularBuffer,
+    TaskOffloader, Resampler, RunRecorder, RunSpec
+```
+
+Why: keep one stable public surface; anything else can still be imported from
+its own module (`from nova2026.streaming.preprocess import SosFilter`).
+
+---
+
+### 5.2 `acquire.py` — `Acquire`
+
+**Problem.** LSL delivers chunks of any size, whenever they arrive. Analysis
+is much easier if we always get *exactly N samples per call*.
+
+**Why a class.** It must remember partially received samples between calls
+(state: leftover data + timestamps), remember the newest sample time to detect
+gaps, and remember the first error raised while receiving.
+
+**Public surface.**
+
+| Member | Purpose |
+| --- | --- |
+| `Acquire(stream, block_samples, *, sfreq, poll_interval, no_data_timeout, max_lag_seconds, max_future_seconds, stop_event)` | Build one. `stream` must be connected with `acquisition_delay=None` (manual). |
+| `read(timeout=None) -> (data, timestamps)` | Return exactly `block_samples` rows and their timestamps, oldest first. Blocks internally until ready. |
+| `stop()` | Request shutdown from another thread. |
+| `close()` | Detach the callback, drop leftover samples. Does NOT disconnect the stream. |
+| `stopped`, `pending_samples` | Properties for the caller. |
+| `blocks`, `samples`, `gaps`, `max_gap`, `max_lag` | Public counters/stats. |
+
+**How it works inside.** MNE-LSL calls a callback each time we call
+`stream.acquire()`; because acquisition is manual, the callback runs on the
+same thread that calls `read()`, so **no lock is needed**. `_on_chunk`
+validates shapes and copies the chunk (MNE reuses its buffer), `_fill` loops
+pulling until at least one full block is buffered, `_take_block` slices one
+block off the front and keeps the rest, `_check_age` rejects blocks that are
+too old (stale data) or from the future.
+
+**Expected usage** — usually not directly; `StreamSession` builds it:
+
+```python
+acquire = Acquire(stream, block_samples=50, sfreq=500.0)
+data, timestamps = acquire.read()          # (50, n_ch)
+```
+
+---
+
+### 5.3 `preflight.py` — the source contract and its validation (B)
+
+**Problem (channels).** The device publishes channels in *its* order and set;
+our pipeline/recording expects channels in *our* order (EEG first, aux like
+EOG after). If we silently paired columns with the wrong names, every number
+downstream would be attached to the wrong electrode — a quiet, hard-to-find
+bug.
+
+**Why a class.** One place to keep the validated mapping (indices,
+selected/dropped names) built once and reused every block.
+
+**Public surface.** `ChannelContract(source_channels, expected_channels)`;
+attributes `source_channels`, `expected_channels`, `selected_channels`,
+`dropped_channels`; method `reorder(data) -> data`.
+
+**Behaviour.** Constructor checks for duplicate labels and for *missing*
+required channels (raising `ValueError` with the missing names — fail at
+startup, not mid-recording), and computes the column permutation. `reorder`
+takes the requested columns in canonical order; when the source already
+matches exactly it returns the array untouched (zero copy on the hot path).
+
+**Problem (validation).** The pipeline trusts whatever outlet it connects to;
+connecting to the wrong stream, or to the right stream with a different rate,
+units or channel types, quietly records plausible but wrong data. Validation
+must run right after `connect()` and before the first `read()`.
+
+**Public surface (validation).** `validate_source(stream, *, sfreq, channels,
+source_unit_exponent, n_eeg=None, stream_name=None, source_id=None,
+stream_type=None)` — a stateless function that raises `RuntimeError` on any
+mismatch: connected identity, sampling rate, numeric dtype, untouched state
+(no filters/callbacks/unread samples), duplicate/missing labels (reusing the
+constructor's rules), channel types (EEG vs EOG), and each channel's declared
+voltage units against the configured exponent. `prepare(...)` is the same
+check but *returns* the `ChannelContract` for the run — the one-call entry
+point.
+
+**Expected usage** (at run start; `StreamSession` accepts the pre-built
+contract so nothing is checked twice). The contract must come from *this*
+outlet: the session checks that its `source_channels` equal the connected
+stream's labels and rejects a contract built for another source, because such
+a contract would silently reorder columns by name:
+
+```python
+from nova2026.streaming import prepare
+contract = prepare(stream, sfreq=args.sfreq, channels=EXPECTED,
+                   source_unit_exponent=0, n_eeg=len(EXPECTED))
+session = StreamSession(stream, args, EXPECTED, ..., contract=contract)
+data = contract.reorder(data)     # every block (inside session.ingest)
+```
+
+---
+
+### 5.4 `circular_buffer.py` — `CircularBuffer`
+
+**Problem.** Turn a continuous stream of blocks into fixed-length windows,
+possibly overlapping, without losing or duplicating samples, while bounding
+memory.
+
+**Why a class.** Ring buffers are stateful by definition (write pointer,
+logical row count, next window boundary, timestamp anchor).
+
+**Public surface.** Constructor
+`CircularBuffer(window_samples, hop_samples, capacity_samples, sfreq,
+n_channels, dtype)`; `push(data, timestamps) -> list[(window, window_times,
+start_sample)]`; `reset()`; attributes `total_written`, `windows`.
+
+**How it works.** A fixed array ("ring") plus a *logical* counter
+(`total_written`, which never wraps). On each push it writes up to the next
+window boundary, and the moment a boundary is crossed it **copies** the window
+out (later ring writes can never corrupt it), then advances the boundary by
+`hop`. Windows that straddle the end of the ring are reassembled from two
+pieces. Timestamps are a uniform grid at `sfreq` anchored to the first finite
+timestamp pushed. Pure storage only: no units, filters or validity decisions.
+
+**Expected usage** (built by `StreamSession`; `session.buffer`):
+
+```python
+windows = buffer.push(data, timestamps)
+for window, window_times, start in windows:
+    ...  # e.g. eeg_window = session.wrap(window, window_times, start)
+```
+
+---
+
+### 5.5 `offload.py` — `TaskOffloader`
+
+**Problem.** If the consumer (e.g. a model) is slow, and it runs in the same
+loop as acquisition, data collection stalls: we measured the lag guard firing
+because analysis could not keep up. Solution: hand analysis to a pool of
+worker threads through a bounded queue; the loop submits and immediately
+continues.
+
+**Why a class.** A pool has lifecycle (start workers, stop them), a queue with
+an overflow policy, and shared counters.
+
+**Public surface.**
+
+| Member | Purpose |
+| --- | --- |
+| `TaskOffloader(handler, *, workers=1, capacity=8, overflow="drop_oldest", on_result=None, on_error=None)` | handler runs on a worker thread for each submitted item. |
+| `submit(item) -> bool` | Enqueue and return immediately; False when dropped/closed. |
+| `raise_error()` | Re-raise the first handler failure on the caller's thread. |
+| `close(*, drain=False, timeout=5.0)` | Stop accepting, (optionally) wait for the backlog, join workers. |
+| `pending`, `submitted`, `completed`, `failed`, `dropped` | State/counters. |
+
+**Overflow policy** matters when producers are faster than consumers:
+`"drop_oldest"` keeps the freshest items (right for real-time), `"drop_newest"`
+keeps history, `"raise"` propagates `queue.Full`.
+
+**Notes.** Items must be self-contained — this is exactly why
+`CircularBuffer` hands out copies. Handlers must be thread-safe. If the
+average computation time exceeds the arrival rate, no architecture can keep
+up; the only question is what you drop.
+
+**Expected usage:**
+
+```python
+offloader = TaskOffloader(analyze_window, workers=2, capacity=8)
+offloader.submit(eeg_window)            # non-blocking; EEGWindow is a copy
+...
+offloader.raise_error()                 # surface worker failures
+offloader.close(drain=True, timeout=5.0)
+```
+
+---
+
+### 5.6 `window.py` — `EEGWindow`
+
+**Problem.** A window leaves the ring buffer as a raw tuple
+`(data, window_times, start_sample)`. Whoever consumes it (a model, a
+recorder) would have to re-derive "may I use this window and why?". Bundle
+the data with that verdict once, at the buffer boundary.
+
+**Why a class.** It is a value object with fixed semantics: validated shapes,
+EEG/EOG split, and a verdict (`valid`/`reasons`) that travels with the data.
+
+**Public surface.**
+
+| Member | Purpose |
+| --- | --- |
+| `EEGWindow(data, eog, timestamps, valid, reasons, start_sample, segment=0, artifact_id=None, channel_names=(), contract=None, available_at=None, bad_channels=())` | One window. Arrays are **copied** on construction, so the object is safe to hand to worker threads. |
+| `len(window)` | Number of samples. |
+| `.data`, `.eog` | µV samples: EEG columns and auxiliary columns separately. |
+| `.valid`, `.reasons` | Verdict: valid windows have empty reasons. |
+| `.bad_channels` | Labels of the EEG channels a judge found faulty inside this window. **Evidence, not a verdict**: a run that tolerates a dead electrode still lists it here while the window stays `valid` (see Section 9 A3). |
+| `.timestamps`, `.start_sample`, `.segment`, `.channel_names`, `.contract`, `.available_at` | Provenance for models and recording. |
+
+**Expected usage** — never constructed by hand in a script;
+`StreamSession.wrap()` builds it:
+
+```python
+eeg_window = session.wrap(window, window_times, start)   # gates + splits
+if eeg_window.valid:
+    model(eeg_window.data)
+else:
+    log(eeg_window.reasons)
+```
+
+---
+
+### 5.7 `recording.py` — `RunSpec`, `RunRecorder` and read-back helpers
+
+**Problem.** Keep the raw data (before any filtering) so that a run can be
+re-analysed later, survives a crash, and carries enough context (who, when,
+status, task events) to be meaningful.
+
+**Why classes + module functions.** `RunSpec` is a tiny identity value;
+`RunRecorder` manages one SQLite database and the FIF export; reading is done
+by stateless module functions.
+
+**Public surface.**
+
+| Name | Purpose |
+| --- | --- |
+| `RunSpec(subject, session, run, role="run")` | Identity; unsafe characters stripped so a name can never escape the folder tree. |
+| `RunRecorder(root, spec, channels, sfreq, *, ch_types, unit_exponent, dtype, export_fif, config=None, files=None, track_windows=False)` | Creates `root/subject/session/run/run.sqlite`; refuses to overwrite an existing run. `config` stores a serializable run description; `files` copies + SHA-256-hashes provenance inputs; `track_windows` enables the window log. |
+| `recorder.write(data, timestamps)` | Commit one chunk (data BLOB + row count + first timestamp) in its own transaction — crash-safe. |
+| `recorder.mark(label, timestamp=None)` | Thread-safe task event (e.g. `"blink"`), for the controller thread. |
+| `recorder.log_window(ts, valid, reasons, segment, artifact_id)` | One line per delivered window, when `track_windows=True`. |
+| `recorder.close(status="completed", error=None, stats=None)` | Lock the run; if `export_fif`, read the DB back and write `<run>_raw.fif` next to it; write a JSON sidecar. |
+| `recorder.mark_not_processed(rows, timestamp=None)` | Record a buffered tail that never became windows (`not_processed:<rows>` event) when the loop stops. |
+| `read_metadata(path)` | All metadata as a dict (includes `config` and `input:<role>` entries when provided). |
+| `iter_chunks(path)` | Yield `(data, first_timestamp)` for every chunk in order. |
+| `iter_events(path)` | Event list `(timestamp, label)`. |
+| `iter_windows(path)` | Window log as `(ts, valid, reasons, segment, artifact_id)`; empty for runs without tracking. |
+| `chunk_timestamps(first, n, sfreq)` | Rebuild a uniform time grid from a chunk's anchor. |
+| `replay_chunks(path)` | Yield `(data, timestamps)` — feed a recorded run through the same chain later (offline evaluation). |
+
+**Design note.** We store *per-chunk* first timestamps, not per-sample
+timestamps: the whole pipeline works on anchor + uniform grids anyway, so
+per-sample storage would just bloat the file.
+
+**Expected usage** (recording is optional; `StreamSession` wires it when
+`--record` is given):
+
+```python
+rec = RunRecorder(Path("records"), RunSpec("s1", "a", "trial01", "trial"),
+                  CHANNELS, sfreq=500.0, unit_exponent=0)
+rec.write(data, timestamps)      # every block
+rec.mark("blink", t)             # from the task thread
+rec.close(status="completed")
+```
+
+---
+
+### 5.8 `preprocess/` — the preprocessing package
+
+Shared contract for transform stages:
+`stage(data, timestamps) -> (data, timestamps)`, called once per block,
+state kept across blocks. `QualityMonitor` is an *observer*, not a transform.
+
+#### `preprocess/units.py` — `unit_scaler`
+
+**Why.** The chain works in µV; the source sends volts (or another exponent).
+Scaling is stateless, so it is a *function factory* that returns a stage
+closure. Validates exponents (0/-3/-6/-9) and returns
+`(data * 10^(source-desired), timestamps)`.
+
+#### `preprocess/filters.py` — `design_bandpass`, `design_notch`, `SosFilter`
+
+**Why.** Filtering needs two different jobs, kept separate: *design* the
+coefficients once (`butter`/`iirnotch` from SciPy, in numerically stable
+second-order-section form) and *apply* them continuously.
+
+- `design_bandpass(low, high, order, sfreq)` -> SOS coefficients.
+- `design_notch(frequency, quality, sfreq)` -> SOS coefficients.
+- `SosFilter(sos, n_channels)` is stateful: it initialises the filter state
+  (`zi`) on the first block so there is no start-up transient, calls
+  `sosfilt` per block while carrying `zi`, and offers `reset()`.
+
+**Expected usage:**
+
+```python
+notch = SosFilter(design_notch(60.0, 30.0, 500.0), n)
+data, ts = notch(data, ts)     # every block
+```
+
+#### `preprocess/quality.py` — `QualityMonitor` and `BadChannelJudge`
+
+**Why.** Detect bad raw data (large excursion, saturation, flatline) *before*
+filtering, so filters cannot hide a stuck electrode. Reports faults by
+*timestamp interval*, so results do not depend on how the stream was chunked.
+
+**The three faults are channel faults.** They are computed per electrode —
+`flatline` is a dead electrode, `saturation` is a railed one, `amplitude` is a
+pop or a drifting one — and the monitor resolves *which* channels were involved
+**before** it collapses the per-sample masks across channels. That is what lets
+a window verdict name the offending electrodes instead of only naming the fault
+type.
+
+**Public surface.** `QualityMonitor(*, n_eeg, sfreq, ...limits...,
+channel_names=None, check_channels=True, max_bad_channels=0,
+exclude_channels=())`; `feed(data_uv, timestamps)` (observer, per block);
+`reasons(start, end) -> tuple[str, ...]` (ask about a finished window, applies
+the channel policy); `bad_channels(start, end) -> tuple[str, ...]` (every
+faulting channel in the span, policy aside); `fault_channels(start, end) ->
+{name: channels}`; `reset()`.
+
+**Policy versus evidence.** `check_channels`, `max_bad_channels` and
+`exclude_channels` only decide whether a window is **rejected**. The evidence
+accessors always report every faulting channel, including the ones the operator
+declared dead, because "which electrode was bad and how often" is what decides
+the next session's list. `ChannelScope` (in `preprocess/scope.py`) resolves
+excluded labels to column positions and is shared with `Repair`, so a dead
+column cannot stop the run through one stage while being ignored by another.
+
+**Expected usage:** scripts wrap `feed` in a stage closure and register the
+monitor as a judge on `StreamSession`; `wrap` then asks `reasons(window_start,
+window_end)` for every finished window. Feed every block after scaling and
+before filters. Ask about windows in non-decreasing `start` order: queries prune
+expired intervals.
+
+**`BadChannelJudge`** is the plugin form: a judge that wraps a monitor and
+reports its bad-channel census without ever rejecting, unless it is built with
+`block_on_bad_channels=True`, in which case a window with at least
+`min_channels` bad channels is rejected with the `"bad_channels"` reason. Use it
+when a script wants a census rule that is independent of `max_bad_channels`
+(which is counted per fault type).
+
+#### `preprocess/scope.py` — `ChannelScope`
+
+**Why.** A dry cap arrives with electrodes that are dead for the whole session,
+and a labelled montage makes "this column is not signal" an operator assertion
+rather than something a detector should rediscover every window. One object
+carries that assertion to every stage that would otherwise stop the run for it.
+
+**Public surface.** `ChannelScope(channel_names=None, exclude_channels=())`,
+with `.channel_names`, `.exclude_channels`, `.excluded_indices`,
+`mask(channels)` (boolean in-scope mask), `excluded_mask(channels)` and
+`contains(index)`.
+
+**Two rules.** A label that is not part of `channel_names` **raises** (silently
+excluding nothing would leave the run stopping for an electrode the operator
+believes is handled), and exclusions need labels because a column index is not a
+stable identity across runs. Columns beyond the montage stay in scope, so
+auxiliary channels are judged exactly as before. Nothing here removes a column:
+the decoder's channel contract stays valid.
+
+#### `preprocess/repair.py` — `Repair`
+
+**Why.** A stream occasionally delivers a few broken samples (an isolated
+`NaN`/`Inf`, or a short missing run). One broken sample fed into a causal
+filter corrupts its state for the whole settling time afterwards, so damage
+must be fixed *before* any filter. Repair bridges short runs (default up to
+20 ms) linearly between the two finite samples on either side, per channel,
+never rewriting healthy values.
+
+**Public surface.** `Repair(sfreq, *, max_seconds=0.02, ..., channel_names=None,
+exclude_channels=())` is both a transform stage — `(data, timestamps) ->
+(data, timestamps)` — and a judge with `reasons(start, end)` (returns
+`("interpolated",)` when a window touches a repaired span, so those windows are
+rejected); `reset()`; counters `repaired_samples`, `dropped_rows`,
+`held_rows`.
+
+**Behaviour.** Missing rows are detected from timestamp gaps and repaired the
+same way. A damaged tail without a finite right endpoint is held back and
+returned with the next block. Damage that cannot be repaired — a run longer
+than `max_seconds`, irregular or non-finite timestamps, or extreme endpoints
+when units are known — **raises**, stopping the run loudly rather than feeding
+bad values into filters. Damage before the first finite sample is dropped (the
+run simply starts later). Damage it cannot repair raises
+`UnrepairableError`; Section 9 A2's `Recovery` guard turns that into a bounded
+restart or, beyond its limits, a stop.
+
+**Out-of-scope columns.** With `exclude_channels`, damage is judged on the
+in-scope columns only. A non-finite value in an excluded column is *held* at its
+last finite level (zero before any exists) instead of waiting for a right
+endpoint that may never arrive, and the endpoint safety check ignores those
+columns. Without `exclude_channels` the scope is every column, which reproduces
+the historical behaviour exactly.
+
+#### `preprocess/resample.py` — `Resampler`
+
+> **New to resampling? Read this box first.**
+>
+> **What a sample rate is.** 500 Hz means "500 measurements every second".
+> Picture them as dots on a line, 2 mm apart. We want dots 7.8 mm apart
+> (128 Hz).
+>
+> **Why we cannot simply throw dots away.** If a 200 Hz tone is hiding in the
+> signal and we just keep every fourth dot, that tone comes back as a ghost at
+> about 72 Hz — a frequency that was never there, and once it is mixed in it
+> cannot be separated again. The ghost appears because the signal was not
+> "smoothed" before being thinned out.
+>
+> **What SoXR does instead.** It first builds a smoothing filter that removes
+> anything too fast for the new dot spacing, and then reads the new dots off
+> the smoothed curve rather than off the raw dots. That is all a resampler is:
+> "smooth, then re-space".
+>
+> **Why that costs time.** To draw the smoothed curve it needs to see a run of
+> neighbouring dots, so it must collect a batch of input before it can hand
+> out the first output. The batch size is counted in **samples, not seconds**:
+> the standard setting (`LQ`) wants about 950 of them, which is about 1.9 s at
+> 500 Hz but about 7.4 s at 128 Hz. Halve the input rate and you double the
+> delay in seconds.
+>
+> **The shortcut and its price.** `QQ` skips the smoothing almost entirely, so
+> its delay is tiny — but the ghost tones come back. It is only safe if
+> something earlier in the chain has already removed the high frequencies.
+> Here the anti-ghost margin is thin, so this wrapper refuses `QQ` outright
+> (the paragraph on latency below explains why).
+>
+> **One-line takeaway.** SoXR trades "clean signal" against "delay", and its
+> delay is a number of samples — so the same setting means very different
+> latencies at different sample rates.
+
+**Why.** Change the sample rate (500 -> 128 Hz) *continuously* while
+streaming. SoXR (`soxr`) provides a stateful `ResampleStream`; this class
+wraps it in the chain contract and regenerates an output-rate timestamp grid.
+
+**Why a class.** Resampling is stateful (internal history, output index,
+anchor) and its output row count per call varies (0 on early calls while SoXR
+buffers).
+
+**Dependency note.** `soxr` is imported lazily, only when a `Resampler` is
+constructed; the rest of the package works without it (the demo requires it).
+
+**Latency, and why `QQ` is not accepted.** SoXR's delay is an internal *sample
+count*, not a duration, and it is deliberately not compensated (timestamps stay
+anchored to the input grid). LQ buffers roughly 950 input samples: about 1.9 s
+at 500 -> 128 Hz, but about 7.4 s at 128 -> 64 Hz, because halving the input
+rate doubles the delay in seconds. So keep the input rate high, or band-limit
+early and resample straight to the rate the consumer wants. SoXR also offers a
+`QQ` preset, which this wrapper excludes by default: `QQ` performs essentially
+no anti-aliasing, and this path's third-order 1-45 Hz band-pass leaves the
+output Nyquist (64 Hz) too close to the stopband edge, so energy would fold
+back in. Any future "upgrade" to `QQ` on this path would need a steeper
+anti-alias filter first, not just a changed word.
+
+**Choosing the preset automatically (the time budget).** Which preset is right
+depends on how late a sample may be when the consumer uses it, so the class
+derives a delay budget instead of guessing one:
+
+```text
+budget = max_delay_seconds                        # explicit override
+budget = max_age_seconds - reserve_seconds        # from the consumer's expiry
+budget = 2.0 s                                     # fallback when neither is set
+```
+
+With `quality=None` (or `"auto"`) the class does not read a table: it
+**measures** each anti-aliased preset on the installed SoXR build (feeding one
+zero sample at a time until the first output appears) and picks the cleanest
+one whose measured delay fits the budget. Measuring matters because the delay
+is a sample count that varies by build — on the build here, for example, MQ is
+slowest (7.55 s at 500 -> 128 Hz) and VHQ is fastest of the strong presets
+(7.17 s), which no name-based ordering would predict. It raises
+`ResamplerQualityWarning` when the pick is the weakest preset (LQ), when only
+`QQ` would fit (and `allow_qq=True` let it through), or when nothing meets the
+budget at all; `strict=True` turns those warnings into errors, and
+`resampler.quality` / `resampler.startup_delay_seconds` report what was chosen
+and what it costs.
+
+**What "signal error" would mean here (not auto-tuned yet).** The time budget
+above is about *when* data arrives. The other kind of error is about *how
+faithful* the conversion is: `QQ` barely filters, so energy that is too fast for
+the new sample spacing folds back and appears as a frequency that was never
+there (in the review's measurement, a tone that should vanish came through at
+about 97 %); `LQ` removes it but slightly changes amplitudes in the passband
+(about a 9 % error on the tested tone). Those two numbers, not the preset
+names, are what "signal error" means. Measuring them per build would mean
+feeding test tones and reading the leakage, which is a heavier probe; it is
+deliberately left out for now, and the safe rule of thumb stands: keep a proper
+anti-aliasing preset (never `QQ`) unless an earlier stage already band-limits
+the signal hard.
+
+**Public surface.**
+`Resampler(in_sfreq, out_sfreq, n_channels, quality=None, *,
+max_age_seconds=None, reserve_seconds=0.0, max_delay_seconds=None,
+allow_qq=False, strict=False)`; `quality=None`/`"auto"` selects automatically,
+an explicit name (`"LQ"`, `"MQ"`, `"HQ"`, `"VHQ"`) keeps full control, and
+`"QQ"` needs `allow_qq=True`. Also: `(data, timestamps) -> (out,
+out_timestamps)`; `reset()`; `output_samples`; public `in_sfreq`, `out_sfreq`,
+`quality`, `startup_delay_seconds`, `max_delay_seconds`; the helper
+`select_quality(...)` exposes the choice without constructing a stage. The CLI
+counterpart is `--resample-quality auto`.
+
+---
+
+### 5.9 `bootstrap/` — start-up helpers so scripts stay small
+
+#### `bootstrap/args.py` — the argument getter
+
+**Why.** Every live script needs the same options (rates, windows, filters,
+recording identity, consumer mode). Instead of rewriting argparse in every
+script, define them once here.
+
+- `make_parser(description="", extra=None)` -> `ArgumentParser` with all
+  common options, grouped: source/timing, windows (at the output rate),
+  preprocessing, run recording (`--record/--subject/--session/--run`),
+  consumer (`--workers/--queue/--compute`).
+- `parse_args(description="", extra=None, argv=None)` -> parsed namespace.
+  `extra` lets a script register its own flags: `parse_args(extra=lambda p:
+  p.add_argument("--model"))`.
+
+**Expected usage:** `args = parse_args("my script")`, then use
+`args.sfreq`, `args.window`, `args.run`, ... everywhere.
+
+#### `bootstrap/session.py` — `StreamSession`
+
+**Why.** The "run-once" assembly (channel contract, optional recorder,
+Acquire, CircularBuffer) is identical across scripts. `StreamSession` does it
+once and exposes loop helpers, while the *preprocessing stages stay defined in
+the script* and are passed in.
+
+Constructor:
+
+```python
+StreamSession(stream, args, channels, *,
+              judges=(), out_sfreq=None,
+              source_unit_exponent=0, role="run", ch_types=None, n_eeg=None)
+```
+
+Attributes: `contract`, `recorder`, `acquire`, `buffer`, `judges`,
+`eeg_count`, `n_channels`, `out_sfreq`, `window_samples`, `hop_samples`,
+`capacity_samples`, `warmup_samples`.
+
+Methods:
+
+| Method | Purpose |
+| --- | --- |
+| `ingest(data, ts)` | Contract reorder + write raw block to the recorder (if any). |
+| `wrap(window, window_times, start) -> EEGWindow` | Package one window with its verdict (warm-up + every judge's reasons) and split EEG/EOG. |
+| `close(status, error)` | Finalize the recorder (lock run + export FIF). |
+
+What it does NOT do: connect the stream, start threads, process data, run a
+chain, consume windows, or define the preprocessing. There is no `process()`
+method and no preprocessing defaults — the script owns `STAGES` entirely, and
+the session only registers `judges` (objects exposing
+`reasons(start, end) -> tuple[str, ...]`, e.g. `QualityMonitor` and `Repair`)
+whose verdicts `wrap()` unions onto each window. Warm-up stays session-owned:
+it is measured in samples written, not in judge time.
+
+**Expected usage** — see the demo; the minimum script is:
+
+```python
+session = StreamSession(stream, args, CHANNELS,
+                        judges=(quality, repair),
+                        out_sfreq=resampler.out_sfreq)
+while running:
+    data, ts = session.acquire.read()
+    data, ts = session.ingest(data, ts)
+    for stage in STAGES:              # the script's own ordered tuple
+        data, ts = stage(data, ts)
+    for w, w_ts, start in session.buffer.push(data, ts):
+        eeg_window = session.wrap(w, w_ts, start)   # verdict included
+        if eeg_window.valid:
+            consume(eeg_window)
+session.close()
+```
+
+---
+
+### 5.10 `spatial.py` — eye-artefact projection (C)
+
+**Why.** Blinks and eye movements share a spatial direction across frontal EEG
+channels. A fixed projector `P = I - U @ U.T` learned from marked EOG
+calibration removes that direction from the EEG columns without touching EOG,
+timing or validity. Pure NumPy; no LSL, threads or files except the operator
+`.npz`.
+
+**Public surface.**
+
+| Name | Purpose |
+| --- | --- |
+| `processing_contract(eeg_channels, eog_channels, out_sfreq, units="uV", stamp="")` | JSON-safe description of the chain an operator is calibrated/applied under; exact equality decides compatibility. |
+| `cut_epochs(eeg, eog, timestamps, event_times, seconds=1.0)` | **The data-input boundary for calibration.** Cut 1 s epochs out of ALREADY-PROCESSED continuous EEG/EOG (float `(samples, channels)` arrays plus their timestamps) around marked event times; rejects epochs that would fall outside the data. |
+| `fit_ssp(eeg, eog, contract, n_components=1, ...)` | Offline fit from marked epochs (events × samples × channels, in uV): mean-subtract, fit on the first events, hold the last third out, fail unless held-out EEG–EOG coupling drops by at least half. |
+| `SpatialOperator(matrix, contract, report)` | Validates symmetry/idempotence/rank, derives `artifact_id`, applies per window, saves/loads `.npz` without pickle (never overwrites). |
+| `operator.apply_window(window)` | Project the window's EEG columns once (`artifact_id` prevents a second correction), preserve EOG/verdict/timestamps. |
+
+**Where it plugs in:** after `wrap()` and before the consumer — `P` is linear
+and time-invariant, so per-window projection equals projecting the continuous
+signal first. The script loads an operator and checks `operator.validate(
+processing_contract(...))` once before the loop, then calls `apply_window` on
+every finished window. Cutting calibration epochs out of a recorded run (raw
+chunks -> the same chain -> one-second windows around `blink` events) is an
+integration step that uses the recorder's events and window log (Section 9, D).
+
+**The data-input boundary (what "already-processed data" means here).**
+`cut_epochs` is where already-processed data enters calibration, and its
+docstring spells out exactly what it expects so external producers can feed it
+without re-running this package's chain: two float arrays shaped
+`(samples, channels)` (EEG columns in the contract's EEG order, EOG columns in
+its EOG order, same units the contract declares — microvolts for our chain),
+one strictly-increasing timestamp per row on the same clock as the event
+times, and epoch windows that fit entirely inside the data. Its output
+`(eeg_epochs, eog_epochs)` goes straight into `fit_ssp`.
+
+---
+
+### 5.11 `recovery.py` — bounded recovery (A2)
+
+**Why.** `Repair` fixes what it can and raises `UnrepairableError` for what it
+cannot. Killing the whole run on the first glitch is too brittle for a live
+stream, so `Recovery` gives the run a bounded number of clean restarts and
+stops loudly only when the budget is gone or a single fault is too large. It
+is deliberately NOT part of `StreamSession`: the script registers the stateful
+components it owns.
+
+**Public surface.** `Recovery(resettable, *, max_events=5, max_gap_seconds=0.5,
+persistent_fault_seconds=5.0, recorder=None)`; `handle(UnrepairableError)`
+(discard the chunk, reset every registered component, advance `segment`);
+`watch(EEGWindow)` (stop after judge-rejected windows last longer than
+`persistent_fault_seconds`; a window without finite timestamps raises instead
+of silently disabling the watch); `reset()`; attributes `segment`,
+`recoveries`, `events`.
+
+**Choosing `persistent_fault_seconds`.** A single bad sample invalidates every
+window that overlaps it, so the bad stretch a judge can report is roughly
+`window length + settling` (QualityMonitor appends `warmup_seconds`, Repair
+appends `settle_seconds`). Set this threshold comfortably above that — about
+twice the window length is the safe rule — otherwise one transient spike looks
+like a persistent fault and stops the run. The demo's 2 s window, zero quality
+settling and 5 s threshold sit on the safe side of that rule; a 5 s analysis
+window with the default 2 s quality settling would not.
+
+**Expected usage** (in the script's loop):
+
+```python
+try:
+    for stage in STAGES:
+        data, ts = stage(data, ts)
+except UnrepairableError as error:
+    recovery.handle(error)          # resets or raises when the run must stop
+    continue
+# per window: eeg_window.segment = recovery.segment; recovery.watch(eeg_window)
+```
+
+### 5.12 `stats.py` — run counters (E)
+
+**Why.** A run's terminal output vanishes; the structured summary should live
+with the recording. `StreamStats` counts what happened and
+`StreamSession.close(stats=...)` stores it in the recorder metadata.
+
+**Public surface.** Counters `blocks`, `samples`, `windows`, `valid`,
+`rejected`, `recoveries`, `repairs`, `dropped`, `gaps`, `max_lag`; `to_dict()`.
+
+**Expected usage.** Increment at each loop stage, then
+`session.close(status="completed", stats=stats.to_dict())`.
+
+---
+
+## 6. Data-flow recap and the ordering rules
+
+Who calls what, per run and per block:
+
+```text
+RUN level:
+  parse_args()                      # bootstrap/args.py
+  PlayerLSL(...).start()            # demo only
+  StreamLSL.connect(...)            # manual acquisition
+  build STAGES tuple + judges       # in the script
+  session = StreamSession(...)      # builds the rest
+  loop { session.acquire.read() ... }       # the script's while
+  session.acquire.close(); stream.disconnect(); session.close()
+
+BLOCK level (inside the loop):
+  read()      -> (block, ts)                     # exactly --block rows
+  ingest()    -> reorder; recorder.write(raw)    # raw volts are kept
+  STAGES      -> for stage in STAGES: data, ts = stage(data, ts)
+  buffer.push() -> list of windows completed by this block
+  per window: wrap(w, w_ts, start) -> EEGWindow; consume or reject by .valid
+```
+
+Invariants to respect when writing a new script:
+
+1. The script owns `STAGES`: every stage is `(data, ts) -> (data, ts)`, and
+   the loop folds them in the tuple's order. Convention: repair first, then
+   scale -> quality observation -> filters -> resample (filters must not run
+   before quality sees the raw signal).
+2. `ingest` before the stages (record the untouched volts).
+3. Register every verdict provider (`QualityMonitor`, `Repair`) as a
+   `judge` so `wrap()` can gate windows on it.
+4. Never mutate a window returned by `buffer.push` and expect neighbours to be
+   unaffected — each window is already a private copy.
+5. Shut down in order: close the acquire handle, disconnect the inlet, stop
+   the source, close the offloader, close the recorder.
+6. Create run-once objects (offloader, recorder, session) once, outside the
+   loop; inside the loop only call their methods.
+
+---
+
+## 7. Where `EEGWindow` lives (implemented)
+
+`CircularBuffer.push()` still returns plain tuples
+`(window, window_times, start_sample)` — the buffer stays pure storage.
+Between the buffer and the consumer, `StreamSession.wrap()` packages each
+tuple into an `EEGWindow` (defined in `src/nova2026/streaming/window.py`, at
+the top level of the package: it is about the consumer boundary, not
+preprocessing). The class bundles the data with its verdict:
+
+- µV EEG columns (`data`) and auxiliary columns (`eog`) split apart;
+- `valid` plus rejection `reasons` (warm-up, quality faults);
+- `bad_channels`: which electrodes a judge found faulty, recorded whether or
+  not they rejected the window (Section 9 A3);
+- provenance: `start_sample`, `segment`, `channel_names`, `timestamps`,
+  optional `contract` and `available_at`.
+
+Arrays are copied on construction, so an `EEGWindow` can be handed straight to
+`TaskOffloader` workers without ever being corrupted by later ring writes.
+Consumers only need to check `window.valid` once.
+
+```python
+eeg_window = session.wrap(window, window_times, start)
+if eeg_window.valid:
+    model(eeg_window.data)
+else:
+    reject(eeg_window.reasons)
+```
+
+---
+
+## 8. Running, testing, and exploring
+
+```powershell
+# From the repository root, with the virtualenv active:
+python -B -m scripts.streaming_demo --duration 8 --record records
+
+# Compare consumer modes:
+python -B -m scripts.streaming_demo --duration 8 --compute 0.8 --workers 0
+python -B -m scripts.streaming_demo --duration 8 --compute 0.8 --workers 2
+
+# Every suite in the repository (504 tests, 5 suites, ~80 s):
+python -B scripts/run_tests.py
+
+# Just this package (357 tests):
+python -B -m unittest discover -s tests/streaming
+
+# Real-recording check (needs the COG-BCI dataset in datasets/):
+python -B scripts/verify_realdata.py
+
+# Micro-benchmark (no LSL needed):
+python -B -m scripts.benchmark_streaming
+```
+
+Tests live in `tests/streaming/` (one file per module, plus end-to-end tests
+in `test_e2e.py` that stream a real PlayerLSL outlet, record the run, and
+replay it offline to confirm identical windows). They run fast and need no
+LSL except those PlayerLSL end-to-end tests. If MNE complains about its config
+directory, point it somewhere writable first:
+`$env:_MNE_FAKE_HOME_DIR = "path/to/a/writable/.mne"`.
+
+`scripts/verify_realdata.py` is the same idea on a *real file*: it loads a
+COG-BCI `.set` recording from `datasets/`, pushes about ten seconds through
+the exact demo chain (Repair -> uV -> quality -> notch -> band-pass ->
+resampler -> windows), records it with `RunRecorder`, replays the saved chunks
+offline and checks three things: the run produces windows after warm-up; the
+save is correct (the exported FIF equals the SQLite chunks, and the offline
+windows match the "live" windows sample-for-sample); and edge cases behave —
+a short NaN run is repaired identically online and offline, while an
+irreparable burst triggers bounded recovery (the run continues, then stops
+once the recovery budget is exhausted). Executed result: PASS on
+`sub-01/ses-S1/RS_Beg_EO.set` (63 channels @ 500 Hz, 10 s).
+
+---
+
+## 9. Robustness: what can go wrong, and the guardrails (A–E)
+
+> **Status: implemented.** A1 (`Repair`), A2 (`Recovery`), A3
+> (`ChannelScope`, channel-resolved `QualityMonitor` evidence, the
+> bad-channel policy and `BadChannelJudge`), B
+> (`preflight.resolve_outlet` before connecting, then `prepare` /
+> `validate_source`), C (`spatial.SpatialOperator` / `fit_ssp` /
+> `processing_contract`, with `cut_epochs` as the already-processed-data
+> input boundary), D (recorder `config` snapshot, provenance file hashes,
+> per-window log, `not_processed` tail mark) and E (`StreamStats`, persisted
+> at close) are implemented and covered by tests. A real-recording check
+> (`scripts/verify_realdata.py`, a real COG-BCI `.set` file) confirms the
+> path runs through, saves correctly (FIF == SQLite) and replays identically
+> offline. The demo wires A1, A2, B, D and E; C's end-to-end operator fit on
+> a recording with marked blinks still awaits such a recording to exercise.
+
+A live stream is fragile in ways an offline file is not. The sender can stall,
+skip samples, emit `NaN`, send the wrong metadata, or degrade slowly over time.
+One corrupted sample can poison a stateful filter for seconds. The wrong outlet
+can quietly record garbage with plausible channel names. A slow consumer can
+fall further and further behind. The Section 3 pipeline assumes a well-behaved
+source; the guardrails below close the failure classes one by one:
+
+| Failure class | Example | Guardrail |
+| --- | --- | --- |
+| Broken values, short | isolated `NaN`/`Inf`, a few ms of missing samples | **A1** — repair short spans by interpolation (**implemented**) |
+| Broken values / timing, severe | a whole damaged chunk, gaps > 0.5 s, overlapping or irregular timestamps | **A2** — bounded recovery: discard and restart, or fail (**implemented**) |
+| Slow decay | minutes of near-flat or saturated signal | **A2** — persistent-fault watch on windows (**implemented**) |
+| Permanently bad electrodes | a dry cap with dead/labelled channels, one electrode is enough | **A3** — channel scope + bad-channel evidence, so the run survives and records who was bad (**implemented**) |
+| Wrong source | wrong sampling rate, units, channel labels/types | **B** — validate the source before the first sample (**implemented**) |
+| Eye artefacts | blinks/saccades leaking into frontal EEG | **C** — calibrated spatial projection (EOG-guided SSP) (**implemented**) |
+| No provenance | cannot replay a run, cannot tell which operator/files were used | **D** — richer run metadata and snapshots (**implemented**) |
+| No audit trail | a run stops and leaves no structured summary | **E** — run statistics persisted at close (**implemented**) |
+
+The letters A–E match the design discussion. Each guardrail below follows the
+same format: *the problem*, *where it plugs into the Section 3 pipeline*, *why
+that spot*, and *what it needs from the other components*.
+
+Where the guardrails sit, on the Section 3 diagram:
+
+```text
+   outlet -> StreamLSL
+              |   [B1] resolve_outlet() first   (implemented)
+              |   [B2] validate_source() after   (implemented)
+              v
+   read() -> ingest()                 # reorder + record RAW volts
+              |                       #   (raw damage is kept on purpose)
+              v
+   [A1] Repair stage (implemented)    # short NaN/Inf spans, source units,
+              |                       #   first stage of the script's STAGES
+   [A2] Recovery guard (implemented) -> catches UnrepairableError from A1:
+              |                         reset the chain + segment++, or stop
+              v
+   STAGES (the script's tuple)       # scale -> quality -> filters -> resample
+              v
+   push() -> wrap() -> EEGWindow     # [A2 watch] persistent faults (impl.)
+              |                      # [D3] window log (implemented)
+              v
+   [C2] operator.apply_window()      # implemented; the script wires it between
+              |                      #   wrap() and the consumer
+              v
+   consumer
+```
+
+---
+
+### A. Surviving a damaged signal: repair (A1) and bounded recovery (A2) — implemented
+
+**The problem.** EEG amplifiers occasionally produce a few broken samples:
+an isolated `NaN` or `Inf`, or a short run of missing samples. Two things make
+this dangerous even though the damage is tiny:
+
+1. A stateful causal filter keeps history. Feed it a `NaN` once and its output
+   is corrupted for the filter's settling time afterwards — many times longer
+   than the damage itself.
+2. A quality monitor that sees the raw `NaN` records a fault, even though the
+   damage was fixable.
+
+**A1 — short-span repair (implemented as `Repair`).** When a broken run has a
+finite sample on *both* sides and lasts at most `max_seconds` (default 20 ms),
+fill the gap by linear interpolation between those two endpoints. Everything
+longer than that is not A1's business.
+
+- **Where:** the first stage of the script's `STAGES` tuple — after
+  `ingest()`, before the unit scaler, before quality and filters. Repair
+  happens in source units on the original signal; the recorder keeps the
+  *unrepaired* raw volts so offline replay can repair identically and the raw
+  damage stays visible for diagnosis.
+- **Why there:** scaling cannot fix values and filters must never see a `NaN`;
+  A1 is the earliest point where the data is in one canonical shape.
+- **How it behaves (v1):** a row is damaged when any of its values is
+  non-finite; missing rows are detected from timestamp gaps, synthesised and
+  repaired the same way. Repair is linear, per channel, and never rewrites
+  healthy values. Finished repairs are remembered as time intervals; `Repair`
+  is registered as a judge, so any window overlapping a repaired span comes
+  out `valid=False` with reason `"interpolated"`. A damaged tail without a
+  finite right endpoint is held back and returned with the next block, so the
+  chain only ever sees settled rows.
+- **What it cannot repair:** damage longer than `max_seconds`, irregular or
+  non-finite timestamps, and — when source units are known — unsafe endpoints
+  (saturated or an extreme jump) raise `UnrepairableError` with a
+  machine-readable kind and, for gaps, the gap size. Damage before the first
+  finite sample is dropped instead (the run simply starts later). The bounded
+  recovery guard (A2) catches the error and decides the run's fate.
+- **Needs:** its own stateful tail and a `reset()` — both implemented and
+  called by A2 on every restart.
+
+**A2 — bounded recovery (implemented as `Recovery` in `recovery.py`).** For
+damage that cannot be repaired — a chunk that is still non-finite, timestamps
+that are irregular or overlap, a gap between chunks — the run has two options:
+quietly keep going on garbage, or stop. Both are wrong in general, so the rule
+is *bounded recovery*: a limited number of times, the run may throw the bad
+chunk away and start a fresh processing **segment**, and beyond that it stops
+loudly. `Repair` raises `UnrepairableError` in exactly these situations; the
+script's loop catches it and hands it to the guard.
+
+- **Where:** two spots. `Recovery.handle(error)` is called when `Repair`
+  raises (the chunk is discarded and the chain restarts); `watch(window)` runs
+  right after `wrap()`, because only finished windows reveal "the signal has
+  been bad for five seconds straight".
+- **How a recovery works:** `handle` increments the recovery count, then
+  resets *every* stateful stage the script registered — filters, resampler,
+  ring buffer, quality history and `Repair`'s tail — and advances the segment.
+  Warm-up repeats, so windows from the restart are rejected until warm-up
+  passes again. The demo stamps `eeg_window.segment = recovery.segment`, so no
+  window ever spans two segments; recorded runs also get a
+  `"recovery:<kind>"` event per restart.
+- **When it fails instead:** more than `max_events` recoveries (default 5), a
+  single gap longer than `max_gap_seconds` (0.5 s), or judge-rejected windows
+  persisting longer than `persistent_fault_seconds` (5 s, `watch`). These stop
+  the run with an error — a live system must never silently ship garbage.
+- **The architectural cost:** the stateful stages live in the script, so the
+  script tells the guard which components are resettable. The **reset
+  protocol** is one rule — every registered component implements `reset()` —
+  and `Recovery` stays completely independent of `StreamSession`.
+
+---
+
+### A3. Dry caps: one dead electrode must not stop the run (implemented)
+
+**The problem.** A dry cap does not have a bad session, it has bad
+*electrodes*. On the ANT Neuro waveguard CA-208 the same two or three leads are
+usually the dead ones (poor contact, high impedance, a labelled bad channel),
+and they stay dead for the whole recording. Before this change the streaming
+package had no concept of a bad channel at all: it had channel-level *faults*,
+and every one of them was collapsed across channels before anybody could act on
+it. The measured consequence was blunt:
+
+| Dead electrodes out of 64 | What happened |
+| --- | --- |
+| 0 | ran the full 40 s |
+| **1** | `RuntimeError: EEG quality faults persisted beyond the allowed duration (15s)` |
+| 4 / 10 / 30 | the same error, the same ~15 s |
+
+One electrode, not "many", and the run is over about 15 s in. Three separate
+mechanisms produced that, and all three asked "did *any* channel fault?" instead
+of "which channel faulted?":
+
+1. **The window verdict.** `QualityMonitor` computed `amplitude`, `saturation`
+   and `flatline` per electrode and then took `np.any(..., axis=1)` across
+   channels. Every window overlapping the dead electrode came out
+   `valid=False`, and `Recovery.watch` stops the run once
+   `persistent_fault_seconds` (15 s on the auditory path) of badness accumulate.
+2. **The repair decision.** `Repair` treated a row as damaged when *any* of its
+   values was non-finite, and its endpoint safety check also used `np.any`
+   across channels. One column that never becomes finite exhausted the bounded
+   recovery budget, and one railing column made every repair around it
+   `unsafe_endpoints`.
+3. **The evidence.** Even when a run survived, `reasons` only carried type names
+   (`("flatline",)`). Nothing recorded *which* electrode was dead, so the next
+   session could not learn from it.
+
+**The rule now: evidence is never filtered, only the verdict is.** The monitor
+resolves channels first, keeps them in every fault interval, and answers three
+different questions:
+
+- `reasons(start, end)` — does this reject the window? The channel policy is
+  applied here and only here.
+- `bad_channels(start, end)` — which channels faulted? Always everything,
+  including the ones the operator declared dead.
+- `fault_channels(start, end)` — which channels, per fault type.
+
+**The channel policy (run configuration, not model configuration).**
+
+| Option | Meaning | Default |
+| --- | --- | --- |
+| `check_channels` | `False` records bad channels but never lets them reject a window. | `True` (the historical verdict) |
+| `max_bad_channels` | How many channels may carry the same fault type in one window before it rejects. Must be below `n_eeg`; tolerating everything must be spelled `check_channels=False`. | `0` (any faulty channel rejects) |
+| `exclude_channels` | Labels of known-dead channels. Still detected and reported, but never counted and never fatal. Unknown labels raise. | `()` |
+
+`max_bad_channels` is counted **per fault type**, because the three faults mean
+different things: six flat electrodes is a cap problem, six saturated ones is a
+gain problem.
+
+**The same list reaches `Repair`.** `ChannelScope` resolves the excluded labels
+once and both stages use it, so path 2 above is closed as well: a non-finite
+value in an excluded column is held at its last finite level (causal, invents
+nothing, and the chain's high-pass removes the level), and the endpoint safety
+check ignores those columns. Without `exclude_channels` the scope is every
+column, so nothing changes for a clean montage.
+
+**How to use it.**
+
+```powershell
+# 现场：已知 E01/E07 是死导，照样跑，名字进 run report
+.venv/Scripts/python.exe -B -m scripts.auditory.live --trial ... --model ... `
+    --stream EEG --exclude-channels E01,E07 --out results/live
+
+# 容忍最多两个坏导，第三个才停机
+.venv/Scripts/python.exe -B -m scripts.auditory.live ... --max-bad-channels 2
+
+# 只观察：坏导照记，永不停机
+.venv/Scripts/python.exe -B -m scripts.auditory.live ... --no-channel-check
+```
+
+In code the same three knobs live on `stream_config(...)` /
+`AuditoryProcessor`, and `--exclude-channels` is validated against the decoder's
+own channel list, so a typo fails at start-up instead of silently excluding
+nothing.
+
+On the rig, the same three knobs are on the hardware bring-up tool
+(`scripts/getlive`, with its own README): `--exclude-channels Fp1,F7`,
+`--max-bad-channels N` and `--no-channel-check`. That tool resolves the **cap
+profile** at run time - the CA-208 datasheet contract when the outlet publishes
+exactly that cap, the declared montage otherwise - so a different cap needs no
+code change, and its `probe` prints the profile (and the electrode split) the
+live run would use. Its acceptance report carries the same per-channel evidence
+(`channels.bad_channel_windows`, `held_rows`), plus a `channel_scope` check that
+names the exclusions the run was allowed to survive and a `model_channels` check
+that says how much of the offline model's electrode set the connected cap
+covers.
+
+**What the run record gains.** `timing.json` now carries a `quality` block:
+`check_channels`, `max_bad_channels`, `exclude_channels`,
+`windows_with_bad_channels`, `bad_channel_windows` (per-label window counts) and
+`repair_held_rows`. That block is **run metadata and is deliberately not part of
+`processor.contract`**: the contract is compared for equality against the
+trained model, so putting policy in it would invalidate every existing decoder.
+
+**What is still not promised.**
+
+- The bad column's data still reaches the decoder. Excluding it from the
+  verdict does not remove it from `window.data` — removing it would break the
+  decoder's channel contract — so a railing electrode is still model input.
+  Interpolating or zeroing it before the model is a further decision that needs
+  its own accuracy evaluation.
+- A column that is non-finite from the *very first* sample costs one recovery
+  and then starves the run: every row is damage before the first finite anchor,
+  which `Repair` drops by design, so no window is produced at all. `live` turns
+  that into "No EEG decisions produced" at the end. `exclude_channels` is the
+  fix; the diagnosis is `repair.dropped_rows`.
+- `Repair`'s own `"interpolated"` reason stays unconditional. It describes
+  transport damage on in-scope columns, not a dead electrode, so it still
+  rejects the windows it touches.
+
+---
+
+### B. Validate the source before the first sample (implemented)
+
+**The problem.** The pipeline trusts whatever outlet it connects to. Connect to
+the wrong stream, or to the right stream with a different sampling rate or
+different declared units, and the run records plausible-looking but wrong data
+— the worst kind of corruption, because nothing complains later.
+
+**Where:** in two phases, both before any sample is read or recorded. Both are
+implemented in `nova2026.streaming.preflight`.
+
+- **B1, before connecting (implemented as `resolve_outlet`).** Resolve the
+  available outlets and require one whose `name` / `source_id` / `stype`
+  match the configuration, polling up to a timeout (a freshly started source
+  can take a moment to appear). This fails fast — "the amplifier is not
+  publishing" — instead of timing out while connected to an unrelated stream.
+  Only identity is visible without connecting; rates and units still need B2.
+- **B2, right after connecting (implemented):** check, from the connected
+  inlet's metadata: the sampling rate matches the configured `sfreq`; every
+  required channel declares voltage units consistent with the configured
+  source exponent (V / mV / µV / nV); labels are unique and contain the
+  required set; the channel types identify EEG and EOG correctly; samples are
+  numeric; and no filters, callbacks or unread samples exist before setup.
+  The reference and upstream-processing descriptions cannot be verified
+  automatically — they are carried by the run's config snapshot (D1) as
+  operator assertions for later audits.
+
+**Why both phases:** the pre-connect check answers "is this the outlet we
+mean?", the post-connect check answers "does this outlet deliver what we
+declared?" — the second needs metadata that only exists after connecting, so it
+cannot be moved earlier.
+
+---
+
+### C. Eye-artefact removal by calibrated projection (implemented as `spatial.py`)
+
+> **Still too technical? Read this first.** Imagine you are taking photos
+> through a window and the glass has a smudge. Every photo has the same
+> smudge in the same place. You could try to clean each photo by hand — or
+> you could first learn exactly where the smudge is (one calibration photo),
+> and then subtract it from every photo automatically. Blinks and eye
+> movements are the "smudge" of EEG: when the eye moves, all the frontal
+> electrodes see one shared wobble. The EOG channel is our "reference photo":
+> it sits next to the eye and directly measures that wobble. Guardrail C
+> learns the shared direction of the wobble once, then removes it from the
+> EEG columns of every window. That is all it does.
+
+**The problem.** When somebody blinks or moves their eyes, the electrical
+signal travels a little way across the scalp, so *several* EEG channels see it
+at the same time — like the smudge appearing in the same spot on many photos.
+A classifier trained on clean windows will happily learn "the smudge = a real
+brain event", because it never saw the smudge removed. We want to erase the
+eye wobble from the EEG *before* the classifier ever looks at a window.
+
+**One mental model for "direction".** At any instant, one sample of N EEG
+channels is just a list of N numbers. You can think of that list as a point
+in an N-dimensional space. When the eye moves, the points all slide together
+along one particular direction in that space (say, "front channels up,
+back channels down" is one such direction). If we know that direction — call
+it `U` — we can build a simple linear filter `P = I - U @ U.T` that says:
+"take any signal, erase the part that points along `U`, keep everything else".
+Applying `P` is called *projecting*. This is a well-known technique called
+signal-space projection (SSP); it is NOT ICA (blind source separation) and NOT
+sample interpolation — we are not guessing missing values, we are removing a
+learned direction.
+
+**Why we need a calibration run at all.** We do not know `U` in advance — it
+depends on the person's head, electrode positions and the amplifier. So we
+learn it from a short, boring recording where the person deliberately blinks
+and moves their eyes on command, while a special EOG channel measures the eye
+movements. That recording is only used once, offline, to produce a small file
+called the *operator* (`.npz`). Every later run can use the same operator.
+
+**What a calibration session looks like (for the person running it).**
+
+1. Record a run with role `artifact_calibration` (raw EEG + a real EOG
+   channel + the recovery/quality guardrails active). Use the recorder's
+   `mark("blink")` / `mark("eyes_left")` / ... to stamp each event at the
+   moment you see it.
+2. Collect at least six events, spaced about a second apart (more is better),
+   with a few seconds of clean recording before the first and after the last.
+3. The recorder keeps the raw data, the event times, and the window log (D3)
+   — that is everything calibration needs later.
+
+**C1 — calibration, step by step (offline, one time).**
+
+| Step | What happens | Which function |
+| --- | --- | --- |
+| 1 | Replay the recorded run through the **exact same chain** the live runs use, so the data matches what a real window would look like (same repair, scaling, filters, resampling). | `replay_chunks` + your chain |
+| 2 | Cut a 1-second piece (an *epoch*) around every `blink`/`eyes_*` event. This is where ALREADY-PROCESSED data enters: the input boundary. | `cut_epochs(...)` |
+| 3 | Fit `U` using only the *first* events; keep the *last third* untouched as a test set. Never test on data you fitted on. | `fit_ssp(eeg, eog, contract)` |
+| 4 | Check the result honestly: measure how much EEG still "moves together with" EOG in the held-out events. It must drop by at least half — otherwise the calibration is useless and the function refuses to build an operator. | inside `fit_ssp` |
+| 5 | Save the operator (matrix + contract + a report with the numbers above). The file refuses to overwrite an existing operator. | `operator.save(path)` |
+
+**What exactly `cut_epochs` expects (so you never have to guess).** It wants
+data that is already processed, and its docstring spells the rules out. In
+plain words:
+
+- `eeg` and `eog` are two 2-D grids of numbers: rows = samples, columns =
+  channels. EEG columns must be in the contract's EEG order; EOG columns in
+  the contract's EOG order; values in the contract's units (microvolts for
+  this chain). A tiny worked example: 10 blinks, 1 s each at 128 Hz, 8 EEG
+  channels → after cutting you get an `(10, 128, 8)` array.
+- `timestamps`: one time per row (same clock the events use), strictly
+  increasing.
+- `event_times`: the marked event centres, sorted.
+- `seconds`: how long each epoch is. If any epoch would stick out of the data,
+  `cut_epochs` refuses — a silently shortened calibration would be worse than
+  none.
+- Output is `(eeg_epochs, eog_epochs)`, shaped `(events, samples, channels)`,
+  ready for `fit_ssp`.
+
+**C2 — application (online, every window).** Once an operator exists, a run
+may choose to use it. In the script, before the loop:
+
+```python
+operator = SpatialOperator.load("eye_operator.npz")
+operator.validate(processing_contract(...))   # refuse if the run differs
+```
+
+Then, right after `wrap()` and before the consumer, every window passes
+through `operator.apply_window(eeg_window)`. `P` is *linear and
+time-invariant*, which is a fancy way of saying "it does not matter whether
+we correct each 2-second window or the whole continuous signal first — the
+result is identical". That is why we can correct window-by-window and keep
+the ring buffer completely untouched. Four safety rules are built in:
+
+1. **Check the table first**: the operator remembers the channel order, rates,
+   units and a `stamp` of the chain it was calibrated under; if the current
+   run's contract differs, it refuses instead of applying a wrong correction.
+2. **Only the EEG columns change**; EOG is left alone (it is measurement, not
+   noise here).
+3. **Stamp once**: `apply_window` writes an `artifact_id` on the window, so a
+   window can never be corrected twice.
+4. **Never rescue a bad window**: if the window was already rejected by the
+   quality/recovery guards, correction keeps it rejected — a projector can
+   never turn garbage into a valid window.
+
+**Honest warnings.** (1) If some *real* brain activity happens to point in
+the same direction as the eye wobble, it is removed too — that is physics, not
+a bug, so inspect the calibration report before trusting an operator on human
+data. (2) After projection the data has one fewer "direction" of freedom
+(mathematically: its rank drops by one); a future classifier working on
+covariances must account for that. (3) Nothing ever auto-selects the newest
+operator file; the choice is explicit in the script and auditable (D2 stores a
+copy + hash of the exact file). (4) If no calibration recording exists yet,
+this whole guardrail is simply skipped — the pipeline runs exactly as before,
+only without eye-artefact removal — and can be added later the moment such a
+recording (EOG channel + marked events) is available. The mechanics above are
+implemented and unit-tested; only that real recording is missing for a
+full end-to-end demonstration.
+
+---
+
+### D. Run provenance: what happened, exactly (implemented)
+
+**The problem.** A recorded run is only science if someone can later answer:
+what settings produced it, which operator/baseline/model files went in, which
+windows were actually delivered, and did it finish. The recorder now stores
+these.
+
+- **D1 — configuration snapshot (implemented).** The recorder accepts a
+  `config` dict (`RunRecorder(..., config=...)`; `StreamSession` forwards
+  `recorder_config=`) and stores it under the `config` metadata key — the
+  script describes its own chain (rates, notch/band-pass settings, order,
+  resampling quality, window geometry, units) via
+  `spatial.processing_contract`. Without it, offline replay cannot know what
+  processing a run went through.
+- **D2 — selected-input snapshots (implemented).** The recorder accepts
+  `files={"artifact": path, ...}`; each file is copied into the run folder and
+  its original path and SHA-256 hash are stored as `input:<role>` metadata. A
+  missing file fails the run before the run folder is created. Nothing
+  auto-selects the newest file — the choice is explicit and auditable.
+- **D3 — window event log (implemented).** With `track_windows=True`, one line
+  per delivered window (timestamp, `valid`, reasons, segment, `artifact_id`)
+  is written by `recorder.log_window(...)` and read back with
+  `iter_windows(path)`. This is what lets an offline replay reproduce exactly
+  which windows were delivered, and what calibration (C1) aligns its epochs
+  against. The demo logs every window after `wrap()`.
+- **D4 — honest endings (implemented).** The run is locked as `completed` or
+  `failed` with the error text at `close()`, and a crash leaves a clearly
+  `recording`-status database that cannot be mistaken for a finished one.
+  When the loop stops with a tail of samples still buffered, the demo records
+  them with `recorder.mark_not_processed(rows)` (an event labelled
+  `not_processed:<rows>`) instead of silently dropping them.
+
+**Where:** all of D lives in the recorder; the config snapshot and provenance
+files are passed at construction (through `StreamSession` when a script uses
+it), and the per-window log is written right after `wrap()` in the loop.
+
+---
+
+### E. Run statistics (implemented as `stats.py`)
+
+**The problem.** A run can stop for any of the reasons above, or finish
+normally, and the terminal output is gone. The next question — "how many
+windows were delivered, how many faults were recovered, how bad was the
+transport?" — needs a structured answer attached to the run itself.
+
+**What it does.** `StreamStats` is a small counter object (`blocks`, `samples`,
+`windows`, `valid`, `rejected`, `recoveries`, `repairs`, `dropped`, `gaps`,
+`max_lag`). The script increments it at each stage of the loop, then hands
+`stats.to_dict()` to `StreamSession.close(status=..., stats=...)`, which stores
+it in the recorder metadata (`stats` key) — see D1's metadata home.
+
+---
+
+### What this section deliberately does not promise
+
+Reference application, ICA-based removal, per-subject adaptive calibration, and
+validation against real amplifier hardware are all out of scope for A–D. The
+guardrails protect against transport and recording failures; they do not turn
+synthetic checks into proof that neural activity survives a projector.
+
+---
+
+## 10. Glossary (quick lookup)
+
+| Term | Meaning |
+| --- | --- |
+| channel | one electrode position; column of the data |
+| sfreq / Hz | samples per second |
+| sample | one measurement of every channel at one instant |
+| µV | microvolt, 1e-6 V; what EEG is measured in |
+| chunk | whatever piece of data arrives at once |
+| block | the fixed size `Acquire.read()` returns |
+| window | a fixed-length slice (e.g. 2 s) the consumer analyses |
+| hop | time between consecutive window starts |
+| warm-up | initial seconds before filters/resampler output can be trusted |
+| manual acquisition | `acquisition_delay=None`; we pull data explicitly |
+| stateful | remembers something between calls |
+| ring buffer | fixed array whose write pointer wraps around |
+| drop-oldest / drop-newest | overflow policies of the offloader queue |
+| FIF | MNE's native EEG file format (`.fif`) |
+| epoch | a fixed-length slice of data cut around an event (calibration) |
+| projector / SSP | a matrix that removes a learned spatial direction (`P = I - U Uᵀ`) |
+| recovery / segment | bounded restart after unrepairable damage; each restart is a new segment |
+| not_processed | recorder event marking samples buffered when the run stopped |
+| pre-flight | checks done before the first sample: outlet resolution + metadata validation |
+
+## 11. The first real bring-up: what the rig did to us (2026-09-12)
+
+Everything in sections 1-10 was validated against `PlayerLSL` and recorded data.
+On 2026-09-12 the package was pointed at a real amplifier for the first time, and
+almost nothing about the lab's data was what the package assumed. This section is
+the post-mortem: what the rig actually published, why every guard fired, what was
+changed, and how to reproduce all of it without the cap.
+
+The regression tests that freeze these findings live in
+`tests/streaming/test_rig_bringup.py`. They are hardware-free and they **fail on
+the code as it was before this bring-up** - that is their purpose. A refactor that
+brings the old behaviour back must fail there instead of on the rig.
+
+### 11.1 The rig
+
+| Fact | Value |
+| --- | --- |
+| Outlet name | `EE511-010010-200563_on_DESKTOP-ET4GTF5` |
+| Type / channels | `EEG` / 25 (24 EEG electrodes plus one `Trigger` line) |
+| Declared rate | 500 Hz |
+| Declared units | `Volt` - **wrong**, the samples are microvolts |
+| `source_id` | empty (liblsl warns the stream cannot be recovered if the provider crashes) |
+| Host | `DESKTOP-ET4GTF5`, Windows, running the eego control software |
+| Consumer | macOS on the same LAN, `mne-lsl` over LSL multicast |
+| Declared montage | Fp1 Fp2 F9 F7 F3 Fz F4 F8 F10 M1 T7 C3 C4 T8 M2 Cz P7 P3 Pz P4 P8 Oz O1 O2 |
+
+The montage is 24 electrodes, not the CA-208 datasheet contract, so every run
+resolves the **declared** profile. The working invocation is `--cap declared
+--eog drop`: there is no EOG channel, and `Trigger` is auxiliary, so it is
+reported and dropped (`contract: 24 of 25 channels kept`).
+
+### 11.2 Finding 1: the venv had no `soxr`
+
+`Resampler.__init__` imports `soxr` lazily, so the run got all the way through
+outlet resolution and the pre-flight check before dying with
+`ImportError: The Resampler requires 'soxr'`. `pyproject.toml` lists `soxr>=1.1.0`
+twice, but the lockfile predated that and the venv had never been synced. Fixed
+with `uv sync`; a dry run confirmed it only added `soxr==1.1.0` and reinstalled
+the project itself. Not a code defect, but it is the first thing to check on a
+fresh machine.
+
+### 11.3 Finding 2: the timestamps jitter, and no tolerance can rescue them
+
+`python -m scripts.getlive.ts_check --name <outlet> --sfreq 500` measured:
+
+```
+flags            n      med      p99  zeroish%  compressed%  roundoff%  fatal%
+clocksync     5800   1.0000   1.0011      0.49         0.49       0.49    0.98
++dejitter     5800   1.0000   1.0001      0.49         0.49       0.00    0.49
+all           5800   0.9997   0.9998      0.49         0.49       0.00    0.49
+chunk structure: chunks=5772  samples/chunk=1 (min..max 1..2)  census rate=500.00 Hz
+```
+
+Read that carefully, because it rules out the two obvious fixes:
+
+* **It is not a chunk-stamped source.** `samples/chunk = 1` and the census rate is
+  500.00 Hz: the amplifier stamps every sample individually.
+* **It is not a tolerance problem.** `Repair._check_grid` first accepts a step
+  within `tolerance_seconds` of one sample, and then rejects *any* step at or
+  below one sample outright. At 500 Hz the tolerance is `min(2e-4, 0.4/500)`,
+  i.e. 0.2 ms = 0.1 sample. The offending steps are not just outside that band,
+  they are **below half a sample** - `zeroish%  ==  compressed%  ==  0.49%` says
+  every compressed step is a near-zero one. A sub-half-sample step is below
+  `1 - tolerance` for *every* tolerance `Repair` will even accept
+  (`tolerance_seconds` must stay under half a sample), so widening it changes
+  nothing.
+* **It is not a dejitter problem.** `dejitter` removes the off-grid steps above
+  one sample (`roundoff%` goes to 0.00) and leaves the compressed ones exactly
+  where they were.
+
+The consequence is arithmetic: one bad step is one `UnrepairableError`, and
+`Recovery(max_events=5)` gives up after five. At 0.48% of samples that is five
+faults per ~1000 samples - about **two seconds of data**. The live run died with
+`Too many data faults; the run requires operator attention` after 1250 samples
+and 0 windows, every time.
+
+### 11.4 Why `--regrid` cannot fix it either
+
+`relay.py --regrid` was written for the *other* half of the problem: a recorder
+that stamps a whole block once. Its rule is "a block covers the time from its own
+first stamp until the next block's first stamp", and it spreads the block's
+samples across that span. That rule **preserves the span**, so it cannot remove a
+deficit inside a block - it only divides it. A two-sample block whose second stamp
+is 0.4 samples early covers 1.4 samples, so spreading it produces two 0.7-sample
+steps: still sub-nominal, still refused.
+
+This was not a guess. Raising the block-detection threshold from the fixed 0.25
+samples to 0.9 (so that these steps *are* grouped) and re-running on the rig
+produced the same failure: `5 restart(s), 750 samples, 0 valid windows`. The
+measurement is what established that a different mechanism was needed.
+
+### 11.5 Finding 2, fixed: rebuild the grid from a counted index
+
+`relay.py` gained a second mode, `--regrid-jitter`, backed by `GridBuilder`:
+
+* sample `n` is placed at `anchor + n / rate` from a **counted index**, so the
+  grid is uniform by construction whatever the source stamps did;
+* the source stamps are still read for exactly one thing - a step of a whole
+  sample or more is data the source never sent, and it is carried into the index
+  so the gap stays visible to `Repair` instead of being closed silently;
+* nothing is held back, so unlike `Regridder` it costs no latency.
+
+The same commit fixed the shared block-detection constant. `SAME_STAMP_SAMPLES`
+was a hard-coded `0.25`, tuned for a chunk-stamped source whose repeats are
+microseconds apart; a per-sample jittered source has bad steps in the
+0.25-0.9 range, which the old threshold called a legitimate boundary and
+forwarded untouched. It is now derived from the tolerance the consumer itself
+applies, `1 - min(2e-4 * rate, 0.4)`, floored at 0.25 and capped at 0.95:
+
+| rate | threshold (samples) |
+| --- | --- |
+| 250 Hz | 0.95 |
+| 500 Hz | 0.90 |
+| 1000 Hz | 0.80 |
+| 2000 Hz | 0.60 |
+
+With `--regrid-jitter` the run reported `recovery: 0 restart(s)` and produced
+windows for the first time.
+
+### 11.6 Finding 3: the declared unit is a lie, and only the operator can catch it
+
+The outlet declares `Volt`. The samples are microvolts. Measured directly:
+
+```
+global abs-max: 83333.3      global std: 21211.8
+channel 0 first 5 raw: 12642.712 12648.246 12639.563 12644.55 12648.206
+per-channel std (first 6): 42.4  50.0  65.8  117.5  45.5  28.7
+```
+
+Read as volts that is a 12.6 kV electrode with 42 V of noise, which is absurd;
+read as microvolts it is a 12.6 mV electrode offset with ~42 uV of EEG-sized
+noise, which is exactly what a dry electrode looks like. The chain believed the
+declaration, scaled by 1e6, and **all 24 electrodes** reported `amplitude`,
+`flatline` and `saturation` at once.
+
+This is the reason `--source-units` exists and has no default: it is an operator
+assertion about the amplifier, and the rig proved it has to be. The relay carries
+the correction (`--units microvolts`), because it **declares and never rescales**.
+With it, the electrode verdict went from 24/24 faulty to 1-2.
+
+### 11.7 Finding 4: what the electrodes actually looked like
+
+Per-electrode summary of the final 30 s recording, mean peak-to-peak:
+
+| | electrodes |
+| --- | --- |
+| flat (< 1 uV) | `O1` at exactly 0.00 uV for the whole session |
+| noisy (> 200 uV) | `Fp1` 1.40 mV, `F10` 2.50 mV, `Fp2`, `F8` |
+| healthy | the posterior chain: `Pz` 108 uV, `Cz` 123 uV, `P3`/`P4` ~110 uV |
+
+`O1` is a contact problem, not a software problem, and the acceptance rules treat
+it as such (WARN, not FAIL). But because a dead electrode produces non-finite
+rows, it also drove `interpolated` rejections and, with channel checking on, ended
+a 30 s run at 21 s with `EEG quality faults persisted beyond the allowed
+duration`. The documented dry-cap workflow - `--exclude-channels O1,Fp1
+--no-channel-check` - keeps the electrodes recorded while removing them from the
+verdict, and then the same 30 s run passes.
+
+### 11.8 Finding 5, corrected: the gaps were not loss, and `unsafe_endpoints` was not the DC offset
+
+This subsection is a correction. Both claims made here on the day are wrong, and
+both were wrong the same way: arithmetic that was never done.
+
+**The gaps were not network loss.** The relay counted 94 missing samples in 65 542
+(~0.14%), and UDP multicast made packet loss the natural explanation. The CNT
+comparison disproved it: 88 500 sample pairs, every run aligned at
+r = 1.000000, nothing differing by more than one LSB - no sample was ever missing.
+What the relay was counting were *timestamp* steps. `timebase_design.md` sections
+3 and 4 trace them to the stamping itself, and the run reports stopped calling
+them gaps when the counted grid replaced the block-spreading one.
+
+**`unsafe_endpoints` was not the electrode offset.** `Repair` refuses a repair when
+an endpoint is at or above `saturation_limit_uv` (75 000 uV absolute) or when the
+jump between the two endpoints exceeds `amplitude_limit_uv` (500 uV). A 12.6 mV
+offset with 42 uV of noise trips neither: 12 640 < 75 000, and adjacent samples
+differ by microvolts.
+
+The arithmetic that does explain those faults is the unit lie of 11.6: in the runs
+that asserted `--source-units V`, `_to_uv` is 10^6, so the same 12 640 samples
+became 1.26e10 uV and every endpoint sat far above the rail. `unsafe_endpoints`
+was a second symptom of the wrong unit, not of the electrode offset.
+
+The evidence is in `records/`: no recording contains an `unsafe_endpoints` event.
+Every one of them used `units=uV`, and the only recoveries in any of them are two
+`irregular_timestamps`. The endpoint faults appear only in the unrecorded
+`--source-units V` sessions.
+
+**What survives.** The electrode DC offset is real and still worth fixing on the
+rig, but nothing in this package is blocked by it: with the unit assertion right,
+no run produced an endpoint fault. The package-side lesson is smaller than the one
+claimed here - `Repair`'s rails are absolute, so an operator whose signal sits far
+from zero should check them rather than assume they fit. All four limits are now
+flags on the live script, and they are written into the run's provenance:
+
+| Flag | Library default | What it bounds |
+| --- | --- | --- |
+| `--repair-amplitude-uv` | 500 uV | jump between the two finite endpoints a repair may bridge |
+| `--repair-saturation-uv` | 75 000 uV | absolute endpoint level above which a repair is unsafe |
+| `--max-recoveries` | 5 | bounded chain restarts before the run stops |
+| `--max-fault-seconds` | 5.0 s | consecutive judge-rejected windows before the run stops |
+
+Both `--repair-*-uv` limits stay in microvolts whatever `--source-units` says:
+they judge the signal, and the unit declaration is the thing that can be wrong.
+That is what makes `--repair-saturation-uv 2e10` a usable answer to a source that
+declares `Volt` while sending microvolts, instead of a run that dies on its first
+repair.
+
+### 11.9 Finding 6: an option that was parsed and then ignored
+
+The shared parser hands every live script `--workers`, `--compute` and `--queue`.
+`scripts/streaming_demo.py` uses them; `scripts/getlive/live.py` did not. A load
+test on the rig therefore measured **nothing** while looking like it worked -
+precisely the class of silent misbehaviour this package refuses everywhere else.
+
+`live.py` is now wired: `_prepare` builds the load test's consumer with the
+shared `dummy_offloader` factory (the same one `scripts/streaming_demo.py` uses,
+so the two scripts can no longer drift into measuring different consumers) when
+`--workers > 0`, `_handle_window` submits each finished
+`EEGWindow` (a copy out of the ring buffer, so it is safe to hand over), and
+`_loop` drains the pool and copies `dropped`/`failed` into
+`stats.offload_dropped` / `stats.offload_failed`, which land in the run report.
+`--workers 0` is the default and changes nothing.
+
+### 11.10 Finding 7: the relay falls behind, and the age guard is right to stop
+
+A relay left running for a few minutes drifts behind real time (roughly 1.5 s per
+minute observed). The consumer protects itself with `Acquire`'s age guard and
+stops with `Source samples are 4.221 seconds old` - which is the intended
+behaviour, not a bug. Operationally: **restart the relay immediately before a
+session.** This is a tooling wart worth fixing, but it is not a pipeline defect.
+
+### 11.11 The verified end state
+
+Full 30 s recorded run through the relay, dry-cap policy on:
+
+| | |
+| --- | --- |
+| verdict | **USABLE** - 9 pass, 8 warn, 0 fail |
+| duration / samples | 30.8 s of 30 / 15,600 (104%) |
+| windows | 40 valid of 58 (14 `interpolated`, 4 warm-up) |
+| recovery / repair / gaps | 0 restarts / 5 repaired rows / 5 gaps |
+| resampler | LQ, 1.88 s startup delay, 128 Hz output |
+| recording | 15,600 raw samples, read back clean: 0 NaN, 24 channels, 31.20 s |
+
+Dummy-offloader load test at `--compute 0.5 --queue 8` on the same rig:
+
+| | `--workers 8` | `--workers 1` |
+| --- | --- | --- |
+| valid windows | 47 / 58 | 39 / 58 |
+| `offload_dropped` | 0 | 0 |
+| `offload_failed` | 0 | 0 |
+| verdict | USABLE | USABLE |
+
+No problem appeared at 0.50 s, even single-threaded, and the arithmetic says why:
+the run produced 1.91 windows/s while one worker at 0.5 s/window supplies 2.0/s -
+95% utilisation, with an 8-slot queue absorbing the jitter. The cliff is just
+above 0.5 s; `--compute 0.8` is the load that should start dropping frames.
+
+### 11.12 Reproducing the rig data by hand
+
+Two terminals, from the repository root. Terminal 1, the relay - which for this
+amplifier is only about the declaration it gets wrong (it publishes `Volt` while
+its samples are microvolts), because the grid is now the live script's default.
+Restart it if it has been up for minutes (11.10):
+
+```bash
+.venv/bin/python -u -B -m scripts.getlive.relay \
+  --source-name EE511-010010-200563_on_DESKTOP-ET4GTF5 --keep 0-23 \
+  --labels Fp1,Fp2,F9,F7,F3,Fz,F4,F8,F10,M1,T7,C3,C4,T8,M2,Cz,P7,P3,Pz,P4,P8,Oz,O1,O2 \
+  --units microvolts --out-name NOVA_Relay
+```
+
+Terminal 2, the acceptance run (`--record` is what makes it a dataset):
+
+```bash
+MPLCONFIGDIR=/tmp/mplconfig .venv/bin/python -B -m scripts.getlive \
+  --stream-name NOVA_Relay --cap declared --sfreq 500 --source-units uV --eog drop \
+  --duration 30 --exclude-channels O1,Fp1 --no-channel-check \
+  --record records --subject nova2026 --session bringup30 \
+  --out records/getlive_bringup30.json
+```
+
+`--timebase grid` is the default (11.16), so nothing above has to ask for it.
+Adding `--timebase stamps` restores the pass-through this run was originally made
+with, which is the one that died in two seconds.
+
+The run lands in `records/<subject>/<session>/run-<timestamp>/` as a SQLite file
+whose `chunks` table holds the raw float32 samples, plus per-window verdicts in
+`windows` and provenance in `meta`. Read it back without the package:
+
+```python
+import sqlite3, json
+import numpy as np
+
+connection = sqlite3.connect("records/nova2026/bringup30/run-.../run-....sqlite")
+meta = dict(connection.execute("select key, value from meta"))
+channels = json.loads(meta["channels"])
+parts = [
+    np.frombuffer(blob, dtype=np.float32).reshape(n, len(channels))
+    for n, _, blob in connection.execute(
+        "select n_samples, first_timestamp, data from chunks order by seq"
+    )
+]
+data = np.concatenate(parts)          # (15600, 24) @ 500 Hz, microvolts
+```
+
+And the `windows` table is the label set - `select valid, reasons, count(*) from
+windows group by valid, reasons` is the quickest health check there is:
+
+```
+valid  reasons           n
+0      ["interpolated"]  14
+0      []                 4     <- warm-up, unavoidable
+1      []                40
+```
+
+To reproduce the *characteristics* rather than the recording - which is what the
+tests do - use `tests/streaming/test_rig_bringup.py:rig_stamps()`. It builds an
+exact 500 Hz grid with one step in 211 shortened to 0.4 samples and optional
+one-sample losses, i.e. the measured `0.48%` and `~1/1150` rates.
+
+### 11.13 Which test guards which finding
+
+| Finding | Test |
+| --- | --- |
+| 11.3 the rig's grid is refused before any rebuild | `RigGridIsUnusableRawTests.test_the_raw_rig_grid_is_refused_by_repair` |
+| 11.4/11.5 the relay must offer a per-sample rebuild | `RelayPerSampleJitterTests.test_the_relay_cli_can_ask_for_a_uniform_grid` |
+| 11.5 the rebuilt grid must survive `Repair` | `...test_a_per_sample_jittered_source_becomes_a_grid_repair_accepts` |
+| 11.8 real loss must stay visible and be counted | `...test_the_rebuild_keeps_real_data_loss_visible` |
+| 11.5 re-stamping must never rewrite samples | `...test_the_rebuild_moves_timestamps_only` |
+| 11.5 the rebuilt grid sits on the nominal grid | `...test_every_rebuilt_step_is_a_whole_number_of_samples` |
+| 11.9 the offload options must not be silently ignored | `LiveOffloadWiringTests.*` |
+
+Run them with:
+
+```bash
+.venv/bin/python -B -m unittest tests.streaming.test_rig_bringup -v
+```
+
+### 11.14 Checklist for the next rig session
+
+1. `python -m scripts.getlive.probe` - is the outlet publishing, at what rate,
+   with which channels and units?
+2. Restart the relay (age guard, 11.10) and check `--units` matches reality, not
+   the declaration (11.6).
+3. `ts_check --name NOVA_Relay --sfreq 500` before a long session: `fatal%` must
+   be 0. If it is not, the grid is not fixed and `Repair` will stop the run.
+4. Run with `--exclude-channels <dead>` `--no-channel-check` on a dry cap, and
+   read `bad_channel_windows` afterwards to decide the next exclusion list.
+5. Check `offload_dropped`/`offload_failed` in the report when running with
+   `--workers`.
+6. A **250 Hz** amplifier cannot use the default `LQ` resampler preset: measured
+   through the real transport, 250 -> 128 Hz needs **3.85 s** before its first
+   output, over the 3.0 s the `resampler` rule allows, so the run is scored NOT
+   USABLE with one FAIL. At 500 Hz the same preset starts in 1.88 s and passes.
+   The Unicorn Recorder streams at 250 Hz, so a session on it needs a different
+   `--resample-quality` or `--out-sfreq` rather than the defaults.
+7. **Start the source, then attach the consumer promptly.** A source that has been
+   publishing unwatched leaves the inlet reading a backlog: the first rehearsal
+   below tripped the 3 s age guard on samples 4.8 s old without a single block
+   being consumed. Restarting the source immediately before the run fixed it. This
+   is the same lesson as 11.10, from the other side.
+
+### 11.15 The §9 contrast, reproduced without the cap
+
+The experiment in `timebase_design.md` §9 asks whether the source's own stamps
+step or the relay invented the steps. The cap has been offline since the
+bring-up, so the contrast was reproduced against the repository's own fixture
+publisher instead: `scripts.getlive.publish_raw --channels 24 --sfreq 500
+--metadata --jitter 0.0003` publishes a 24-channel 500 Hz outlet whose per-sample
+stamps carry 0.3 ms of Gaussian jitter - the same shape as the rig's 0.48%
+sub-nominal steps. Two runs, one source, one timeline, only `--timebase`
+different:
+
+| | `--timebase stamps` | `--timebase grid` |
+| --- | --- | --- |
+| samples | 300 | 11 850 |
+| windows | 0 | 41 (37 valid) |
+| recoveries | **6** | **0** |
+| suspicious steps reported | 0 | 126 |
+| absorbed drift | - | 0.0 samples |
+| verdict | NOT USABLE, "Too many data faults" | NOT USABLE, on the age guard only |
+
+The first column is the rig's original failure, on a laptop, in six recoveries.
+The second keeps the chain alive and produces windows; it still fails the run
+because the *fixture* cannot hold real time for 30 s - it sleeps `chunk/sfreq`
+plus its own overhead, drifts behind, and trips the 3 s age guard at 25.5 s.
+That is a limitation of the fixture, not of the grid, and it is why checklist
+item 7 exists.
+
+Note what `0.0` absorbed drift next to `126` suspicious steps means: jitter has no
+*net* drift, so the re-lock counter stays at zero and the warning comes from the
+step count alone. The two counters measure different things, which is what they
+were built to do.
+
+The grid path was never confirmed on the amplifier itself - the rig stopped being
+available - and it is the default anyway, on the evidence above and two tests: the
+only amplifier this project measured fails without it, grid mode is a near-no-op on
+a clean source, and it also regularises a chunk-stamped one. `--timebase stamps`
+remains for a source whose grid is sound.
+
+The gap narrowed later from the other side. `scripts/getlive/replay_run.py` feeds a
+recorded run back through the live script's own chain and acceptance rules, so the
+six bring-up recordings can answer "would the current code have handled that
+session?" with no cap in the room. All six reach `USABLE` with zero recoveries and
+zero repaired rows, where the live runs of the day had 17-47 valid windows out of
+43-58 and one of them stopped on persistent quality faults; replaying the same
+recording in `--timebase stamps` reproduces the historical window counts (40 -> 40,
+39 -> 39, 47 -> 48) and, on that run, the same
+`EEG quality faults persisted beyond the allowed duration` stop. What the recordings
+cannot hold is the amplifier's per-sample stamps - a recording carries the
+recorder's rebuilt grid, so `stamps` replay tests the seams rather than the
+inside-block stamps - which leaves one combination nobody has seen: the amplifier
+itself, live, with the grid.
+
+### 11.16 The relay no longer carries its own grid
+
+Phase 2 of the timeline work, done after the rig stopped being available.
+
+`relay.py` used to hold two grid algorithms of its own - `Regridder`, which spread
+each block over the span from its own first stamp to its successor's, and
+`GridBuilder`, which placed samples from a counted index - reached by two mutually
+exclusive flags. The library's `TimeBase` does the second, and it does the first
+one's job as well, which was shown on the fixture before anything was deleted: a
+chunk-stamped source reaches a flat per-sample grid through it.
+
+So the relay owns one grid now, from the library, behind one flag. It went from 666
+to 349 lines, and with the two classes went the constants and the threshold
+function only they used, plus `--regrid-lost-ratio`, which described the algorithm
+that no longer exists. `--regrid-jitter` is still accepted as the earlier spelling
+of the same mode, so the commands in 11.12 keep working.
+
+Two differences, both improvements:
+
+* **No latency.** `Regridder` held one block back, because a block's span is only
+  known once its successor arrives. A counted grid needs no successor, so
+  regridding no longer costs that.
+* **A hole closes up instead of appearing as a step.** That is the trade 11.4
+  describes: the grid gives one slot per sample received, so a sample the source
+  never sent cannot become a step in it. It is reported as a suspicious step and
+  counted as absorbed drift, and `--timebase-drift-limit` turns that into a
+  rejection when a run wants one.
+
+Measured through the real transport on a chunk-stamped fixture (8 samples per
+block): the median *and* the p99 step are both exactly 1.0000 samples, `zeroish%`
+goes 88.64 -> 0.68, `samples/chunk` 8 -> 1. The 0.68% that remains is what the
+receiving inlet's own clock sync adds to a grid that arrives regular - the same
+order as the 0.5-1.1% the `+dejitter` column shows on the raw fixture - and not a
+block structure that survived.
+
+Sample *placement* has one owner now: `TimeBase`. The recording still rebuilds a
+nominal-rate grid from its chunk anchors when it is read back, by design, since
+per-sample timestamps are not stored - but nothing invents slots for samples that
+never arrived, which is what the relay used to do and what `Repair` then repaired.

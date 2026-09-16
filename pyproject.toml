@@ -40,6 +40,24 @@ dependencies = [
 #
 
 [project.optional-dependencies]
+audio = ["sounddevice>=0.4"]
+# The demo's transport (step 6): one same-origin FastAPI process serving /api/*,
+# /ws/live and the built frontend, plus the WebSocket protocol implementation
+# uvicorn runs. Pinned to the combination the teammate's attune-ui backend
+# validated. httpx is needed only by the tests (fastapi.testclient / ASGI
+# transport); nothing in the running demo imports it.
+transport = [
+    "fastapi==0.128.8",
+    "uvicorn==0.39.0",
+    "websockets==15.0.1",
+    "anyio==4.12.1",
+    "httpx==0.28.1",
+]
+# Reading the ANT Neuro .cnt recordings of the real rig needs antio; MNE's
+# read_raw_cnt is for NeuroScan files and fails on these with a misleading
+# "Event table offset ... larger than file size". Optional, not core: only the
+# hardware-facing import path needs it.
+eeg-ant = ["antio>=0.7.1"]
 dev = []
 
 [tool.setuptools]

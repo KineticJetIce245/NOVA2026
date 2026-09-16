@@ -1,8 +1,30 @@
 # data
 datasets/*
 !datasets/.gitkeep
+# The KU Leuven metadata is a committed source file, not a derived artifact: it is
+# three keys of text recording the channel order and the provenance that the
+# conversion depends on, and it carries no signal from the dataset. Git cannot
+# re-include a file whose parent directory is excluded, so the directory is
+# re-included only far enough to reach it; everything beside it (the .mat files,
+# stimuli/ and the multi-gigabyte converted/ tree) stays ignored.
+!datasets/AAD-KULeuven/
+datasets/AAD-KULeuven/*
+!datasets/AAD-KULeuven/metadata.json
 models/*
 !models/.gitkeep
+
+# Everything derived from a dataset stays out of git, including the precomputed
+# speech envelopes under datasets/audio/. The envelopes are the artifact the
+# demo refuses to run without, but they are reproducible from the source audio
+# plus the recorded SHA256 and parameters, so the repository keeps the recipe
+# (scripts/auditory/envelopes.py) and not the megabytes.
+datasets/audio/*
+!datasets/audio/.gitkeep
+
+# Demo output: rendered stereo mixes, replay products and per-run reports are
+# derived artifacts, not sources. Committed results live under results/.
+/output/auditory_demo/
+/output/auditory_ui/
 
 # editor
 .vscode
@@ -18,9 +40,10 @@ __pycache__/
 *.pyo
 dist/
 
-# local scratch
+# Local comparison material and disposable verification outputs.
+/tmp/
+/.tmp_tests/
 .tmp_mne_home/
-.tmp_tests/
 .tmp_uv_cache/
 
 # recorded runs and generated outputs (keep the folders, not their content)
@@ -29,7 +52,173 @@ records/*
 results/*
 !results/.gitkeep
 
-# macOS metadata (AppleDouble files created on exFAT / network volumes)
+# Exception: the frozen pre-change test baseline is a reviewable text record of
+# what the tree passed before the integration work started.
+!results/test_baseline_*.txt
+# Exception: the KU Leuven conversion summary is the reviewable evidence for
+# step 2 (shape/rate/label invariants, naming derivation, on-disk size). The
+# converted trials it describes stay out of git under datasets/.
+!results/kuleuven_conversion_*.json
+# Exception: the step-4 data audit is the reviewable evidence for the frozen
+# feature contract (per-trial shapes, durations, labels, the group map, the
+# channel subsets and the unit convention). It is derived from the dataset but
+# contains no signal, only measurements, and step 5 is measured against it.
+!results/kuleuven_audit.md
+!results/kuleuven_audit_*.json
+# Exception: step 5's decoder metrics are the reviewable evidence for the two
+# contracts (the 64-channel baseline and the 20-channel live rig) and the two
+# evaluation schemes, with per-class recalls beside the accuracy because the
+# labels are 80/20 imbalanced. Derived from the dataset, but they carry
+# measurements rather than signal, and the models they describe stay out of git
+# under models/.
+!results/aad_*.json
+!results/aad_*.md
+# Exception: the ANT test-set reference report. Every fact in it was measured from
+# the user's own recording, and every value an outside reader needs (channels,
+# units, markers, timeline, audio identity) is stated with the command that
+# produced it, so it can be cited instead of re-derived. It is operator-confirmed
+# where the files cannot settle a question, and says so. The recording it
+# describes stays out of git under tmp/.
+!results/antneuro_testset_report.md
+# Exception: the live-blocking and offline-replay parity report. It is the only
+# account of that check, it is small, and an ignored file is one `git clean -x`
+# away from being lost.
+!results/streaming_test_report.md
+# Exception: step 8's session run records are the reviewable evidence that the
+# replay path, the producer and the transport agree. Each record holds the trial,
+# the explicit run policy, the session summary, the assertion verdicts and a
+# bounded packet excerpt - measurements and packet payloads (decision words,
+# correlations, gains, candidate file names), no signal and nothing that
+# identifies a participant. The packet streams themselves and the rendered
+# dashboard stay out of git under output/auditory_ui/.
+!results/auditory_session_*.json
+# Exception: the same step's frontend evidence is the dashboard rendered to
+# static HTML by the vendored frontend's own components, fed with the packets a
+# session published. It is the closest thing to the screenshot this repository's
+# test path can produce, and it is 8 KB.
+!results/auditory_frontend_*.html
+# Exception: step 9's media run records. They are the evidence that the browser's
+# own handshake was answered field by field, that the position in the attention
+# and gain packets is the one the controller reported rather than one this process
+# invented (decision D-02), and that the vendored frontend's gain gate actually
+# opened. They contain the exchange log (action, reported position, acknowledged
+# revision, round trip), the |dt| distribution and the gate's clause verdicts -
+# measurements and protocol fields, no audio and no participant data. The rendered
+# WAV, the packet streams and the gate output stay out of git under
+# output/auditory_ui/. The mutation record is here for the same reason: it is this
+# step's section 6.4 obligation and it is one JSON file.
+!results/auditory_media_*.json
+!results/media_mutations.json
+
+# Exception: step 10's one-command demo run records. One record is the whole of
+# V1-V5's evidence: the operator's log, the effective run policy and margin
+# (decision D-29), the trial and model identity, the session summary with the
+# bad-channel census, the packet census, the gain gate's clause verdicts and the
+# replay metrics. It holds measurements, decision words and channel names - no
+# signal, no audio, and nothing that identifies a participant. The packet stream
+# itself, the rendered dashboard and the rendered WAV stay out of git under
+# output/auditory_ui/.
+!results/demo_run_*.json
+!results/demo_run_*.md
+# Exception: the real-browser check of the visible demo page and the truncation
+# mutation record. The run record is the only evidence in this repository that
+# says what the page did when it was actually clicked - the media timeline
+# position, the CURRENT FOCUS text and the per-source dB values, sampled once a
+# second, beside the browser console, the page errors, the failed requests and
+# the /ws/live packet census. It holds protocol fields, decision words and
+# measurements; the rendered WAV and the packet stream stay out under output/.
+# The screenshots are the same evidence as an image, and the mutation record is
+# the section 6.4 obligation of the truncation fix.
+!results/demo_browser_*
+!results/render_truncation_mutation.json
+# Exception: the "make the demo understandable at a glance" run record and its
+# screenshots - the decision timeline, the shared-axis source comparison and the
+# unsmoothed A-minus-B difference trace. This is the run that actually shows a
+# human what the system decided and why, and it is the only browser evidence in
+# the repository where the audio element really advanced (`position_advanced`
+# true, zero bad responses) rather than sitting at currentTime 0 with the media
+# control endpoint answering 409. Decision D-50 records why that distinction
+# matters and why the earlier `demo_browser_*` record must not be read as a pass.
+!results/attune_story_*
+# Exception: the mutation record for the `--serve-seconds` / `--browser` fix. It
+# is that change's section 6.4 obligation: the evidence that the new tests can
+# actually fail. One JSON file, measurements only.
+!results/demo_serve_mutation.json
+
+# Exception: step 10.5's perturbation matrix run is the acceptance record for V9 -
+# one clean path, fifteen injected faults and seven adversarial EEG inputs, each
+# judged against its row with the three answers the matrix demands (crash,
+# explicitness, contamination). It holds counters, reason vocabulary, terminal
+# statuses and packet excerpts, never signal or participant data; the per-case
+# packet streams, frame series and rendered WAVs stay out of git under
+# output/auditory_ui/demorun/.
+!results/perturbation_*.json
+!results/perturbation_*.md
+# Exception: step 9.5's ANT import review. It is the marker table the operator has
+# to check against the recording - every onset, code, name, candidate and
+# disposition, including the excluded and the disputed ones - beside the per
+# session shapes, durations, label distribution, surviving fraction, the railed
+# channels and the per-switch surviving seconds. It holds measurements and marker
+# names only, no signal, and nothing that identifies a participant. The imported
+# trials and the per-session marker CSVs stay out of git under datasets/AAD-ANT/,
+# and the recording itself stays out under tmp/. The mutation record is here for
+# the same reason as step 9's: it is this step's section 6.4 obligation.
+!results/antneuro_import_*.json
+!results/antneuro_import_*.md
+!results/antneuro_mutations.json
+
+# macOS metadata. On exFAT (this repository lives on one) macOS cannot store
+# extended attributes, so it writes an AppleDouble sidecar next to every file it
+# creates: "._relay.py" beside "relay.py". Those are metadata, not content, and
+# they otherwise sweep into `git add -A` by the hundred.
+._*
+.DS_Store
+__MACOSX/
+!results/antneuro_live_*.md
+# The packet stream does NOT belong here. The line below the .md exception used
+# to be `!results/antneuro_live_*.jsonl`, which re-included four raw packet
+# streams (2.6 MB, 6883 packets) that the very next exception's own comment
+# promises stay out of git "alongside every other packet stream". It contradicted
+# both that promise and the rule at the head of this file's results/ section:
+# run *records* are committed because they hold measurements, decision words and
+# counters, while packet streams are derived artifacts that live under output/.
+# Measured 2026-09-14: the four files are antneuro_live_declared_20260914_packets
+# (763 KB), antneuro_live_excluded_probe_packets (228 KB),
+# antneuro_live_run_packets (838 KB) and antneuro_live_split_20260914_packets
+# (787 KB). Decision D-50 records the removal.
+!results/antneuro_mutations_live.json
+# Exception: the contract split's mutation record. It is that change's section 6.4
+# obligation and the reason the split could be kept at all: the disputed tests were
+# re-run against the pre-split decoder in a copied tree and were green there, which
+# is how "the split introduced them" was established rather than assumed. One small
+# JSON file holding three mutations, the test each one must redden, and whether it
+# did. The packet streams and live run records beside it stay out of git.
+!results/antneuro_contract_split_mutations.json
+# Exception: live-route run records. The live path against the operator's own
+# recording is the only place the whole chain runs from an amplifier-shaped source,
+# and these records are what say whether it decided. The one that matters most is
+# the first run to commit decisions on that rig: 281 of them, against zero in every
+# earlier attempt. They hold counters, the declared policy and decision words - no
+# EEG sample, no packet payload, nothing that identifies a participant. The packet
+# streams and the rendered WAV stay out of git under output/.
+!results/live_demo_*.json
+!results/live_demo_*.md
+# Exception: the declared-amplitude-limit run and its mutation record. The run
+# record is the evidence that the recording's own excursion was measured before a
+# limit was declared, that the declared value reached both stages that judge an
+# electrode with it, and that the chain's own default did not move. It holds the
+# per-electrode excursion statistics, the effective run policy and the decision
+# census - measurements and channel names, no signal and nothing that identifies
+# a participant. The packet stream stays out of git under results/ alongside every
+# other packet stream, and the mutation record is this change's section 6.4
+# obligation, one JSON file.
+!results/antneuro_live_declared_*.json
+!results/antneuro_amplitude_mutations.json
+
+# macOS metadata. On exFAT (this repository lives on one) macOS cannot store
+# extended attributes, so it writes an AppleDouble sidecar next to every file it
+# creates: "._relay.py" beside "relay.py". Those are metadata, not content, and
+# they otherwise sweep into `git add -A` by the hundred.
 ._*
 .DS_Store
 __MACOSX/

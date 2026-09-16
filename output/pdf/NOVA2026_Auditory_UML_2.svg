@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE svg
+  PUBLIC '-//W3C//DTD SVG 1.0//EN'
+  'http://www.w3.org/TR/2001/REC-SVG-20010904/DTD/svg10.dtd'>
+<svg width="495" height="615" preserveAspectRatio="xMinYMin meet" viewBox="0 0 495 615" xmlns="http://www.w3.org/2000/svg" version="1.0" fill-rule="evenodd" xmlns:xlink="http://www.w3.org/1999/xlink">
+	<title>...</title>
+	<desc>...</desc>
+	<clipPath id="clip">
+		<rect x="0" y="0" width="495" height="615"/>
+	</clipPath>
+	<g id="group" transform="scale(1,-1) translate(0,-615)" style="clip-path: url(#clip)">
+		<g transform="">
+			<text x="0" y="600" style="font-family: Helvetica-Bold; font-size: 14px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,1200) scale(1,-1)">Decoding and audio control</text>
+			<rect x="0" y="420" width="237" height="160" style="stroke: rgb(8%,20%,29%); stroke-linecap: butt; stroke-width: 0.8; fill: rgb(96%,97%,98%); fill-rule: evenodd;"/>
+			<rect x="0" y="550" width="237" height="30" style="stroke: rgb(8%,20%,29%); stroke-linecap: butt; stroke-width: 1; fill: rgb(8%,20%,29%); fill-rule: evenodd;"/>
+			<text x="9" y="560" style="font-family: Helvetica-Bold; font-size: 10.4px;fill: rgb(100%,100%,100%); stroke:none;" transform="translate(0,1120) scale(1,-1)">RidgeDecoder</text>
+			<text x="8" y="536" style="font-family: Helvetica; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,1072) scale(1,-1)">config, alpha, weights, mean, scale</text>
+			<path d="M 0,508 L 237,508 Z" style="stroke: rgb(8%,49%,52%); stroke-linecap: butt; stroke-width: 0.6;"/>
+			<text x="8" y="494" style="font-family: Courier; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,988) scale(1,-1)">+ construct(...)</text>
+			<text x="8" y="484" style="font-family: Courier; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,968) scale(1,-1)">+ design(...)</text>
+			<text x="8" y="474" style="font-family: Courier; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,948) scale(1,-1)">+ fit(...)</text>
+			<text x="8" y="464" style="font-family: Courier; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,928) scale(1,-1)">+ validate(...)</text>
+			<text x="8" y="454" style="font-family: Courier; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,908) scale(1,-1)">+ score(...)</text>
+			<text x="8" y="444" style="font-family: Courier; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,888) scale(1,-1)">+ save(...)</text>
+			<text x="8" y="434" style="font-family: Courier; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,868) scale(1,-1)">+ load(...)</text>
+			<rect x="258" y="420" width="237" height="160" style="stroke: rgb(8%,20%,29%); stroke-linecap: butt; stroke-width: 0.8; fill: rgb(96%,97%,98%); fill-rule: evenodd;"/>
+			<rect x="258" y="550" width="237" height="30" style="stroke: rgb(8%,20%,29%); stroke-linecap: butt; stroke-width: 1; fill: rgb(8%,20%,29%); fill-rule: evenodd;"/>
+			<text x="267" y="560" style="font-family: Helvetica-Bold; font-size: 10.4px;fill: rgb(100%,100%,100%); stroke:none;" transform="translate(0,1120) scale(1,-1)">AuditoryPipeline</text>
+			<text x="266" y="536" style="font-family: Helvetica; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,1072) scale(1,-1)">model, clock</text>
+			<path d="M 258,508 L 495,508 Z" style="stroke: rgb(8%,49%,52%); stroke-linecap: butt; stroke-width: 0.6;"/>
+			<text x="266" y="494" style="font-family: Courier; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,988) scale(1,-1)">+ construct(...)</text>
+			<text x="266" y="484" style="font-family: Courier; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,968) scale(1,-1)">+ predict(...)</text>
+			<rect x="0" y="230" width="237" height="160" style="stroke: rgb(8%,20%,29%); stroke-linecap: butt; stroke-width: 0.8; fill: rgb(96%,97%,98%); fill-rule: evenodd;"/>
+			<rect x="0" y="360" width="237" height="30" style="stroke: rgb(8%,20%,29%); stroke-linecap: butt; stroke-width: 1; fill: rgb(8%,20%,29%); fill-rule: evenodd;"/>
+			<text x="9" y="370" style="font-family: Helvetica-Bold; font-size: 10.4px;fill: rgb(100%,100%,100%); stroke:none;" transform="translate(0,740) scale(1,-1)">AttentionController</text>
+			<text x="8" y="346" style="font-family: Helvetica; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,692) scale(1,-1)">margin, max_age, duck, selected,</text>
+			<text x="8" y="335" style="font-family: Helvetica; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,670) scale(1,-1)">evidence_end</text>
+			<path d="M 0,318 L 237,318 Z" style="stroke: rgb(8%,49%,52%); stroke-linecap: butt; stroke-width: 0.6;"/>
+			<text x="8" y="304" style="font-family: Courier; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,608) scale(1,-1)">+ construct(...)</text>
+			<text x="8" y="294" style="font-family: Courier; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,588) scale(1,-1)">+ set_manual(...)</text>
+			<text x="8" y="284" style="font-family: Courier; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,568) scale(1,-1)">+ update(...)</text>
+			<text x="8" y="274" style="font-family: Courier; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,548) scale(1,-1)">+ choice(...)</text>
+			<text x="8" y="264" style="font-family: Courier; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,528) scale(1,-1)">+ gains(...)</text>
+			<rect x="258" y="230" width="237" height="160" style="stroke: rgb(8%,20%,29%); stroke-linecap: butt; stroke-width: 0.8; fill: rgb(96%,97%,98%); fill-rule: evenodd;"/>
+			<rect x="258" y="360" width="237" height="30" style="stroke: rgb(8%,20%,29%); stroke-linecap: butt; stroke-width: 1; fill: rgb(8%,20%,29%); fill-rule: evenodd;"/>
+			<text x="267" y="370" style="font-family: Helvetica-Bold; font-size: 10.4px;fill: rgb(100%,100%,100%); stroke:none;" transform="translate(0,740) scale(1,-1)">AudioMixer</text>
+			<text x="266" y="346" style="font-family: Helvetica; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,692) scale(1,-1)">sample_rate, ramp_seconds, gain</text>
+			<path d="M 258,318 L 495,318 Z" style="stroke: rgb(8%,49%,52%); stroke-linecap: butt; stroke-width: 0.6;"/>
+			<text x="266" y="304" style="font-family: Courier; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,608) scale(1,-1)">+ construct(...)</text>
+			<text x="266" y="294" style="font-family: Courier; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,588) scale(1,-1)">+ process(...)</text>
+			<rect x="0" y="40" width="237" height="160" style="stroke: rgb(8%,20%,29%); stroke-linecap: butt; stroke-width: 0.8; fill: rgb(96%,97%,98%); fill-rule: evenodd;"/>
+			<rect x="0" y="170" width="237" height="30" style="stroke: rgb(8%,20%,29%); stroke-linecap: butt; stroke-width: 1; fill: rgb(8%,20%,29%); fill-rule: evenodd;"/>
+			<text x="9" y="180" style="font-family: Helvetica-Bold; font-size: 10.4px;fill: rgb(100%,100%,100%); stroke:none;" transform="translate(0,360) scale(1,-1)">LatestEstimate</text>
+			<text x="8" y="156" style="font-family: Helvetica; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,312) scale(1,-1)">queue</text>
+			<path d="M 0,128 L 237,128 Z" style="stroke: rgb(8%,49%,52%); stroke-linecap: butt; stroke-width: 0.6;"/>
+			<text x="8" y="114" style="font-family: Courier; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,228) scale(1,-1)">+ construct(...)</text>
+			<text x="8" y="104" style="font-family: Courier; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,208) scale(1,-1)">+ put(...)</text>
+			<text x="8" y="94" style="font-family: Courier; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,188) scale(1,-1)">+ get(...)</text>
+			<rect x="258" y="40" width="237" height="160" style="stroke: rgb(8%,20%,29%); stroke-linecap: butt; stroke-width: 0.8; fill: rgb(96%,97%,98%); fill-rule: evenodd;"/>
+			<rect x="258" y="170" width="237" height="30" style="stroke: rgb(8%,20%,29%); stroke-linecap: butt; stroke-width: 1; fill: rgb(8%,20%,29%); fill-rule: evenodd;"/>
+			<text x="267" y="180" style="font-family: Helvetica-Bold; font-size: 10.4px;fill: rgb(100%,100%,100%); stroke:none;" transform="translate(0,360) scale(1,-1)">AudioPlayback</text>
+			<text x="266" y="156" style="font-family: Helvetica; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,312) scale(1,-1)">controller, handoff, sample_rate, clock,</text>
+			<text x="266" y="145" style="font-family: Helvetica; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,290) scale(1,-1)">mixer</text>
+			<path d="M 258,128 L 495,128 Z" style="stroke: rgb(8%,49%,52%); stroke-linecap: butt; stroke-width: 0.6;"/>
+			<text x="266" y="114" style="font-family: Courier; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,228) scale(1,-1)">+ construct(...)</text>
+			<text x="266" y="104" style="font-family: Courier; font-size: 8px;fill: rgb(8%,20%,29%); stroke:none;" transform="translate(0,208) scale(1,-1)">+ stream(...)</text>
+			<path d="M 258,500 L 237,500 Z" style="stroke: rgb(8%,49%,52%); stroke-linecap: butt; stroke-width: 0.9; stroke-dasharray: 3, 2;"/>
+			<polygon points="237 500, 243 497, 243 503" style="stroke: rgb(8%,49%,52%); stroke-linecap: butt; stroke-width: 1; fill: rgb(8%,49%,52%); fill-rule: evenodd;"/>
+			<path d="M 376,200 L 376,230 Z" style="stroke: rgb(8%,49%,52%); stroke-linecap: butt; stroke-width: 0.9; stroke-dasharray: 3, 2;"/>
+			<polygon points="376 230, 373 224, 379 224" style="stroke: rgb(8%,49%,52%); stroke-linecap: butt; stroke-width: 1; fill: rgb(8%,49%,52%); fill-rule: evenodd;"/>
+			<path d="M 258,120 L 237,120 Z" style="stroke: rgb(8%,49%,52%); stroke-linecap: butt; stroke-width: 0.9; stroke-dasharray: 3, 2;"/>
+			<polygon points="237 120, 243 117, 243 123" style="stroke: rgb(8%,49%,52%); stroke-linecap: butt; stroke-width: 1; fill: rgb(8%,49%,52%); fill-rule: evenodd;"/>
+		</g>
+	</g>
+</svg>

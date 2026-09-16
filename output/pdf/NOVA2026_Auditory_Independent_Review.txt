@@ -1,0 +1,73 @@
+INDEPENDENT AUDITORY SOFTWARE REVIEW
+Date: 2026-09-09
+Repository: C:/coding/git/NOVA2026
+Branch observed: audio
+Scope: bounded independent review; no production edits, commits, or hardware access.
+
+REPRODUCED CHECKS
+
+1. .venv/Scripts/python.exe -B -m unittest scripts.auditory.tests.test_auditory -v
+   PASS: 12 tests, 3.771 seconds reported by unittest.
+2. .venv/Scripts/python.exe -B -m unittest discover -s scripts/dataproc/streaming/tests
+   PASS: 32 tests, 6.915 seconds reported by unittest.
+3. .venv/Scripts/python.exe -B -m scripts.auditory.demo --out tmp/audio_independent_review/demo
+   PASS: generated train/validation/test NPZ fixtures, model, mixed WAV and report.
+4. .venv/Scripts/python.exe -B -m scripts.auditory.replay --trial tmp/audio_independent_review/demo/test.npz --model tmp/audio_independent_review/demo/decoder.npz --out tmp/audio_independent_review/zero --zero-model
+   PASS: zero coverage, zero incorrect suppression, zero selection changes.
+5. .venv/Scripts/python.exe -B -m scripts.auditory.replay --trial tmp/audio_independent_review/demo/train.npz --model tmp/audio_independent_review/demo/decoder.npz --out tmp/audio_independent_review/overlap
+   EXPECTED REJECTION: exit 1, Replay evaluation overlaps model development data.
+6. .venv/Scripts/python.exe -B -m tmp.audio_independent_review.probes
+   PASS AS A REPRODUCER: demonstrates current gaps listed below. This is not an
+   assertion suite and does not mark those behaviors correct.
+7. .venv/Scripts/python.exe -B -m scripts.auditory.evaluate --trial tmp/audio_independent_review/demo/test.npz --model tmp/audio_independent_review/demo/decoder.npz --out tmp/audio_independent_review/comparisons.json
+   PASS: completed 52 comparisons; this is synthetic fault coverage only.
+
+CONFIRMED GAPS
+
+A. Model input channel count is not checked against saved normalization width.
+   Location: src/nova2026/auditory/decoder.py, validate() and design().
+   A valid two-channel window was reduced to one column while retaining its
+   metadata. score() accepted it because subtraction/division broadcast it into
+   two columns. Scores were [0.9995124826613148, 0.02934030024547265].
+   This is an API guardrail defect, not evidence the ordinary RunProcessor emits
+   such malformed windows. Reject wrong channel counts before normalization.
+
+B. Recorded playback stops on an EEG processing failure.
+   Location: scripts/auditory/streamer.py, stream(), finally block.
+   A fake audio worker and injected ReplayFailure reproduced immediate stop-event
+   signaling and exception propagation. Offline replay() instead continues mixing.
+   Document current behavior; if continuity is required, transport invalid evidence
+   and let playback complete in neutral rather than stopping it on recoverable
+   EEG-only failure. This probe used no audio device.
+
+C. Held-out checks apply to CLI evaluation, not the replay() callable.
+   Location: scripts/auditory/replay.py, replay() versus main().
+   replay(training_trial, trained_model) returned ordinary metrics (coverage
+   0.2096128170894527) without an overlap warning. CLI correctly rejected the same
+   kind of misuse. Direct library callers need an explicit check until shared
+   evaluation validation is implemented. Replaying training data is useful for
+   debugging but must not silently be represented as held-out evaluation.
+
+D. Duration metrics omit the last rendered audio block.
+   Location: src/nova2026/auditory/evaluation.py, selection_metrics(); caller in
+   scripts/auditory/replay.py.
+   The probe rendered 23.99225 seconds with known truth throughout, but reported
+   23.968 known seconds, omitting 0.02425 seconds. np.diff(..., append=times[-1])
+   assigns zero duration to the final block. Supply the actual interval end.
+
+LIMITATIONS AND NEXT TESTS
+
+- No real KU Leuven or AASD archive was loaded. Existing loader tests use a
+  generated MATLAB fixture and mocked MNE CNT reader.
+- No amplifier, microphone, sounddevice hardware, headphone timing, loopback,
+  participant calibration, or live clock synchronization was tested.
+- Synthetic fixtures always attend A and use different fixed modulation
+  frequencies for the two sources. They establish software plumbing, not human
+  accuracy or actual within-trial switching. Add balanced and switching fixtures.
+- Score correlation gaps are not calibrated probabilities.
+- Replay changes audio while retaining previously recorded EEG; it cannot prove
+  comprehension or listening benefit from closed-loop intervention.
+- Existing tests passing does not establish bug-free behavior. Add regression
+  tests for the confirmed API, lifecycle and metric gaps before claiming them fixed.
+
+All new review artifacts are under tmp/audio_independent_review.

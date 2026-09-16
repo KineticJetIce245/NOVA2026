@@ -1,0 +1,523 @@
+{
+  "kind": "one real packet per degradation path; the session and the producer are the same objects the demo runs",
+  "policy": {
+    "check_channels": false,
+    "max_bad_channels": 0,
+    "exclude_channels": [],
+    "source_unit_exponent": -6,
+    "warmup_seconds": 2.0,
+    "frame_seconds": 0.25
+  },
+  "scenarios": {
+    "warmup": {
+      "packets": {
+        "reason": "warmup",
+        "attention": {
+          "type": "attention",
+          "timestamp": 0.0,
+          "source": "nova-aad",
+          "payload": {
+            "decision": "unavailable",
+            "correlation_a": null,
+            "correlation_b": null,
+            "reasons": [
+              "warmup"
+            ],
+            "simulated": true
+          }
+        },
+        "gain": {
+          "type": "gain",
+          "timestamp": 0.0,
+          "source": "nova-aad",
+          "payload": {
+            "a_db": 0.0,
+            "b_db": 0.0,
+            "simulated": true
+          }
+        },
+        "signal_quality": {
+          "type": "signal_quality",
+          "timestamp": 0.0,
+          "source": "nova-aad",
+          "payload": {
+            "quality": null,
+            "artifact": null,
+            "simulated": true
+          }
+        },
+        "sync": {
+          "type": "sync",
+          "timestamp": 0.0,
+          "source": "nova-aad",
+          "payload": {
+            "status": "unobserved",
+            "offset_ms": null,
+            "drift_warning": null,
+            "timeline": "eeg_source_clock",
+            "fixed_latency_ms": null,
+            "reasons": [],
+            "simulated": true
+          }
+        },
+        "prediction": null
+      },
+      "failure": null,
+      "summary": {
+        "windows": 15,
+        "scored": 13,
+        "invalid": 2,
+        "evidence_gaps": 0,
+        "failed": 0,
+        "decisions": {
+          "unavailable": 19,
+          "uncertain": 17,
+          "A": 44
+        },
+        "failure": null
+      }
+    },
+    "audio_unavailable": {
+      "packets": {
+        "reason": "audio_unavailable",
+        "attention": {
+          "type": "attention",
+          "timestamp": 4.75,
+          "source": "nova-aad",
+          "payload": {
+            "decision": "uncertain",
+            "correlation_a": null,
+            "correlation_b": null,
+            "reasons": [
+              "audio_unavailable"
+            ],
+            "simulated": true
+          }
+        },
+        "gain": {
+          "type": "gain",
+          "timestamp": 4.75,
+          "source": "nova-aad",
+          "payload": {
+            "a_db": 0.0,
+            "b_db": 0.0,
+            "simulated": true
+          }
+        },
+        "signal_quality": {
+          "type": "signal_quality",
+          "timestamp": 4.75,
+          "source": "nova-aad",
+          "payload": {
+            "quality": 1.0,
+            "artifact": false,
+            "simulated": true
+          }
+        },
+        "sync": {
+          "type": "sync",
+          "timestamp": 4.75,
+          "source": "nova-aad",
+          "payload": {
+            "status": "unobserved",
+            "offset_ms": null,
+            "drift_warning": null,
+            "timeline": "eeg_source_clock",
+            "fixed_latency_ms": null,
+            "reasons": [
+              "audio_unavailable"
+            ],
+            "simulated": true
+          }
+        },
+        "prediction": {
+          "type": "prediction",
+          "timestamp": 4.75,
+          "source": "nova-aad",
+          "payload": {
+            "status": "invalid",
+            "provider_id": "nova2026.ridge",
+            "provider_name": "Ridge envelope decoder",
+            "provider_version": "1",
+            "task": "auditory_attention",
+            "timestamp": 4.75,
+            "window_id": "w1",
+            "window_start": -0.421875,
+            "window_end": 4.578125,
+            "outputs": [
+              {
+                "name": "correlation_a",
+                "value": null,
+                "semantic_type": "correlation",
+                "label": "Candidate A"
+              },
+              {
+                "name": "correlation_b",
+                "value": null,
+                "semantic_type": "correlation",
+                "label": "Candidate B"
+              },
+              {
+                "name": "decision",
+                "value": "uncertain",
+                "semantic_type": "decision",
+                "label": "Attended candidate"
+              }
+            ],
+            "reasons": [
+              "audio_unavailable"
+            ],
+            "metadata": {
+              "decision": "uncertain",
+              "evidence_count": 1,
+              "media_time_s": -20.25,
+              "policy": {
+                "check_channels": false,
+                "max_bad_channels": 0,
+                "exclude_channels": [],
+                "source_unit_exponent": -6,
+                "warmup_seconds": 2.0,
+                "frame_seconds": 0.25
+              },
+              "source_kind": "synthetic_replay",
+              "simulated": true
+            },
+            "simulated": true
+          }
+        }
+      },
+      "failure": null,
+      "summary": {
+        "windows": 15,
+        "scored": 0,
+        "invalid": 15,
+        "evidence_gaps": 0,
+        "failed": 0,
+        "decisions": {
+          "unavailable": 19,
+          "uncertain": 61
+        },
+        "failure": null
+      }
+    },
+    "evidence_gap": {
+      "packets": {
+        "reason": "evidence_gap",
+        "attention": {
+          "type": "attention",
+          "timestamp": 9.75,
+          "source": "nova-aad",
+          "payload": {
+            "decision": "uncertain",
+            "correlation_a": null,
+            "correlation_b": null,
+            "reasons": [
+              "evidence_gap"
+            ],
+            "simulated": true
+          }
+        },
+        "gain": {
+          "type": "gain",
+          "timestamp": 9.75,
+          "source": "nova-aad",
+          "payload": {
+            "a_db": 0.0,
+            "b_db": 0.0,
+            "simulated": true
+          }
+        },
+        "signal_quality": {
+          "type": "signal_quality",
+          "timestamp": 9.75,
+          "source": "nova-aad",
+          "payload": {
+            "quality": 1.0,
+            "artifact": false,
+            "simulated": true
+          }
+        },
+        "sync": {
+          "type": "sync",
+          "timestamp": 9.75,
+          "source": "nova-aad",
+          "payload": {
+            "status": "unobserved",
+            "offset_ms": null,
+            "drift_warning": null,
+            "timeline": "eeg_source_clock",
+            "fixed_latency_ms": null,
+            "reasons": [
+              "evidence_gap"
+            ],
+            "simulated": true
+          }
+        },
+        "prediction": {
+          "type": "prediction",
+          "timestamp": 9.75,
+          "source": "nova-aad",
+          "payload": {
+            "status": "invalid",
+            "provider_id": "nova2026.ridge",
+            "provider_name": "Ridge envelope decoder",
+            "provider_version": "1",
+            "task": "auditory_attention",
+            "timestamp": 9.75,
+            "window_id": "w3",
+            "window_start": 1.578125,
+            "window_end": 6.578125,
+            "outputs": [
+              {
+                "name": "correlation_a",
+                "value": null,
+                "semantic_type": "correlation",
+                "label": "Candidate A"
+              },
+              {
+                "name": "correlation_b",
+                "value": null,
+                "semantic_type": "correlation",
+                "label": "Candidate B"
+              },
+              {
+                "name": "decision",
+                "value": "uncertain",
+                "semantic_type": "decision",
+                "label": "Attended candidate"
+              }
+            ],
+            "reasons": [
+              "evidence_gap"
+            ],
+            "metadata": {
+              "decision": "uncertain",
+              "evidence_count": 3,
+              "media_time_s": 9.75,
+              "policy": {
+                "check_channels": false,
+                "max_bad_channels": 0,
+                "exclude_channels": [],
+                "source_unit_exponent": -6,
+                "warmup_seconds": 2.0,
+                "frame_seconds": 0.25
+              },
+              "source_kind": "synthetic_replay",
+              "simulated": true
+            },
+            "simulated": true
+          }
+        }
+      },
+      "failure": null,
+      "summary": {
+        "windows": 15,
+        "scored": 3,
+        "invalid": 2,
+        "evidence_gaps": 10,
+        "failed": 0,
+        "decisions": {
+          "unavailable": 19,
+          "uncertain": 60,
+          "A": 1
+        },
+        "failure": null
+      }
+    },
+    "evidence_stale": {
+      "packets": {
+        "reason": "evidence_stale",
+        "attention": {
+          "type": "attention",
+          "timestamp": 4.75,
+          "source": "nova-aad",
+          "payload": {
+            "decision": "unavailable",
+            "correlation_a": null,
+            "correlation_b": null,
+            "reasons": [
+              "evidence_stale"
+            ],
+            "simulated": true
+          }
+        },
+        "gain": {
+          "type": "gain",
+          "timestamp": 4.75,
+          "source": "nova-aad",
+          "payload": {
+            "a_db": 0.0,
+            "b_db": 0.0,
+            "simulated": true
+          }
+        },
+        "signal_quality": {
+          "type": "signal_quality",
+          "timestamp": 4.75,
+          "source": "nova-aad",
+          "payload": {
+            "quality": 1.0,
+            "artifact": false,
+            "simulated": true
+          }
+        },
+        "sync": {
+          "type": "sync",
+          "timestamp": 4.75,
+          "source": "nova-aad",
+          "payload": {
+            "status": "unobserved",
+            "offset_ms": null,
+            "drift_warning": null,
+            "timeline": "eeg_source_clock",
+            "fixed_latency_ms": null,
+            "reasons": [
+              "evidence_stale"
+            ],
+            "simulated": true
+          }
+        },
+        "prediction": {
+          "type": "prediction",
+          "timestamp": 4.75,
+          "source": "nova-aad",
+          "payload": {
+            "status": "unavailable",
+            "provider_id": "nova2026.ridge",
+            "provider_name": "Ridge envelope decoder",
+            "provider_version": "1",
+            "task": "auditory_attention",
+            "timestamp": 4.75,
+            "window_id": "w1",
+            "window_start": -0.421875,
+            "window_end": 4.578125,
+            "outputs": [
+              {
+                "name": "correlation_a",
+                "value": null,
+                "semantic_type": "correlation",
+                "label": "Candidate A"
+              },
+              {
+                "name": "correlation_b",
+                "value": null,
+                "semantic_type": "correlation",
+                "label": "Candidate B"
+              },
+              {
+                "name": "decision",
+                "value": "unavailable",
+                "semantic_type": "decision",
+                "label": "Attended candidate"
+              }
+            ],
+            "reasons": [
+              "evidence_stale"
+            ],
+            "metadata": {
+              "decision": "unavailable",
+              "evidence_count": 1,
+              "media_time_s": 4.75,
+              "policy": {
+                "check_channels": false,
+                "max_bad_channels": 0,
+                "exclude_channels": [],
+                "source_unit_exponent": -6,
+                "warmup_seconds": 2.0,
+                "frame_seconds": 0.25
+              },
+              "source_kind": "synthetic_replay",
+              "simulated": true
+            },
+            "simulated": true
+          }
+        }
+      },
+      "failure": null,
+      "summary": {
+        "windows": 15,
+        "scored": 13,
+        "invalid": 2,
+        "evidence_gaps": 0,
+        "failed": 0,
+        "decisions": {
+          "unavailable": 80
+        },
+        "failure": null
+      }
+    },
+    "processing_failed": {
+      "packets": {
+        "reason": "processing_failed",
+        "attention": {
+          "type": "attention",
+          "timestamp": 16.0,
+          "source": "nova-aad",
+          "payload": {
+            "decision": "unavailable",
+            "correlation_a": null,
+            "correlation_b": null,
+            "reasons": [
+              "processing_failed"
+            ],
+            "simulated": true
+          }
+        },
+        "gain": {
+          "type": "gain",
+          "timestamp": 16.0,
+          "source": "nova-aad",
+          "payload": {
+            "a_db": 0.0,
+            "b_db": 0.0,
+            "simulated": true
+          }
+        },
+        "signal_quality": {
+          "type": "signal_quality",
+          "timestamp": 16.0,
+          "source": "nova-aad",
+          "payload": {
+            "quality": 0.0,
+            "artifact": true,
+            "simulated": true
+          }
+        },
+        "sync": {
+          "type": "sync",
+          "timestamp": 16.0,
+          "source": "nova-aad",
+          "payload": {
+            "status": "unobserved",
+            "offset_ms": null,
+            "drift_warning": null,
+            "timeline": "eeg_source_clock",
+            "fixed_latency_ms": null,
+            "reasons": [
+              "processing_failed"
+            ],
+            "simulated": true
+          }
+        },
+        "prediction": null
+      },
+      "failure": "session ended with processing_failed at 16s",
+      "summary": {
+        "windows": 11,
+        "scored": 0,
+        "invalid": 11,
+        "evidence_gaps": 0,
+        "failed": 0,
+        "decisions": {
+          "unavailable": 20,
+          "uncertain": 44
+        },
+        "failure": {
+          "code": "processing_failed",
+          "timestamp": 16.00000000000001,
+          "detail": "EEG quality faults persisted beyond the allowed duration (15s)."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "kind": "ANT live-route mutation evidence: break the adapter, require red",
+  "command": "python -B -m unittest tests.streaming.test_ant_live_route",
+  "mutants": {
+    "rebasing removed": "exit 1 | FAILED (failures=1)",
+    "unit exponent ignored": "exit 1 | FAILED (failures=1, errors=5)",
+    "empty-block guard removed": "exit 0 | OK",
+    "contract reorder dropped": "exit 0 | OK"
+  }
+}

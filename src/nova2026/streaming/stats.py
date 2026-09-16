@@ -21,6 +21,15 @@ class StreamStats:
         dropped: Damaged source rows dropped before the first finite sample.
         gaps: Source timestamp gaps counted by the acquire handle.
         max_lag: Oldest consumed block age observed (seconds).
+        offload_dropped: Windows discarded by the offloader's overflow policy.
+        offload_failed: Analysis calls that raised on a worker thread.
+        timebase_relocked_samples: Drift the time base absorbed by re-locking,
+            in samples. This is the number to score: the instantaneous residual
+            is bounded by policy, so it cannot show how far the source's clock
+            and the grid disagreed over a session.
+        timebase_anchor_rate: Rate the source's own anchors imply, in Hz.
+        timebase_relocks: Re-locks performed.
+        timebase_large_steps: Suspicious single timestamp steps reported.
     """
 
     def __init__(self) -> None:
@@ -36,6 +45,12 @@ class StreamStats:
         self.dropped = 0
         self.gaps = 0
         self.max_lag = 0.0
+        self.offload_dropped = 0
+        self.offload_failed = 0
+        self.timebase_relocked_samples = 0.0
+        self.timebase_anchor_rate = float("nan")
+        self.timebase_relocks = 0
+        self.timebase_large_steps = 0
 
     def to_dict(self) -> dict:
         """Return a serializable snapshot of these counters."""

@@ -1,0 +1,1898 @@
+{
+  "generated_at": "2026-09-13T02:17:33-04:00",
+  "command": "python -B -m scripts.auditory.train_kuleuven --out results --models models",
+  "cache_key": "22e5546fa44abe0f",
+  "cache_directory": "C:\\Files\\git\\NOVA2026\\datasets\\auditory_features\\22e5546fa44abe0f",
+  "cache_trials": 320,
+  "cache_key_material": {
+    "cache_version": "1",
+    "auditory_config": {
+      "sample_rate": 64,
+      "band": [
+        1.0,
+        9.0
+      ],
+      "lag_seconds": 0.4,
+      "envelope_method": "rectify-causal-lowpass8-20-bandpass3-linear-grid-v1"
+    },
+    "stage": "auditory-current-streaming-v2",
+    "filter_order": 3,
+    "resample_quality": "QQ",
+    "channel_contracts": {
+      "64ch": [
+        "Fp1",
+        "AF7",
+        "AF3",
+        "F1",
+        "F3",
+        "F5",
+        "F7",
+        "FT7",
+        "FC5",
+        "FC3",
+        "FC1",
+        "C1",
+        "C3",
+        "C5",
+        "T7",
+        "TP7",
+        "CP5",
+        "CP3",
+        "CP1",
+        "P1",
+        "P3",
+        "P5",
+        "P7",
+        "P9",
+        "PO7",
+        "PO3",
+        "O1",
+        "Iz",
+        "Oz",
+        "POz",
+        "Pz",
+        "CPz",
+        "Fpz",
+        "Fp2",
+        "AF8",
+        "AF4",
+        "AFz",
+        "Fz",
+        "F2",
+        "F4",
+        "F6",
+        "F8",
+        "FT8",
+        "FC6",
+        "FC4",
+        "FC2",
+        "FCz",
+        "Cz",
+        "C2",
+        "C4",
+        "C6",
+        "T8",
+        "TP8",
+        "CP6",
+        "CP4",
+        "CP2",
+        "P2",
+        "P4",
+        "P6",
+        "P8",
+        "P10",
+        "PO8",
+        "PO4",
+        "O2"
+      ],
+      "20ch": [
+        "Fp1",
+        "Fp2",
+        "F7",
+        "F3",
+        "Fz",
+        "F4",
+        "F8",
+        "T7",
+        "C3",
+        "C4",
+        "T8",
+        "Cz",
+        "P7",
+        "P3",
+        "Pz",
+        "P4",
+        "P8",
+        "Oz",
+        "O1",
+        "O2"
+      ]
+    },
+    "shared_indices": [
+      0,
+      33,
+      6,
+      4,
+      37,
+      39,
+      41,
+      14,
+      12,
+      49,
+      51,
+      47,
+      22,
+      20,
+      30,
+      57,
+      59,
+      28,
+      26,
+      63
+    ],
+    "histories": [
+      5.0,
+      10.0,
+      30.0,
+      60.0
+    ],
+    "step_seconds": 1.0,
+    "max_history": 60.0,
+    "chunk_seconds": 1.0,
+    "warmup_seconds": 2.0,
+    "envelope_generator_version": "1"
+  },
+  "subjects": [
+    "S1",
+    "S2",
+    "S3",
+    "S4",
+    "S5",
+    "S6",
+    "S7",
+    "S8",
+    "S9",
+    "S10",
+    "S11",
+    "S12",
+    "S13",
+    "S14",
+    "S15",
+    "S16"
+  ],
+  "groups": [
+    "part1_track1_dry.wav|part1_track2_dry.wav",
+    "part2_track1_dry.wav|part2_track2_dry.wav",
+    "part3_track1_dry.wav|part3_track2_dry.wav",
+    "part4_track1_dry.wav|part4_track2_dry.wav"
+  ],
+  "alpha": 100.0,
+  "main_history_seconds": 5.0,
+  "nulls": {
+    "majority_trial_rate": 0.8,
+    "majority_time_rate": 0.6608949534680968,
+    "note": "The majority candidate is A: 0.80 of the trials are A and 0.6609 of the labeled time is A, so a single accuracy is not interpretable on its own. Every table below reports the majority rate over its own pooled windows beside the accuracy and the balanced accuracy, whose chance line is 0.50 by construction.",
+    "source": "results/kuleuven_audit.md section 3 (trial counts and labeled seconds)"
+  },
+  "main": {
+    "64ch": {
+      "held_out_story": {
+        "scheme": "held_out_story",
+        "contract": "64ch",
+        "history_seconds": 5.0,
+        "alpha": 100.0,
+        "folds": [
+          {
+            "fold": "part1_track1_dry.wav|part1_track2_dry.wav",
+            "windows": 3616,
+            "decided": 3616,
+            "accuracy": 0.6208517699115044,
+            "balanced_accuracy": 0.6195006754989977,
+            "recall": {
+              "0": 0.6237416107382551,
+              "1": 0.6152597402597403
+            },
+            "class_windows": {
+              "0": 2384,
+              "1": 1232
+            },
+            "majority_accuracy": 0.6592920353982301
+          },
+          {
+            "fold": "part2_track1_dry.wav|part2_track2_dry.wav",
+            "windows": 3616,
+            "decided": 3616,
+            "accuracy": 0.6208517699115044,
+            "balanced_accuracy": 0.6193045628867777,
+            "recall": {
+              "0": 0.6241610738255033,
+              "1": 0.614448051948052
+            },
+            "class_windows": {
+              "0": 2384,
+              "1": 1232
+            },
+            "majority_accuracy": 0.6592920353982301
+          },
+          {
+            "fold": "part3_track1_dry.wav|part3_track2_dry.wav",
+            "windows": 3616,
+            "decided": 3616,
+            "accuracy": 0.6053650442477876,
+            "balanced_accuracy": 0.6126585243615446,
+            "recall": {
+              "0": 0.589765100671141,
+              "1": 0.635551948051948
+            },
+            "class_windows": {
+              "0": 2384,
+              "1": 1232
+            },
+            "majority_accuracy": 0.6592920353982301
+          },
+          {
+            "fold": "part4_track1_dry.wav|part4_track2_dry.wav",
+            "windows": 3680,
+            "decided": 3680,
+            "accuracy": 0.6209239130434783,
+            "balanced_accuracy": 0.6262338628552268,
+            "recall": {
+              "0": 0.609271523178808,
+              "1": 0.6431962025316456
+            },
+            "class_windows": {
+              "0": 2416,
+              "1": 1264
+            },
+            "majority_accuracy": 0.6565217391304348
+          }
+        ],
+        "pooled": {
+          "windows": 14528,
+          "decided": 14528,
+          "accuracy": 0.6170154185022027,
+          "balanced_accuracy": 0.6194721652821231,
+          "recall": {
+            "0": 0.6117265886287625,
+            "1": 0.6272177419354839
+          },
+          "class_windows": {
+            "0": 9568,
+            "1": 4960
+          },
+          "majority_accuracy": 0.6585903083700441
+        },
+        "fold_accuracy_mean": 0.6169981242785687,
+        "fold_accuracy_std": 0.006716426463487426,
+        "fold_balanced_mean": 0.6194244064006367,
+        "fold_balanced_std": 0.004800157195786579
+      },
+      "leave_one_subject_out": {
+        "scheme": "leave_one_subject_out",
+        "contract": "64ch",
+        "history_seconds": 5.0,
+        "alpha": 100.0,
+        "folds": [
+          {
+            "fold": "S1",
+            "windows": 908,
+            "decided": 908,
+            "accuracy": 0.5914096916299559,
+            "balanced_accuracy": 0.5927014780450965,
+            "recall": {
+              "0": 0.5886287625418061,
+              "1": 0.5967741935483871
+            },
+            "class_windows": {
+              "0": 598,
+              "1": 310
+            },
+            "majority_accuracy": 0.6585903083700441
+          },
+          {
+            "fold": "S2",
+            "windows": 908,
+            "decided": 908,
+            "accuracy": 0.5947136563876652,
+            "balanced_accuracy": 0.5967634048980472,
+            "recall": {
+              "0": 0.5903010033444817,
+              "1": 0.603225806451613
+            },
+            "class_windows": {
+              "0": 598,
+              "1": 310
+            },
+            "majority_accuracy": 0.6585903083700441
+          },
+          {
+            "fold": "S3",
+            "windows": 908,
+            "decided": 908,
+            "accuracy": 0.6662995594713657,
+            "balanced_accuracy": 0.6744147157190635,
+            "recall": {
+              "0": 0.6488294314381271,
+              "1": 0.7
+            },
+            "class_windows": {
+              "0": 598,
+              "1": 310
+            },
+            "majority_accuracy": 0.6585903083700441
+          },
+          {
+            "fold": "S4",
+            "windows": 908,
+            "decided": 908,
+            "accuracy": 0.6409691629955947,
+            "balanced_accuracy": 0.6373179415255152,
+            "recall": {
+              "0": 0.6488294314381271,
+              "1": 0.6258064516129033
+            },
+            "class_windows": {
+              "0": 598,
+              "1": 310
+            },
+            "majority_accuracy": 0.6585903083700441
+          },
+          {
+            "fold": "S5",
+            "windows": 908,
+            "decided": 908,
+            "accuracy": 0.6519823788546255,
+            "balanced_accuracy": 0.6542237566080483,
+            "recall": {
+              "0": 0.6471571906354515,
+              "1": 0.6612903225806451
+            },
+            "class_windows": {
+              "0": 598,
+              "1": 310
+            },
+            "majority_accuracy": 0.6585903083700441
+          },
+          {
+            "fold": "S6",
+            "windows": 908,
+            "decided": 908,
+            "accuracy": 0.6167400881057269,
+            "balanced_accuracy": 0.6080483331535225,
+            "recall": {
+              "0": 0.6354515050167224,
+              "1": 0.5806451612903226
+            },
+            "class_windows": {
+              "0": 598,
+              "1": 310
+            },
+            "majority_accuracy": 0.6585903083700441
+          },
+          {
+            "fold": "S7",
+            "windows": 908,
+            "decided": 908,
+            "accuracy": 0.6266519823788547,
+            "balanced_accuracy": 0.6365465530262164,
+            "recall": {
+              "0": 0.6053511705685619,
+              "1": 0.667741935483871
+            },
+            "class_windows": {
+              "0": 598,
+              "1": 310
+            },
+            "majority_accuracy": 0.6585903083700441
+          },
+          {
+            "fold": "S8",
+            "windows": 908,
+            "decided": 908,
+            "accuracy": 0.5715859030837004,
+            "balanced_accuracy": 0.5792048764699536,
+            "recall": {
+              "0": 0.5551839464882943,
+              "1": 0.603225806451613
+            },
+            "class_windows": {
+              "0": 598,
+              "1": 310
+            },
+            "majority_accuracy": 0.6585903083700441
+          },
+          {
+            "fold": "S9",
+            "windows": 908,
+            "decided": 908,
+            "accuracy": 0.5616740088105727,
+            "balanced_accuracy": 0.5670190959111014,
+            "recall": {
+              "0": 0.5501672240802675,
+              "1": 0.5838709677419355
+            },
+            "class_windows": {
+              "0": 598,
+              "1": 310
+            },
+            "majority_accuracy": 0.6585903083700441
+          },
+          {
+            "fold": "S10",
+            "windows": 908,
+            "decided": 908,
+            "accuracy": 0.5936123348017621,
+            "balanced_accuracy": 0.6029183299169274,
+            "recall": {
+              "0": 0.5735785953177257,
+              "1": 0.632258064516129
+            },
+            "class_windows": {
+              "0": 598,
+              "1": 310
+            },
+            "majority_accuracy": 0.6585903083700441
+          },
+          {
+            "fold": "S11",
+            "windows": 908,
+            "decided": 908,
+            "accuracy": 0.6046255506607929,
+            "balanced_accuracy": 0.6042884885100874,
+            "recall": {
+              "0": 0.6053511705685619,
+              "1": 0.603225806451613
+            },
+            "class_windows": {
+              "0": 598,
+              "1": 310
+            },
+            "majority_accuracy": 0.6585903083700441
+          },
+          {
+            "fold": "S12",
+            "windows": 908,
+            "decided": 908,
+            "accuracy": 0.5980176211453745,
+            "balanced_accuracy": 0.5868432409105622,
+            "recall": {
+              "0": 0.6220735785953178,
+              "1": 0.5516129032258065
+            },
+            "class_windows": {
+              "0": 598,
+              "1": 310
+            },
+            "majority_accuracy": 0.6585903083700441
+          },
+          {
+            "fold": "S13",
+            "windows": 908,
+            "decided": 908,
+            "accuracy": 0.5748898678414097,
+            "balanced_accuracy": 0.5778293235516236,
+            "recall": {
+              "0": 0.568561872909699,
+              "1": 0.5870967741935483
+            },
+            "class_windows": {
+              "0": 598,
+              "1": 310
+            },
+            "majority_accuracy": 0.6585903083700441
+          },
+          {
+            "fold": "S14",
+            "windows": 908,
+            "decided": 908,
+            "accuracy": 0.5881057268722467,
+            "balanced_accuracy": 0.5987377279102384,
+            "recall": {
+              "0": 0.5652173913043478,
+              "1": 0.632258064516129
+            },
+            "class_windows": {
+              "0": 598,
+              "1": 310
+            },
+            "majority_accuracy": 0.6585903083700441
+          },
+          {
+            "fold": "S15",
+            "windows": 908,
+            "decided": 908,
+            "accuracy": 0.6409691629955947,
+            "balanced_accuracy": 0.6450857697702017,
+            "recall": {
+              "0": 0.6321070234113713,
+              "1": 0.6580645161290323
+            },
+            "class_windows": {
+              "0": 598,
+              "1": 310
+            },
+            "majority_accuracy": 0.6585903083700441
+          },
+          {
+            "fold": "S16",
+            "windows": 908,
+            "decided": 908,
+            "accuracy": 0.6167400881057269,
+            "balanced_accuracy": 0.6220304239939584,
+            "recall": {
+              "0": 0.6053511705685619,
+              "1": 0.6387096774193548
+            },
+            "class_windows": {
+              "0": 598,
+              "1": 310
+            },
+            "majority_accuracy": 0.6585903083700441
+          }
+        ],
+        "pooled": {
+          "windows": 14528,
+          "decided": 14528,
+          "accuracy": 0.6086866740088106,
+          "balanced_accuracy": 0.6114983412450102,
+          "recall": {
+            "0": 0.602633779264214,
+            "1": 0.6203629032258065
+          },
+          "class_windows": {
+            "0": 9568,
+            "1": 4960
+          },
+          "majority_accuracy": 0.6585903083700441
+        },
+        "fold_accuracy_mean": 0.6086866740088106,
+        "fold_accuracy_std": 0.02929835951275531,
+        "fold_balanced_mean": 0.6114983412450102,
+        "fold_balanced_std": 0.029528120856658457
+      }
+    },
+    "20ch": {
+      "held_out_story": {
+        "scheme": "held_out_story",
+        "contract": "20ch",
+        "history_seconds": 5.0,
+        "alpha": 100.0,
+        "folds": [
+          {
+            "fold": "part1_track1_dry.wav|part1_track2_dry.wav",
+            "windows": 3616,
+            "decided": 3616,
+            "accuracy": 0.5992809734513275,
+            "balanced_accuracy": 0.6011804889741131,
+            "recall": {
+              "0": 0.5952181208053692,
+              "1": 0.6071428571428571
+            },
+            "class_windows": {
+              "0": 2384,
+              "1": 1232
+            },
+            "majority_accuracy": 0.6592920353982301
+          },
+          {
+            "fold": "part2_track1_dry.wav|part2_track2_dry.wav",
+            "windows": 3616,
+            "decided": 3616,
+            "accuracy": 0.5934734513274337,
+            "balanced_accuracy": 0.5918733112525059,
+            "recall": {
+              "0": 0.5968959731543624,
+              "1": 0.5868506493506493
+            },
+            "class_windows": {
+              "0": 2384,
+              "1": 1232
+            },
+            "majority_accuracy": 0.6592920353982301
+          },
+          {
+            "fold": "part3_track1_dry.wav|part3_track2_dry.wav",
+            "windows": 3616,
+            "decided": 3616,
+            "accuracy": 0.5862831858407079,
+            "balanced_accuracy": 0.5942647956070775,
+            "recall": {
+              "0": 0.5692114093959731,
+              "1": 0.6193181818181818
+            },
+            "class_windows": {
+              "0": 2384,
+              "1": 1232
+            },
+            "majority_accuracy": 0.6592920353982301
+          },
+          {
+            "fold": "part4_track1_dry.wav|part4_track2_dry.wav",
+            "windows": 3680,
+            "decided": 3680,
+            "accuracy": 0.5972826086956522,
+            "balanced_accuracy": 0.6021931846759996,
+            "recall": {
+              "0": 0.5865066225165563,
+              "1": 0.617879746835443
+            },
+            "class_windows": {
+              "0": 2416,
+              "1": 1264
+            },
+            "majority_accuracy": 0.6565217391304348
+          }
+        ],
+        "pooled": {
+          "windows": 14528,
+          "decided": 14528,
+          "accuracy": 0.5940941629955947,
+          "balanced_accuracy": 0.5974097124824684,
+          "recall": {
+            "0": 0.5869565217391305,
+            "1": 0.6078629032258065
+          },
+          "class_windows": {
+            "0": 9568,
+            "1": 4960
+          },
+          "majority_accuracy": 0.6585903083700441
+        },
+        "fold_accuracy_mean": 0.5940800548287803,
+        "fold_accuracy_std": 0.0049614775927536115,
+        "fold_balanced_mean": 0.597377945127424,
+        "fold_balanced_std": 0.004405637458106658
+      },
+      "leave_one_subject_out": {
+        "scheme": "leave_one_subject_out",
+        "contract": "20ch",
+        "history_seconds": 5.0,
+        "alpha": 100.0,
+        "folds": [
+          {
+            "fold": "S1",
+            "windows": 908,
+            "decided": 908,
+            "accuracy": 0.5594713656387665,
+            "balanced_accuracy": 0.5637932894594886,
+            "recall": {
+              "0": 0.5501672240802675,
+              "1": 0.5774193548387097
+            },
+            "class_windows": {
+              "0": 598,
+              "1": 310
+            },
+            "majority_accuracy": 0.6585903083700441
+          },
+          {
+            "fold": "S2",
+            "windows": 908,
+            "decided": 908,
+            "accuracy": 0.579295154185022,
+            "balanced_accuracy": 0.5803970223325061,
+            "recall": {
+              "0": 0.5769230769230769,
+              "1": 0.5838709677419355
+            },
+            "class_windows": {
+              "0": 598,
+              "1": 310
+            },
+            "majority_accuracy": 0.6585903083700441
+          },
+          {
+            "fold": "S3",
+            "windows": 908,
+            "decided": 908,
+            "accuracy": 0.6508810572687225,
+            "balanced_accuracy": 0.6502805049088359,
+            "recall": {
+              "0": 0.6521739130434783,
+              "1": 0.6483870967741936
+            },
+            "class_windows": {
+              "0": 598,
+              "1": 310
+            },
+            "majority_accuracy": 0.6585903083700441
+          },
+          {
+            "fold": "S4",
+            "windows": 908,
+            "decided": 908,
+            "accuracy": 0.6310572687224669,
+            "balanced_accuracy": 0.627462509440069,
+            "recall": {
+              "0": 0.6387959866220736,
+              "1": 0.6161290322580645
+            },
+            "class_windows": {
+              "0": 598,
+              "1": 310
+            },
+            "majority_accuracy": 0.6585903083700441
+          },
+          {
+            "fold": "S5",
+            "windows": 908,
+            "decided": 908,
+            "accuracy": 0.5969162995594713,
+            "balanced_accuracy": 0.6015427769985975,
+            "recall": {
+              "0": 0.5869565217391305,
+              "1": 0.6161290322580645
+            },
+            "class_windows": {
+              "0": 598,
+              "1": 310
+            },
+            "majority_accuracy": 0.6585903083700441
+          },
+          {
+            "fold": "S6",
+            "windows": 908,
+            "decided": 908,
+            "accuracy": 0.5958149779735683,
+            "balanced_accuracy": 0.6014834394217283,
+            "recall": {
+              "0": 0.5836120401337793,
+              "1": 0.6193548387096774
+            },
+            "class_windows": {
+              "0": 598,
+              "1": 310
+            },
+            "majority_accuracy": 0.6585903083700441
+          },
+          {
+            "fold": "S7",
+            "windows": 908,
+            "decided": 908,
+            "accuracy": 0.6090308370044053,
+            "balanced_accuracy": 0.6130704498867192,
+            "recall": {
+              "0": 0.6003344481605352,
+              "1": 0.6258064516129033
+            },
+            "class_windows": {
+              "0": 598,
+              "1": 310
+            },
+            "majority_accuracy": 0.6585903083700441
+          },
+          {
+            "fold": "S8",
+            "windows": 908,
+            "decided": 908,
+            "accuracy": 0.5781938325991189,
+            "balanced_accuracy": 0.5857751645269176,
+            "recall": {
+              "0": 0.5618729096989966,
+              "1": 0.6096774193548387
+            },
+            "class_windows": {
+              "0": 598,
+              "1": 310
+            },
+            "majority_accuracy": 0.6585903083700441
+          },
+          {
+            "fold": "S9",
+            "windows": 908,
+            "decided": 908,
+            "accuracy": 0.5451541850220264,
+            "balanced_accuracy": 0.5498165929442227,
+            "recall": {
+              "0": 0.5351170568561873,
+              "1": 0.5645161290322581
+            },
+            "class_windows": {
+              "0": 598,
+              "1": 310
+            },
+            "majority_accuracy": 0.6585903083700441
+          },
+          {
+            "fold": "S10",
+            "windows": 908,
+            "decided": 908,
+            "accuracy": 0.5737885462555066,
+            "balanced_accuracy": 0.5769932031502858,
+            "recall": {
+              "0": 0.5668896321070234,
+              "1": 0.5870967741935483
+            },
+            "class_windows": {
+              "0": 598,
+              "1": 310
+            },
+            "majority_accuracy": 0.6585903083700441
+          },
+          {
+            "fold": "S11",
+            "windows": 908,
+            "decided": 908,
+            "accuracy": 0.5870044052863436,
+            "balanced_accuracy": 0.597124824684432,
+            "recall": {
+              "0": 0.5652173913043478,
+              "1": 0.6290322580645161
+            },
+            "class_windows": {
+              "0": 598,
+              "1": 310
+            },
+            "majority_accuracy": 0.6585903083700441
+          },
+          {
+            "fold": "S12",
+            "windows": 908,
+            "decided": 908,
+            "accuracy": 0.5627753303964758,
+            "balanced_accuracy": 0.5562034739454094,
+            "recall": {
+              "0": 0.5769230769230769,
+              "1": 0.535483870967742
+            },
+            "class_windows": {
+              "0": 598,
+              "1": 310
+            },
+            "majority_accuracy": 0.6585903083700441
+          },
+          {
+            "fold": "S13",
+            "windows": 908,
+            "decided": 908,
+            "accuracy": 0.5682819383259912,
+            "balanced_accuracy": 0.5650447728989103,
+            "recall": {
+              "0": 0.5752508361204013,
+              "1": 0.5548387096774193
+            },
+            "class_windows": {
+              "0": 598,
+              "1": 310
+            },
+            "majority_accuracy": 0.6585903083700441
+          },
+          {
+            "fold": "S14",
+            "windows": 908,
+            "decided": 908,
+            "accuracy": 0.566079295154185,
+            "balanced_accuracy": 0.5726939259898587,
+            "recall": {
+              "0": 0.5518394648829431,
+              "1": 0.5935483870967742
+            },
+            "class_windows": {
+              "0": 598,
+              "1": 310
+            },
+            "majority_accuracy": 0.6585903083700441
+          },
+          {
+            "fold": "S15",
+            "windows": 908,
+            "decided": 908,
+            "accuracy": 0.5969162995594713,
+            "balanced_accuracy": 0.5992124285251915,
+            "recall": {
+              "0": 0.5919732441471572,
+              "1": 0.6064516129032258
+            },
+            "class_windows": {
+              "0": 598,
+              "1": 310
+            },
+            "majority_accuracy": 0.6585903083700441
+          },
+          {
+            "fold": "S16",
+            "windows": 908,
+            "decided": 908,
+            "accuracy": 0.5803964757709251,
+            "balanced_accuracy": 0.5851170568561872,
+            "recall": {
+              "0": 0.5702341137123745,
+              "1": 0.6
+            },
+            "class_windows": {
+              "0": 598,
+              "1": 310
+            },
+            "majority_accuracy": 0.6585903083700441
+          }
+        ],
+        "pooled": {
+          "windows": 14528,
+          "decided": 14528,
+          "accuracy": 0.5863160792951542,
+          "balanced_accuracy": 0.5891257147480851,
+          "recall": {
+            "0": 0.580267558528428,
+            "1": 0.597983870967742
+          },
+          "class_windows": {
+            "0": 9568,
+            "1": 4960
+          },
+          "majority_accuracy": 0.6585903083700441
+        },
+        "fold_accuracy_mean": 0.5863160792951543,
+        "fold_accuracy_std": 0.026235606329616662,
+        "fold_balanced_mean": 0.5891257147480851,
+        "fold_balanced_std": 0.02577181663148973
+      }
+    }
+  },
+  "alpha_sensitivity": {
+    "64ch": [
+      {
+        "alpha": 10.0,
+        "pooled": {
+          "windows": 14528,
+          "decided": 14528,
+          "accuracy": 0.6172907488986784,
+          "balanced_accuracy": 0.6197782932355163,
+          "recall": {
+            "0": 0.611935618729097,
+            "1": 0.6276209677419354
+          },
+          "class_windows": {
+            "0": 9568,
+            "1": 4960
+          },
+          "majority_accuracy": 0.6585903083700441
+        },
+        "fold_accuracy_mean": 0.617274672951135,
+        "fold_balanced_mean": 0.6197321942503708
+      },
+      {
+        "alpha": 100.0,
+        "pooled": {
+          "windows": 14528,
+          "decided": 14528,
+          "accuracy": 0.6170154185022027,
+          "balanced_accuracy": 0.6194721652821231,
+          "recall": {
+            "0": 0.6117265886287625,
+            "1": 0.6272177419354839
+          },
+          "class_windows": {
+            "0": 9568,
+            "1": 4960
+          },
+          "majority_accuracy": 0.6585903083700441
+        },
+        "fold_accuracy_mean": 0.6169981242785687,
+        "fold_balanced_mean": 0.6194244064006367
+      },
+      {
+        "alpha": 1000.0,
+        "pooled": {
+          "windows": 14528,
+          "decided": 14528,
+          "accuracy": 0.616671255506608,
+          "balanced_accuracy": 0.6189681330240586,
+          "recall": {
+            "0": 0.6117265886287625,
+            "1": 0.6262096774193548
+          },
+          "class_windows": {
+            "0": 9568,
+            "1": 4960
+          },
+          "majority_accuracy": 0.6585903083700441
+        },
+        "fold_accuracy_mean": 0.6166560455944594,
+        "fold_balanced_mean": 0.6189248071075246
+      }
+    ],
+    "20ch": [
+      {
+        "alpha": 10.0,
+        "pooled": {
+          "windows": 14528,
+          "decided": 14528,
+          "accuracy": 0.5936123348017621,
+          "balanced_accuracy": 0.5969953608803539,
+          "recall": {
+            "0": 0.5863294314381271,
+            "1": 0.6076612903225806
+          },
+          "class_windows": {
+            "0": 9568,
+            "1": 4960
+          },
+          "majority_accuracy": 0.6585903083700441
+        },
+        "fold_accuracy_mean": 0.5935997018083878,
+        "fold_balanced_mean": 0.5969639701989568
+      },
+      {
+        "alpha": 100.0,
+        "pooled": {
+          "windows": 14528,
+          "decided": 14528,
+          "accuracy": 0.5940941629955947,
+          "balanced_accuracy": 0.5974097124824684,
+          "recall": {
+            "0": 0.5869565217391305,
+            "1": 0.6078629032258065
+          },
+          "class_windows": {
+            "0": 9568,
+            "1": 4960
+          },
+          "majority_accuracy": 0.6585903083700441
+        },
+        "fold_accuracy_mean": 0.5940800548287803,
+        "fold_balanced_mean": 0.597377945127424
+      },
+      {
+        "alpha": 1000.0,
+        "pooled": {
+          "windows": 14528,
+          "decided": 14528,
+          "accuracy": 0.5945759911894273,
+          "balanced_accuracy": 0.5979211619376417,
+          "recall": {
+            "0": 0.5873745819397993,
+            "1": 0.6084677419354839
+          },
+          "class_windows": {
+            "0": 9568,
+            "1": 4960
+          },
+          "majority_accuracy": 0.6585903083700441
+        },
+        "fold_accuracy_mean": 0.594558003078107,
+        "fold_balanced_mean": 0.597882964935618
+      }
+    ]
+  },
+  "window_curve": {
+    "64ch": [
+      {
+        "scheme": "held_out_story",
+        "contract": "64ch",
+        "history_seconds": 5.0,
+        "alpha": 100.0,
+        "folds": [
+          {
+            "fold": "part1_track1_dry.wav|part1_track2_dry.wav",
+            "windows": 904,
+            "decided": 904,
+            "accuracy": 0.661504424778761,
+            "balanced_accuracy": 0.6664124466137888,
+            "recall": {
+              "0": 0.6510067114093959,
+              "1": 0.6818181818181818
+            },
+            "class_windows": {
+              "0": 596,
+              "1": 308
+            },
+            "majority_accuracy": 0.6592920353982301
+          },
+          {
+            "fold": "part2_track1_dry.wav|part2_track2_dry.wav",
+            "windows": 904,
+            "decided": 904,
+            "accuracy": 0.6172566371681416,
+            "balanced_accuracy": 0.6116752375141636,
+            "recall": {
+              "0": 0.6291946308724832,
+              "1": 0.5941558441558441
+            },
+            "class_windows": {
+              "0": 596,
+              "1": 308
+            },
+            "majority_accuracy": 0.6592920353982301
+          },
+          {
+            "fold": "part3_track1_dry.wav|part3_track2_dry.wav",
+            "windows": 904,
+            "decided": 904,
+            "accuracy": 0.6371681415929203,
+            "balanced_accuracy": 0.6432493680815828,
+            "recall": {
+              "0": 0.6241610738255033,
+              "1": 0.6623376623376623
+            },
+            "class_windows": {
+              "0": 596,
+              "1": 308
+            },
+            "majority_accuracy": 0.6592920353982301
+          },
+          {
+            "fold": "part4_track1_dry.wav|part4_track2_dry.wav",
+            "windows": 920,
+            "decided": 920,
+            "accuracy": 0.6195652173913043,
+            "balanced_accuracy": 0.6272738703998659,
+            "recall": {
+              "0": 0.6026490066225165,
+              "1": 0.6518987341772152
+            },
+            "class_windows": {
+              "0": 604,
+              "1": 316
+            },
+            "majority_accuracy": 0.6565217391304348
+          }
+        ],
+        "pooled": {
+          "windows": 3632,
+          "decided": 3632,
+          "accuracy": 0.6338105726872246,
+          "balanced_accuracy": 0.637126442981983,
+          "recall": {
+            "0": 0.6266722408026756,
+            "1": 0.6475806451612903
+          },
+          "class_windows": {
+            "0": 2392,
+            "1": 1240
+          },
+          "majority_accuracy": 0.6585903083700441
+        },
+        "fold_accuracy_mean": 0.6338736052327818,
+        "fold_accuracy_std": 0.017714187455921845,
+        "fold_balanced_mean": 0.6371527306523503,
+        "fold_balanced_std": 0.020248422794023023
+      },
+      {
+        "scheme": "held_out_story",
+        "contract": "64ch",
+        "history_seconds": 10.0,
+        "alpha": 100.0,
+        "folds": [
+          {
+            "fold": "part1_track1_dry.wav|part1_track2_dry.wav",
+            "windows": 448,
+            "decided": 448,
+            "accuracy": 0.7410714285714286,
+            "balanced_accuracy": 0.7496443812233287,
+            "recall": {
+              "0": 0.722972972972973,
+              "1": 0.7763157894736842
+            },
+            "class_windows": {
+              "0": 296,
+              "1": 152
+            },
+            "majority_accuracy": 0.6607142857142857
+          },
+          {
+            "fold": "part2_track1_dry.wav|part2_track2_dry.wav",
+            "windows": 448,
+            "decided": 448,
+            "accuracy": 0.65625,
+            "balanced_accuracy": 0.6518492176386914,
+            "recall": {
+              "0": 0.6655405405405406,
+              "1": 0.6381578947368421
+            },
+            "class_windows": {
+              "0": 296,
+              "1": 152
+            },
+            "majority_accuracy": 0.6607142857142857
+          },
+          {
+            "fold": "part3_track1_dry.wav|part3_track2_dry.wav",
+            "windows": 448,
+            "decided": 448,
+            "accuracy": 0.6852678571428571,
+            "balanced_accuracy": 0.7026137980085349,
+            "recall": {
+              "0": 0.6486486486486487,
+              "1": 0.756578947368421
+            },
+            "class_windows": {
+              "0": 296,
+              "1": 152
+            },
+            "majority_accuracy": 0.6607142857142857
+          },
+          {
+            "fold": "part4_track1_dry.wav|part4_track2_dry.wav",
+            "windows": 456,
+            "decided": 456,
+            "accuracy": 0.6842105263157895,
+            "balanced_accuracy": 0.6876923076923076,
+            "recall": {
+              "0": 0.6766666666666666,
+              "1": 0.6987179487179487
+            },
+            "class_windows": {
+              "0": 300,
+              "1": 156
+            },
+            "majority_accuracy": 0.6578947368421053
+          }
+        ],
+        "pooled": {
+          "windows": 1800,
+          "decided": 1800,
+          "accuracy": 0.6916666666666667,
+          "balanced_accuracy": 0.6978857199445434,
+          "recall": {
+            "0": 0.6784511784511784,
+            "1": 0.7173202614379085
+          },
+          "class_windows": {
+            "0": 1188,
+            "1": 612
+          },
+          "majority_accuracy": 0.66
+        },
+        "fold_accuracy_mean": 0.6916999530075187,
+        "fold_accuracy_std": 0.030788411525182732,
+        "fold_balanced_mean": 0.6979499261407156,
+        "fold_balanced_std": 0.03508761336892786
+      },
+      {
+        "scheme": "held_out_story",
+        "contract": "64ch",
+        "history_seconds": 30.0,
+        "alpha": 100.0,
+        "folds": [
+          {
+            "fold": "part1_track1_dry.wav|part1_track2_dry.wav",
+            "windows": 144,
+            "decided": 144,
+            "accuracy": 0.8611111111111112,
+            "balanced_accuracy": 0.8541666666666667,
+            "recall": {
+              "0": 0.875,
+              "1": 0.8333333333333334
+            },
+            "class_windows": {
+              "0": 96,
+              "1": 48
+            },
+            "majority_accuracy": 0.6666666666666666
+          },
+          {
+            "fold": "part2_track1_dry.wav|part2_track2_dry.wav",
+            "windows": 144,
+            "decided": 144,
+            "accuracy": 0.7222222222222222,
+            "balanced_accuracy": 0.7083333333333333,
+            "recall": {
+              "0": 0.75,
+              "1": 0.6666666666666666
+            },
+            "class_windows": {
+              "0": 96,
+              "1": 48
+            },
+            "majority_accuracy": 0.6666666666666666
+          },
+          {
+            "fold": "part3_track1_dry.wav|part3_track2_dry.wav",
+            "windows": 144,
+            "decided": 144,
+            "accuracy": 0.7986111111111112,
+            "balanced_accuracy": 0.8072916666666667,
+            "recall": {
+              "0": 0.78125,
+              "1": 0.8333333333333334
+            },
+            "class_windows": {
+              "0": 96,
+              "1": 48
+            },
+            "majority_accuracy": 0.6666666666666666
+          },
+          {
+            "fold": "part4_track1_dry.wav|part4_track2_dry.wav",
+            "windows": 152,
+            "decided": 152,
+            "accuracy": 0.8026315789473685,
+            "balanced_accuracy": 0.813076923076923,
+            "recall": {
+              "0": 0.78,
+              "1": 0.8461538461538461
+            },
+            "class_windows": {
+              "0": 100,
+              "1": 52
+            },
+            "majority_accuracy": 0.6578947368421053
+          }
+        ],
+        "pooled": {
+          "windows": 584,
+          "decided": 584,
+          "accuracy": 0.7962328767123288,
+          "balanced_accuracy": 0.7961550599621292,
+          "recall": {
+            "0": 0.7963917525773195,
+            "1": 0.7959183673469388
+          },
+          "class_windows": {
+            "0": 388,
+            "1": 196
+          },
+          "majority_accuracy": 0.6643835616438356
+        },
+        "fold_accuracy_mean": 0.7961440058479533,
+        "fold_accuracy_std": 0.049328820363412795,
+        "fold_balanced_mean": 0.7957171474358975,
+        "fold_balanced_std": 0.053590131020435465
+      },
+      {
+        "scheme": "held_out_story",
+        "contract": "64ch",
+        "history_seconds": 60.0,
+        "alpha": 100.0,
+        "folds": [
+          {
+            "fold": "part1_track1_dry.wav|part1_track2_dry.wav",
+            "windows": 72,
+            "decided": 72,
+            "accuracy": 0.9444444444444444,
+            "balanced_accuracy": 0.9479166666666667,
+            "recall": {
+              "0": 0.9375,
+              "1": 0.9583333333333334
+            },
+            "class_windows": {
+              "0": 48,
+              "1": 24
+            },
+            "majority_accuracy": 0.6666666666666666
+          },
+          {
+            "fold": "part2_track1_dry.wav|part2_track2_dry.wav",
+            "windows": 72,
+            "decided": 72,
+            "accuracy": 0.8333333333333334,
+            "balanced_accuracy": 0.8333333333333334,
+            "recall": {
+              "0": 0.8333333333333334,
+              "1": 0.8333333333333334
+            },
+            "class_windows": {
+              "0": 48,
+              "1": 24
+            },
+            "majority_accuracy": 0.6666666666666666
+          },
+          {
+            "fold": "part3_track1_dry.wav|part3_track2_dry.wav",
+            "windows": 72,
+            "decided": 72,
+            "accuracy": 0.8472222222222222,
+            "balanced_accuracy": 0.8645833333333333,
+            "recall": {
+              "0": 0.8125,
+              "1": 0.9166666666666666
+            },
+            "class_windows": {
+              "0": 48,
+              "1": 24
+            },
+            "majority_accuracy": 0.6666666666666666
+          },
+          {
+            "fold": "part4_track1_dry.wav|part4_track2_dry.wav",
+            "windows": 72,
+            "decided": 72,
+            "accuracy": 0.8472222222222222,
+            "balanced_accuracy": 0.8541666666666667,
+            "recall": {
+              "0": 0.8333333333333334,
+              "1": 0.875
+            },
+            "class_windows": {
+              "0": 48,
+              "1": 24
+            },
+            "majority_accuracy": 0.6666666666666666
+          }
+        ],
+        "pooled": {
+          "windows": 288,
+          "decided": 288,
+          "accuracy": 0.8680555555555556,
+          "balanced_accuracy": 0.875,
+          "recall": {
+            "0": 0.8541666666666666,
+            "1": 0.8958333333333334
+          },
+          "class_windows": {
+            "0": 192,
+            "1": 96
+          },
+          "majority_accuracy": 0.6666666666666666
+        },
+        "fold_accuracy_mean": 0.8680555555555556,
+        "fold_accuracy_std": 0.0444661405377281,
+        "fold_balanced_mean": 0.875,
+        "fold_balanced_std": 0.04357604304864979
+      }
+    ],
+    "20ch": [
+      {
+        "scheme": "held_out_story",
+        "contract": "20ch",
+        "history_seconds": 5.0,
+        "alpha": 100.0,
+        "folds": [
+          {
+            "fold": "part1_track1_dry.wav|part1_track2_dry.wav",
+            "windows": 904,
+            "decided": 904,
+            "accuracy": 0.6769911504424779,
+            "balanced_accuracy": 0.6789418635056219,
+            "recall": {
+              "0": 0.6728187919463087,
+              "1": 0.685064935064935
+            },
+            "class_windows": {
+              "0": 596,
+              "1": 308
+            },
+            "majority_accuracy": 0.6592920353982301
+          },
+          {
+            "fold": "part2_track1_dry.wav|part2_track2_dry.wav",
+            "windows": 904,
+            "decided": 904,
+            "accuracy": 0.6117256637168141,
+            "balanced_accuracy": 0.5988516517040007,
+            "recall": {
+              "0": 0.639261744966443,
+              "1": 0.5584415584415584
+            },
+            "class_windows": {
+              "0": 596,
+              "1": 308
+            },
+            "majority_accuracy": 0.6592920353982301
+          },
+          {
+            "fold": "part3_track1_dry.wav|part3_track2_dry.wav",
+            "windows": 904,
+            "decided": 904,
+            "accuracy": 0.6161504424778761,
+            "balanced_accuracy": 0.6296631221127865,
+            "recall": {
+              "0": 0.587248322147651,
+              "1": 0.672077922077922
+            },
+            "class_windows": {
+              "0": 596,
+              "1": 308
+            },
+            "majority_accuracy": 0.6592920353982301
+          },
+          {
+            "fold": "part4_track1_dry.wav|part4_track2_dry.wav",
+            "windows": 920,
+            "decided": 920,
+            "accuracy": 0.5934782608695652,
+            "balanced_accuracy": 0.5900536507670383,
+            "recall": {
+              "0": 0.6009933774834437,
+              "1": 0.5791139240506329
+            },
+            "class_windows": {
+              "0": 604,
+              "1": 316
+            },
+            "majority_accuracy": 0.6565217391304348
+          }
+        ],
+        "pooled": {
+          "windows": 3632,
+          "decided": 3632,
+          "accuracy": 0.6244493392070485,
+          "balanced_accuracy": 0.6241935483870968,
+          "recall": {
+            "0": 0.625,
+            "1": 0.6233870967741936
+          },
+          "class_windows": {
+            "0": 2392,
+            "1": 1240
+          },
+          "majority_accuracy": 0.6585903083700441
+        },
+        "fold_accuracy_mean": 0.6245863793766833,
+        "fold_accuracy_std": 0.03142665312340748,
+        "fold_balanced_mean": 0.6243775720223618,
+        "fold_balanced_std": 0.03476673382441012
+      },
+      {
+        "scheme": "held_out_story",
+        "contract": "20ch",
+        "history_seconds": 10.0,
+        "alpha": 100.0,
+        "folds": [
+          {
+            "fold": "part1_track1_dry.wav|part1_track2_dry.wav",
+            "windows": 448,
+            "decided": 448,
+            "accuracy": 0.7254464285714286,
+            "balanced_accuracy": 0.7234174964438123,
+            "recall": {
+              "0": 0.7297297297297297,
+              "1": 0.7171052631578947
+            },
+            "class_windows": {
+              "0": 296,
+              "1": 152
+            },
+            "majority_accuracy": 0.6607142857142857
+          },
+          {
+            "fold": "part2_track1_dry.wav|part2_track2_dry.wav",
+            "windows": 448,
+            "decided": 448,
+            "accuracy": 0.65625,
+            "balanced_accuracy": 0.6470483641536273,
+            "recall": {
+              "0": 0.6756756756756757,
+              "1": 0.618421052631579
+            },
+            "class_windows": {
+              "0": 296,
+              "1": 152
+            },
+            "majority_accuracy": 0.6607142857142857
+          },
+          {
+            "fold": "part3_track1_dry.wav|part3_track2_dry.wav",
+            "windows": 448,
+            "decided": 448,
+            "accuracy": 0.6540178571428571,
+            "balanced_accuracy": 0.6693634423897581,
+            "recall": {
+              "0": 0.6216216216216216,
+              "1": 0.7171052631578947
+            },
+            "class_windows": {
+              "0": 296,
+              "1": 152
+            },
+            "majority_accuracy": 0.6607142857142857
+          },
+          {
+            "fold": "part4_track1_dry.wav|part4_track2_dry.wav",
+            "windows": 456,
+            "decided": 456,
+            "accuracy": 0.6864035087719298,
+            "balanced_accuracy": 0.6955128205128205,
+            "recall": {
+              "0": 0.6666666666666666,
+              "1": 0.7243589743589743
+            },
+            "class_windows": {
+              "0": 300,
+              "1": 156
+            },
+            "majority_accuracy": 0.6578947368421053
+          }
+        ],
+        "pooled": {
+          "windows": 1800,
+          "decided": 1800,
+          "accuracy": 0.6805555555555556,
+          "balanced_accuracy": 0.6839225589225589,
+          "recall": {
+            "0": 0.6734006734006734,
+            "1": 0.6944444444444444
+          },
+          "class_windows": {
+            "0": 1188,
+            "1": 612
+          },
+          "majority_accuracy": 0.66
+        },
+        "fold_accuracy_mean": 0.6805294486215538,
+        "fold_accuracy_std": 0.02891537557497596,
+        "fold_balanced_mean": 0.6838355308750046,
+        "fold_balanced_std": 0.02857371200984801
+      },
+      {
+        "scheme": "held_out_story",
+        "contract": "20ch",
+        "history_seconds": 30.0,
+        "alpha": 100.0,
+        "folds": [
+          {
+            "fold": "part1_track1_dry.wav|part1_track2_dry.wav",
+            "windows": 144,
+            "decided": 144,
+            "accuracy": 0.8472222222222222,
+            "balanced_accuracy": 0.8489583333333333,
+            "recall": {
+              "0": 0.84375,
+              "1": 0.8541666666666666
+            },
+            "class_windows": {
+              "0": 96,
+              "1": 48
+            },
+            "majority_accuracy": 0.6666666666666666
+          },
+          {
+            "fold": "part2_track1_dry.wav|part2_track2_dry.wav",
+            "windows": 144,
+            "decided": 144,
+            "accuracy": 0.7291666666666666,
+            "balanced_accuracy": 0.7083333333333334,
+            "recall": {
+              "0": 0.7708333333333334,
+              "1": 0.6458333333333334
+            },
+            "class_windows": {
+              "0": 96,
+              "1": 48
+            },
+            "majority_accuracy": 0.6666666666666666
+          },
+          {
+            "fold": "part3_track1_dry.wav|part3_track2_dry.wav",
+            "windows": 144,
+            "decided": 144,
+            "accuracy": 0.7152777777777778,
+            "balanced_accuracy": 0.7239583333333333,
+            "recall": {
+              "0": 0.6979166666666666,
+              "1": 0.75
+            },
+            "class_windows": {
+              "0": 96,
+              "1": 48
+            },
+            "majority_accuracy": 0.6666666666666666
+          },
+          {
+            "fold": "part4_track1_dry.wav|part4_track2_dry.wav",
+            "windows": 152,
+            "decided": 152,
+            "accuracy": 0.8026315789473685,
+            "balanced_accuracy": 0.813076923076923,
+            "recall": {
+              "0": 0.78,
+              "1": 0.8461538461538461
+            },
+            "class_windows": {
+              "0": 100,
+              "1": 52
+            },
+            "majority_accuracy": 0.6578947368421053
+          }
+        ],
+        "pooled": {
+          "windows": 584,
+          "decided": 584,
+          "accuracy": 0.773972602739726,
+          "balanced_accuracy": 0.7743530401851462,
+          "recall": {
+            "0": 0.7731958762886598,
+            "1": 0.7755102040816326
+          },
+          "class_windows": {
+            "0": 388,
+            "1": 196
+          },
+          "majority_accuracy": 0.6643835616438356
+        },
+        "fold_accuracy_mean": 0.7735745614035088,
+        "fold_accuracy_std": 0.05394178414892341,
+        "fold_balanced_mean": 0.7735817307692308,
+        "fold_balanced_std": 0.05907905163965083
+      },
+      {
+        "scheme": "held_out_story",
+        "contract": "20ch",
+        "history_seconds": 60.0,
+        "alpha": 100.0,
+        "folds": [
+          {
+            "fold": "part1_track1_dry.wav|part1_track2_dry.wav",
+            "windows": 72,
+            "decided": 72,
+            "accuracy": 0.9444444444444444,
+            "balanced_accuracy": 0.9583333333333333,
+            "recall": {
+              "0": 0.9166666666666666,
+              "1": 1.0
+            },
+            "class_windows": {
+              "0": 48,
+              "1": 24
+            },
+            "majority_accuracy": 0.6666666666666666
+          },
+          {
+            "fold": "part2_track1_dry.wav|part2_track2_dry.wav",
+            "windows": 72,
+            "decided": 72,
+            "accuracy": 0.8333333333333334,
+            "balanced_accuracy": 0.8229166666666666,
+            "recall": {
+              "0": 0.8541666666666666,
+              "1": 0.7916666666666666
+            },
+            "class_windows": {
+              "0": 48,
+              "1": 24
+            },
+            "majority_accuracy": 0.6666666666666666
+          },
+          {
+            "fold": "part3_track1_dry.wav|part3_track2_dry.wav",
+            "windows": 72,
+            "decided": 72,
+            "accuracy": 0.7777777777777778,
+            "balanced_accuracy": 0.78125,
+            "recall": {
+              "0": 0.7708333333333334,
+              "1": 0.7916666666666666
+            },
+            "class_windows": {
+              "0": 48,
+              "1": 24
+            },
+            "majority_accuracy": 0.6666666666666666
+          },
+          {
+            "fold": "part4_track1_dry.wav|part4_track2_dry.wav",
+            "windows": 72,
+            "decided": 72,
+            "accuracy": 0.8472222222222222,
+            "balanced_accuracy": 0.8645833333333333,
+            "recall": {
+              "0": 0.8125,
+              "1": 0.9166666666666666
+            },
+            "class_windows": {
+              "0": 48,
+              "1": 24
+            },
+            "majority_accuracy": 0.6666666666666666
+          }
+        ],
+        "pooled": {
+          "windows": 288,
+          "decided": 288,
+          "accuracy": 0.8506944444444444,
+          "balanced_accuracy": 0.8567708333333333,
+          "recall": {
+            "0": 0.8385416666666666,
+            "1": 0.875
+          },
+          "class_windows": {
+            "0": 192,
+            "1": 96
+          },
+          "majority_accuracy": 0.6666666666666666
+        },
+        "fold_accuracy_mean": 0.8506944444444444,
+        "fold_accuracy_std": 0.060040334950661724,
+        "fold_balanced_mean": 0.8567708333333333,
+        "fold_balanced_std": 0.06562293316851119
+      }
+    ]
+  },
+  "models": [
+    {
+      "path": "models\\auditory_kuleuven.npz",
+      "contract": "64ch",
+      "channels": [
+        "Fp1",
+        "AF7",
+        "AF3",
+        "F1",
+        "F3",
+        "F5",
+        "F7",
+        "FT7",
+        "FC5",
+        "FC3",
+        "FC1",
+        "C1",
+        "C3",
+        "C5",
+        "T7",
+        "TP7",
+        "CP5",
+        "CP3",
+        "CP1",
+        "P1",
+        "P3",
+        "P5",
+        "P7",
+        "P9",
+        "PO7",
+        "PO3",
+        "O1",
+        "Iz",
+        "Oz",
+        "POz",
+        "Pz",
+        "CPz",
+        "Fpz",
+        "Fp2",
+        "AF8",
+        "AF4",
+        "AFz",
+        "Fz",
+        "F2",
+        "F4",
+        "F6",
+        "F8",
+        "FT8",
+        "FC6",
+        "FC4",
+        "FC2",
+        "FCz",
+        "Cz",
+        "C2",
+        "C4",
+        "C6",
+        "T8",
+        "TP8",
+        "CP6",
+        "CP4",
+        "CP2",
+        "P2",
+        "P4",
+        "P6",
+        "P8",
+        "P10",
+        "PO8",
+        "PO4",
+        "O2"
+      ],
+      "history_seconds": 5.0,
+      "alpha": 100.0,
+      "training_trials": 320,
+      "cache_key": "22e5546fa44abe0f"
+    },
+    {
+      "path": "models\\auditory_kuleuven_live20.npz",
+      "contract": "20ch",
+      "channels": [
+        "Fp1",
+        "Fp2",
+        "F7",
+        "F3",
+        "Fz",
+        "F4",
+        "F8",
+        "T7",
+        "C3",
+        "C4",
+        "T8",
+        "Cz",
+        "P7",
+        "P3",
+        "Pz",
+        "P4",
+        "P8",
+        "Oz",
+        "O1",
+        "O2"
+      ],
+      "history_seconds": 5.0,
+      "alpha": 100.0,
+      "training_trials": 320,
+      "cache_key": "22e5546fa44abe0f"
+    }
+  ],
+  "elapsed_seconds": 579.5
+}

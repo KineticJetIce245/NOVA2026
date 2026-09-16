@@ -1,0 +1,51 @@
+{
+  "kind": "each mutation removes one piece of the declared-limit mechanism and is applied to a copy of the tree with its bytecode caches cleared; a mutation its named test does not catch is a test that is not evidence (plan section 6.4), and a mutation that does not parse is reported as invalid rather than as caught",
+  "results": [
+    {
+      "mutation": "the-declared-value-never-reaches-the-monitor",
+      "caught_by": "PointingAtOneOwnerTests.test_a_declared_limit_reaches_the_monitor_and_the_repairer",
+      "caught": true,
+      "returncode": 1,
+      "detail": [
+        "FAILED (errors=1)"
+      ]
+    },
+    {
+      "mutation": "the-declared-value-never-reaches-the-repairer",
+      "caught_by": "PointingAtOneOwnerTests.test_a_declared_limit_reaches_the_monitor_and_the_repairer",
+      "caught": true,
+      "returncode": 1,
+      "detail": [
+        "FAILED (errors=1)"
+      ]
+    },
+    {
+      "mutation": "the-policy-field-is-never-handed-to-the-chain",
+      "caught_by": "SessionWiringTests.test_the_session_hands_the_declared_limit_to_the_chain",
+      "caught": true,
+      "returncode": 1,
+      "detail": [
+        "FAILED (errors=1)"
+      ]
+    },
+    {
+      "mutation": "the-declared-limit-is-not-what-the-profile-judges-with",
+      "caught_by": "RunnerMeasuresBeforeItDeclaresTests.test_the_profile_counts_electrodes_on_both_sides_of_the_limit",
+      "caught": true,
+      "returncode": 1,
+      "detail": [
+        "FAILED (errors=1)"
+      ]
+    },
+    {
+      "mutation": "the-declared-value-is-not-recorded-in-the-run-policy",
+      "caught_by": "PointingAtOneOwnerTests.test_the_run_policy_records_the_value_it_declared",
+      "caught": true,
+      "returncode": 1,
+      "detail": [
+        "FAILED (errors=1)"
+      ]
+    }
+  ],
+  "survivors": []
+}

@@ -1,0 +1,470 @@
+"""Time-base tests: the rig's staircase must become a grid, not phantom damage.
+
+The fixture reproduces the timeline measured on 2026-09-12 (see
+``documents/timebase_design.md`` section 3): a few hundred ppm of rate error,
+plus a handful of whole-sample steps, totalling 5-9 samples of drift over 30 s.
+What the old code did with that timeline - read the steps as lost samples,
+insert slots for them, and let ``Repair`` repair rows that never existed - is
+what these tests forbid.
+
+Run from the repository root:
+
+    .venv/bin/python -B -m unittest tests.streaming.test_timebase -v
+"""
+
+import unittest
+from types import SimpleNamespace
+
+import numpy as np
+
+from nova2026.streaming import (
+    UnrepairableError,
+    grid_tolerance_samples,
+    grid_tolerance_seconds,
+)
+from nova2026.streaming.preprocess import Repair
+from nova2026.streaming.timebase import (
+    GridPolicy,
+    TimeBase,
+)
+from scripts.getlive import live
+
+RATE = 500.0
+
+# Measured on the rig: the source's clock runs slow, and the publisher re-stamps
+# occasionally, which shows up as whole-sample steps.
+MEASURED_DRIFT_PPM = -200.0
+MEASURED_JUMPS = ((4000, 1.0), (9000, 2.0), (13000, 1.0))
+
+
+def measured_timeline(
+    count: int = 15500,
+    *,
+    rate: float = RATE,
+    drift_ppm: float = MEASURED_DRIFT_PPM,
+    jumps=MEASURED_JUMPS,
+    start: float = 1000.0,
+) -> np.ndarray:
+    """The rig's timeline: a drifting grid with whole-sample re-stamps.
+
+    Args:
+        count: Samples to emit.
+        rate: Declared rate in Hz.
+        drift_ppm: How far the source's clock is from the declared rate.
+        jumps: ``(index, extra)`` re-stamps; ``extra`` is in nominal samples, so
+            the step at that point becomes ``1 + extra`` samples.
+        start: Timestamp of the first sample.
+    """
+
+    true_rate = rate * (1.0 + drift_ppm / 1e6)
+    stamps = start + np.arange(count) / true_rate
+    for index, extra in jumps:
+        stamps[index:] += extra / rate
+    return stamps
+
+
+def chunk_stamped(
+    blocks: int = 50,
+    per_block: int = 8,
+    within: float = 12e-6,
+    *,
+    rate: float = RATE,
+    start: float = 1000.0,
+) -> np.ndarray:
+    """The shape ``relay.py --regrid`` existed for: one stamp per block.
+
+    A recorder that passes ``push_chunk`` a scalar leaves every sample of a block
+    sharing one timestamp - microseconds apart at most - and hands ``Repair`` a
+    grid it can only refuse.
+    """
+
+    out = []
+    for block in range(blocks):
+        anchor = start + block * (per_block / rate)
+        out.extend(
+            anchor + (offset - per_block + 1) * within for offset in range(per_block)
+        )
+    return np.asarray(out)
+
+
+def expected_drift_samples(stamps: np.ndarray, rate: float = RATE) -> float:
+    """The total disagreement the anchors carry, in samples."""
+
+    return float((stamps[-1] - stamps[0]) * rate - (stamps.size - 1))
+
+
+def feed(time_base: TimeBase, stamps: np.ndarray, chunk: int = 37):
+    """Push a timestamp stream through the time base the way a pull loop does."""
+
+    emitted = []
+    for begin in range(0, stamps.size, chunk):
+        times, state = time_base.place(stamps[begin : begin + chunk])
+        if times.size:
+            emitted.append(times)
+    return np.concatenate(emitted) if emitted else np.empty(0), state
+
+
+def repair_stage(policy: GridPolicy, channels: int = 1) -> Repair:
+    """A ``Repair`` built from the policy, the way the live chain builds it."""
+
+    return Repair(
+        policy.nominal_sfreq,
+        tolerance_seconds=policy.tolerance_seconds,
+        source_unit_exponent=-6,
+        n_eeg=channels,
+        channel_names=("Fz",),
+    )
+
+
+class GridPolicyTests(unittest.TestCase):
+    """One rule, defined once: the tolerance the consumer actually applies."""
+
+    def test_the_default_tolerance_is_repairs_own_rule(self) -> None:
+        for rate in (250.0, 500.0, 1000.0, 2000.0, 10000.0):
+            with self.subTest(rate=rate):
+                policy = GridPolicy.for_rate(rate)
+                self.assertAlmostEqual(
+                    policy.tolerance_samples,
+                    grid_tolerance_samples(rate),
+                    places=12,
+                )
+                self.assertAlmostEqual(
+                    policy.tolerance_seconds, grid_tolerance_seconds(rate), places=12
+                )
+
+    def test_the_live_script_asks_the_package_for_the_tolerance(self) -> None:
+        for rate in (250.0, 500.0, 1000.0, 2000.0, 10000.0):
+            with self.subTest(rate=rate):
+                args = live.build_parser().parse_args(
+                    ["--sfreq", str(rate), "--source-units", "uV"]
+                )
+                self.assertAlmostEqual(
+                    live.timebase_policy(args).tolerance_seconds,
+                    grid_tolerance_seconds(rate),
+                    places=12,
+                )
+
+    def test_a_policy_the_consumer_could_not_satisfy_is_refused(self) -> None:
+        for bad in (
+            {"nominal_sfreq": 0.0},
+            {"nominal_sfreq": float("nan")},
+            {"nominal_sfreq": RATE, "tolerance_samples": 0.0},
+            {"nominal_sfreq": RATE, "tolerance_samples": 0.6},
+            {"nominal_sfreq": RATE, "relock_samples": 0.0},
+            {"nominal_sfreq": RATE, "relock_slew_samples": 0},
+            {"nominal_sfreq": RATE, "max_step_samples": 1.0},
+        ):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                GridPolicy(**bad)
+
+
+class TimeBaseRigTimelineTests(unittest.TestCase):
+    """The measured staircase has to become a grid ``Repair`` accepts."""
+
+    def test_one_slot_per_sample_and_repair_accepts_the_grid(self) -> None:
+        stamps = measured_timeline()
+        time_base = TimeBase(GridPolicy.for_rate(RATE))
+        times, state = feed(time_base, stamps)
+
+        self.assertEqual(
+            times.size, stamps.size, "one slot per received sample, never more"
+        )
+        self.assertEqual(state.total_samples, stamps.size)
+        self.assertTrue((np.diff(times) > 0).all(), "the grid is strictly increasing")
+
+        # The whole point: the consumer's own rule now passes on the raw rig
+        # timeline, which it refused outright before any time base existed.
+        data = np.zeros((times.size, 1), dtype="float32")
+        repair_stage(time_base.policy)(data, times)
+
+    def test_no_single_step_leaves_the_tolerance(self) -> None:
+        stamps = measured_timeline()
+        policy = GridPolicy.for_rate(RATE)
+        times, _ = feed(TimeBase(policy), stamps)
+        steps = np.diff(times) * RATE
+        self.assertLessEqual(
+            float(np.abs(steps - 1.0).max()),
+            policy.tolerance_samples,
+            "a re-lock may not break the grid rule the time base exists to satisfy",
+        )
+
+    def test_the_drift_is_absorbed_and_reported(self) -> None:
+        stamps = measured_timeline()
+        time_base = TimeBase(GridPolicy.for_rate(RATE))
+        _, state = feed(time_base, stamps)
+        drift = expected_drift_samples(stamps)
+        self.assertGreater(abs(drift), 5.0, "the fixture is the rig's 5-9 samples")
+        self.assertTrue(state.relocks, "the drift must be corrected, on the record")
+        self.assertAlmostEqual(
+            state.relocked_samples,
+            abs(drift),
+            delta=1.0,
+            msg="every absorbed sample of drift has to be accounted for",
+        )
+        self.assertLessEqual(
+            state.residual_samples,
+            time_base.policy.relock_samples,
+            "the residual is bounded by the policy by construction",
+        )
+
+    def test_the_whole_sample_steps_are_recorded_as_suspicious(self) -> None:
+        stamps = measured_timeline()
+        _, state = feed(TimeBase(GridPolicy.for_rate(RATE)), stamps)
+        self.assertEqual(
+            [round(event.size_samples, 3) for event in state.large_steps],
+            [2.0, 3.0, 2.0],
+            "each re-stamp is reported with the step it produced",
+        )
+        self.assertTrue(all(event.kind == "large_step" for event in state.large_steps))
+
+    def test_a_re_stamp_on_a_chunk_boundary_is_reported(self) -> None:
+        # The seam between two chunks is as much a step as the ones inside one.
+        # On the rig the re-stamps land exactly on block boundaries, and reading
+        # only np.diff(stamps) reported none of them.
+        stamps = measured_timeline(count=2000, drift_ppm=0.0, jumps=((500, 1.0),))
+        _, state = feed(TimeBase(GridPolicy.for_rate(RATE)), stamps, chunk=50)
+        self.assertEqual(
+            [round(event.size_samples, 3) for event in state.large_steps], [2.0]
+        )
+
+    def test_a_quiet_seam_is_not_a_step(self) -> None:
+        stamps = measured_timeline(count=2000, drift_ppm=0.0, jumps=())
+        _, state = feed(TimeBase(GridPolicy.for_rate(RATE)), stamps, chunk=50)
+        self.assertEqual(state.large_steps, ())
+
+    def test_a_chunk_stamped_source_becomes_a_usable_grid(self) -> None:
+        # The relay's --regrid job: a source that stamps a whole block once leaves
+        # near-zero steps inside a block and one real step at each seam. Counting
+        # samples instead of trusting stamps fixes it, and the seams are reported
+        # rather than hidden - they are the source's stamping shape, not damage.
+        stamps = chunk_stamped()
+        time_base = TimeBase(GridPolicy.for_rate(RATE))
+        times, state = time_base.place(stamps)
+
+        self.assertEqual(times.size, stamps.size, "one slot per received sample")
+        np.testing.assert_allclose(
+            np.diff(times) * RATE, 1.0, atol=1e-9, err_msg="a flat per-sample grid"
+        )
+        repair = repair_stage(time_base.policy)
+        repair(np.zeros((times.size, 1), dtype="float32"), times)
+        self.assertEqual(repair.repaired_samples, 0, "nothing to fabricate")
+        self.assertEqual(len(state.large_steps), 49, "one suspicious step per seam")
+
+    def test_a_lost_block_is_reported_and_not_smoothed_over(self) -> None:
+        # A block the source never sent is data nobody can invent: the grid stays
+        # usable, and the hole is reported as a long step instead of being closed
+        # silently. Repair must still have nothing to repair - if the grid carried
+        # the gap as a grid step, it would synthesise the missing row.
+        stamps = chunk_stamped(blocks=20)
+        stamps[10 * 8 :] += 8 / RATE
+        # One block per call, the way a chunk-stamped source actually arrives: a
+        # residual is measured at each seam, which is where the hole is.
+        time_base = TimeBase(GridPolicy.for_rate(RATE))
+        times, state = feed(time_base, stamps, chunk=8)
+
+        self.assertEqual(times.size, stamps.size, "the missing block is not invented")
+        self.assertTrue(
+            [event for event in state.large_steps if event.size_samples > 8],
+            "the hole has to be reported, not smoothed away",
+        )
+        self.assertTrue(state.relocks, "and absorbed, on the record")
+        repair = repair_stage(time_base.policy)
+        repair(np.zeros((times.size, 1), dtype="float32"), times)
+        self.assertEqual(repair.repaired_samples, 0)
+
+    def test_the_anchor_rate_exposes_the_clock_error(self) -> None:
+        stamps = measured_timeline()
+        _, state = feed(TimeBase(GridPolicy.for_rate(RATE)), stamps)
+        self.assertTrue(np.isfinite(state.anchor_rate))
+        self.assertLess(state.anchor_rate, RATE, "the source's clock runs slow")
+        self.assertLess(
+            abs(state.anchor_rate - RATE) / RATE, 1e-3, "and it is a small error"
+        )
+
+    def test_a_real_loss_is_reported_and_never_filled(self) -> None:
+        # A genuine skip of three samples: the stamps jump by four sample
+        # periods and three samples never arrive. The time base may not invent
+        # them, so the grid closes up - and the anomaly has to be on the record,
+        # which is why the run must also be checked against the CNT.
+        stamps = measured_timeline(count=6000, drift_ppm=0.0, jumps=((3000, 3.0),))
+        time_base = TimeBase(GridPolicy.for_rate(RATE))
+        times, state = feed(time_base, stamps)
+
+        self.assertEqual(times.size, stamps.size, "a lost sample is not fabricated")
+        self.assertEqual(len(state.large_steps), 1)
+        self.assertAlmostEqual(state.large_steps[0].size_samples, 4.0, places=6)
+        self.assertTrue(state.relocks, "the skip is absorbed, and said so")
+        self.assertTrue(
+            (np.diff(times) > 0).all(), "even a hole leaves the grid monotonic"
+        )
+        # The jump is four samples, so the default 50-sample slew would move each
+        # sample by 0.08 - inside the 0.1 tolerance but only just. A floor alone
+        # is not enough: the slew has to be derived from the correction, which is
+        # what this bigger step checks.
+        steps = np.diff(times) * RATE
+        self.assertLessEqual(
+            float(np.abs(steps - 1.0).max()), time_base.policy.tolerance_samples
+        )
+        self.assertGreater(state.relocks[0].slew_samples, 50)
+
+
+class TimeBaseInterfaceTests(unittest.TestCase):
+    """The small contracts a pipeline needs from the class."""
+
+    def test_an_empty_chunk_changes_nothing(self) -> None:
+        time_base = TimeBase(GridPolicy.for_rate(RATE))
+        times, state = time_base.place(np.empty(0))
+        self.assertEqual(times.size, 0)
+        self.assertEqual(state.total_samples, 0)
+        self.assertEqual(state.relocks, ())
+
+    def test_a_chunk_anchor_is_accepted_for_a_chunk_stamped_source(self) -> None:
+        time_base = TimeBase(GridPolicy.for_rate(RATE))
+        times, state = time_base.place(np.asarray([1000.0]), n_samples=50)
+        self.assertEqual(times.size, 50)
+        self.assertEqual(state.total_samples, 50)
+        np.testing.assert_allclose(np.diff(times) * RATE, 1.0, atol=1e-9)
+
+    def test_damaged_input_is_refused_rather_than_guessed(self) -> None:
+        time_base = TimeBase(GridPolicy.for_rate(RATE))
+        with self.assertRaises(ValueError):
+            time_base.place(np.asarray([1.0, np.nan]))
+        with self.assertRaises(ValueError):
+            time_base.place(np.asarray([[1.0, 2.0]]))
+        with self.assertRaises(ValueError):
+            time_base.place(np.asarray([1.0, 2.0, 3.0]), n_samples=5)
+        with self.assertRaises(ValueError):
+            time_base.place(np.asarray([1.0]), n_samples=0)
+        with self.assertRaises(TypeError):
+            TimeBase("not a policy")
+        with self.assertRaises(ValueError):
+            TimeBase(GridPolicy.for_rate(RATE), anchor=float("nan"))
+
+    def test_a_clean_source_is_left_almost_untouched(self) -> None:
+        stamps = 1000.0 + np.arange(2000) / RATE
+        time_base = TimeBase(GridPolicy.for_rate(RATE))
+        times, state = feed(time_base, stamps)
+        np.testing.assert_allclose(times, stamps, atol=1e-9)
+        self.assertEqual(state.relocks, ())
+        self.assertEqual(state.large_steps, ())
+        self.assertAlmostEqual(state.anchor_rate, RATE, places=6)
+
+
+class LiveWiringTests(unittest.TestCase):
+    """The live script must be able to use the grid, and must default to not.
+
+    ``stamps`` is the historical behaviour, so a run that does not ask for the
+    grid has to be bit-for-bit what it was.
+    """
+
+    def parse(self, *extra: str):
+        return live.build_parser().parse_args(
+            ["--sfreq", str(RATE), "--source-units", "uV", *extra]
+        )
+
+    def test_the_default_is_the_grid_and_stamps_is_the_escape_hatch(self) -> None:
+        # Grid is the default because the only amplifier this project measured
+        # fails without it; a source whose grid is sound asks for stamps back.
+        self.assertEqual(self.parse().timebase, "grid")
+        self.assertEqual(self.parse("--timebase", "stamps").timebase, "stamps")
+        stamps = np.asarray([1.0, 2.0, 3.0])
+        self.assertIs(
+            live.apply_timebase(None, stamps),
+            stamps,
+            "with no time base the stamps must pass through untouched",
+        )
+
+    def test_the_grid_mode_regularises_what_the_chain_receives(self) -> None:
+        args = self.parse("--timebase", "grid")
+        policy = live.timebase_policy(args)
+
+        # The rig had both failure modes at once. The staircase - drift plus
+        # whole-sample re-stamps - does not make Repair refuse; it makes Repair
+        # invent the missing rows and repair them.
+        stamps = measured_timeline(count=6000)
+        times = live.apply_timebase(TimeBase(policy), stamps)
+        self.assertEqual(times.size, stamps.size, "no sample may be invented")
+        data = np.zeros((times.size, 1), dtype="float32")
+        raw = repair_stage(policy)
+        raw(data, stamps)
+        self.assertGreater(
+            raw.repaired_samples,
+            0,
+            "the raw timeline makes Repair fabricate and repair rows that never existed",
+        )
+        grid = repair_stage(policy)
+        grid(data, times)
+        self.assertEqual(
+            grid.repaired_samples, 0, "the grid must leave Repair nothing to fabricate"
+        )
+
+        # And the other mode: sub-nominal jitter, which Repair refuses outright.
+        jittered = measured_timeline(count=6000, jumps=(), drift_ppm=0.0)
+        jittered[::211] -= 0.4 / RATE
+        with self.assertRaises(UnrepairableError):
+            repair_stage(policy)(np.zeros((jittered.size, 1), "float32"), jittered)
+        fixed = live.apply_timebase(TimeBase(policy), jittered)
+        repair_stage(policy)(np.zeros((fixed.size, 1), "float32"), fixed)
+
+    def test_the_policy_is_the_one_rule_for_the_grid_tolerance(self) -> None:
+        for rate in (250.0, 500.0, 1000.0, 2000.0):
+            with self.subTest(rate=rate):
+                args = live.build_parser().parse_args(
+                    ["--sfreq", str(rate), "--source-units", "uV"]
+                )
+                self.assertAlmostEqual(
+                    live.timebase_policy(args).tolerance_seconds,
+                    min(2e-4, 0.4 / rate),
+                    places=12,
+                )
+
+    def test_impossible_timebase_thresholds_are_refused(self) -> None:
+        for flag, value in (
+            ("--timebase-relock-samples", "0"),
+            ("--timebase-relock-samples", "-1"),
+            ("--timebase-max-step-samples", "1.0"),
+        ):
+            with self.subTest(flag=flag, value=value):
+                parser = live.build_parser()
+                args = parser.parse_args(
+                    ["--sfreq", str(RATE), "--source-units", "uV", flag, value]
+                )
+                with self.assertRaises(SystemExit):
+                    live._validate_arguments(parser, args)
+
+    def test_the_drift_limit_is_optional_and_validated(self) -> None:
+        args = self.parse()
+        self.assertIsNone(
+            args.timebase_drift_limit,
+            "without it the drift is reported and never rejects",
+        )
+        args = self.parse("--timebase-drift-limit", "5")
+        self.assertEqual(args.timebase_drift_limit, 5.0)
+
+        parser = live.build_parser()
+        args = parser.parse_args(
+            ["--sfreq", str(RATE), "--source-units", "uV",
+             "--timebase-drift-limit", "0"]
+        )
+        with self.assertRaises(SystemExit):
+            live._validate_arguments(parser, args)
+
+    def test_the_timebase_verdict_is_rendered_for_the_operator(self) -> None:
+        args = self.parse("--timebase", "grid")
+        run = SimpleNamespace(
+            timebase=TimeBase(live.timebase_policy(args)),
+            timebase_policy=live.timebase_policy(args),
+        )
+        run.timebase.place(measured_timeline(count=4000))
+        line = live._format_timebase(run)
+        self.assertIn("grid at 500 Hz", line)
+        self.assertIn("re-lock", line)
+        self.assertIn("anchors imply", line)
+        self.assertIsNone(
+            live._format_timebase(SimpleNamespace(timebase=None)),
+            "a stamps-mode run must not claim a time base verdict",
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

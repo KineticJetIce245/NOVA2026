@@ -19,6 +19,8 @@ import math
 
 import numpy as np
 
+from .scope import ChannelScope
+
 
 class UnrepairableError(RuntimeError):
     """A chunk cannot be repaired; bounded recovery decides what happens next.
@@ -47,6 +49,27 @@ class UnrepairableError(RuntimeError):
         self.gap_seconds = gap_seconds
 
 
+# One rule, one place. A step counts as on the grid when it is within
+# ``TOLERANCE_SECONDS`` of a whole number of samples, or ``TOLERANCE_SAMPLES_MAX``
+# samples at high rates, whichever is the tighter. ``live.py``, ``relay.py``,
+# ``ts_check.py`` and this module's own default each carried a copy of it, which
+# is four chances to disagree about the grid the run is held to.
+TOLERANCE_SECONDS = 2e-4
+TOLERANCE_SAMPLES_MAX = 0.4
+
+
+def grid_tolerance_seconds(sfreq: float) -> float:
+    """The grid tolerance at this rate, in the units :class:`Repair` takes."""
+
+    return min(TOLERANCE_SECONDS, TOLERANCE_SAMPLES_MAX / sfreq)
+
+
+def grid_tolerance_samples(sfreq: float) -> float:
+    """The same tolerance expressed in samples."""
+
+    return min(TOLERANCE_SECONDS * sfreq, TOLERANCE_SAMPLES_MAX)
+
+
 class Repair:
     """Repair short NaN/Inf runs and report which windows they touch.
 
@@ -54,7 +77,10 @@ class Repair:
         sfreq: Source sampling rate in Hz.
         max_seconds: Longest repairable damage; longer runs stop the run.
             Defaults to 0.02 s (10 samples at 500 Hz).
-        tolerance_seconds: Permitted timestamp jitter around the nominal grid.
+        tolerance_seconds: Timestamp jitter still counted as on the nominal grid.
+            Defaults to ``TOLERANCE_SECONDS``, which is what
+            :func:`grid_tolerance_seconds` returns at any rate up to 2 kHz; above
+            that, ask for the rule rather than take the flat default.
         settle_seconds: Extra interval after a repair that still flags
             windows (filter history stays suspect).
         source_unit_exponent: Power of ten of the source unit, used only to
@@ -64,6 +90,15 @@ class Repair:
             defaults to all columns when ``None``.
         amplitude_limit_uv: Largest finite-to-finite jump still safe to bridge.
         saturation_limit_uv: Absolute endpoint level that makes a repair unsafe.
+        channel_names: Optional EEG labels in column order, needed as soon as
+            ``exclude_channels`` is non-empty.
+        exclude_channels: Labels of columns known to be dead. They are never
+            allowed to stop the run: a non-finite value in such a column is held
+            at its last finite level instead of waiting for a right endpoint
+            that may never arrive, and their endpoints are not inspected by the
+            safety check. They are still repaired, still counted in
+            ``held_rows`` and still carry data, because nothing here may remove
+            a column a decoder contract expects.
 
     Notes:
         A row is damaged when any of its values is non-finite. Short missing
@@ -75,9 +110,14 @@ class Repair:
         a structured kind; a bounded-recovery guard decides whether the run
         restarts or stops.
 
+        Damage is judged on in-scope columns only (see
+        :class:`~.scope.ChannelScope`). Without ``exclude_channels`` the scope
+        is every column, which reproduces the historical behaviour exactly.
+
     Attributes:
         repaired_samples: Rows repaired so far (dropped rows are excluded).
         dropped_rows: Damaged rows before the first finite sample, dropped.
+        held_rows: Rows where at least one out-of-scope column was held.
     """
 
     def __init__(
@@ -85,12 +125,14 @@ class Repair:
         sfreq: float,
         *,
         max_seconds: float = 0.02,
-        tolerance_seconds: float = 2e-4,
+        tolerance_seconds: float = TOLERANCE_SECONDS,
         settle_seconds: float = 0.0,
         source_unit_exponent: int | None = None,
         n_eeg: int | None = None,
         amplitude_limit_uv: float = 500.0,
         saturation_limit_uv: float = 75000.0,
+        channel_names: tuple[str, ...] | None = None,
+        exclude_channels: tuple[str, ...] = (),
     ) -> None:
         """Validate limits and start empty."""
 
@@ -128,6 +170,10 @@ class Repair:
             self._guard_columns = None if n_eeg is None else int(n_eeg)
             self._amplitude_uv = float(amplitude_limit_uv)
             self._saturation_uv = float(saturation_limit_uv)
+        # Which columns may stop the run; known-dead EEG columns may not.
+        self.scope = ChannelScope(channel_names, exclude_channels)
+        self.channel_names = self.scope.channel_names
+        self.exclude_channels = self.scope.exclude_channels
         self.reset()
 
     def reset(self) -> None:
@@ -138,8 +184,11 @@ class Repair:
         self._previous_time: float | None = None
         self._pending: list[tuple[np.ndarray, float]] = []
         self._intervals: list[tuple[float, float]] = []
+        self._scope: np.ndarray | None = None
+        self._excluded_mask: np.ndarray | None = None
         self.repaired_samples = 0
         self.dropped_rows = 0
+        self.held_rows = 0
 
     def __call__(
         self, data: np.ndarray, timestamps: np.ndarray
@@ -160,6 +209,13 @@ class Repair:
         if len(data) == 0:
             return data, timestamps
         channels = data.shape[1]
+        # Scope is resolved per call: column count belongs to the source, not
+        # to this stage. Without exclusions the mask is all-True, so the
+        # historical decision path is unchanged.
+        self._scope = self.scope.mask(channels)
+        self._excluded_mask = (
+            self.scope.excluded_mask(channels) if self.scope else None
+        )
 
         emitted_rows: list[np.ndarray] = []
         emitted_times: list[float] = []
@@ -170,6 +226,10 @@ class Repair:
             if not math.isfinite(stamp):
                 raise UnrepairableError("nonfinite_timestamp")
             self._check_grid(stamp, channels)
+
+            row, held = self._hold_out_of_scope(row)
+            if held:
+                self.held_rows += 1
 
             if not np.all(np.isfinite(row)):
                 if self._left is None:
@@ -195,6 +255,34 @@ class Repair:
         if emitted_rows:
             return np.stack(emitted_rows), np.asarray(emitted_times)
         return np.empty((0, channels)), np.empty((0,))
+
+    def _hold_out_of_scope(self, row: np.ndarray) -> tuple[np.ndarray, bool]:
+        """Hold non-finite out-of-scope columns at their last finite level.
+
+        A known-dead electrode can deliver ``NaN`` for a whole session. Waiting
+        for a finite right endpoint that never arrives would stop the run for a
+        column the operator already declared dead, and letting the ``NaN``
+        through would poison every causal filter for its settling time. Holding
+        the last finite value is causal, invents no signal, and the chain's
+        high-pass removes the resulting level; before any finite value exists
+        the column starts at zero.
+
+        Returns:
+            The possibly filled row and whether anything was held.
+        """
+
+        if self._excluded_mask is None:
+            return row, False
+        missing = ~np.isfinite(row) & self._excluded_mask
+        if not missing.any():
+            return row, False
+        filled = np.array(row, copy=True)
+        if self._left is None:
+            filled[missing] = 0.0
+        else:
+            filled[missing] = self._left[missing]
+
+        return filled, True
 
     def _check_grid(self, stamp: float, channels: int) -> None:
         """Verify the sample is on the nominal grid; synthesise small gaps."""
@@ -263,19 +351,25 @@ class Repair:
         self._pending = []
 
     def _unsafe(self, left: np.ndarray, right: np.ndarray) -> bool:
-        """Whether the two endpoints are too extreme to interpolate between."""
+        """Whether the two endpoints are too extreme to interpolate between.
+
+        Only in-scope columns are inspected: a railing known-dead electrode must
+        not make every repair around it unsafe, which would stop the run through
+        the same single channel the scope exists to tolerate.
+        """
 
         if self._to_uv is None:
             return False  # units unknown: only value repair is possible
-        columns = self._guard_columns
         endpoints = np.stack((left, right))
-        if columns is not None:
-            endpoints = endpoints[:, :columns]
+        scope = self._scope
+        if self._guard_columns is not None:
+            endpoints = endpoints[:, : self._guard_columns]
+            scope = scope[: self._guard_columns]
         uv = endpoints * self._to_uv
         jump = np.abs(uv[1] - uv[0])
         return bool(
-            np.any(np.abs(uv) >= self._saturation_uv)
-            or np.any(jump > self._amplitude_uv)
+            np.any(np.abs(uv[:, scope]) >= self._saturation_uv)
+            or np.any(jump[scope] > self._amplitude_uv)
         )
 
     def reasons(self, start: float, end: float) -> tuple[str, ...]:

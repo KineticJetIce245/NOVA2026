@@ -1,0 +1,19 @@
+{
+  "name": "attune-transport-client",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "test": "node --test tests/*.test.js",
+    "test:live": "node --test tests/live.integration.js"
+  },
+  "dependencies": {
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
+  },
+  "devDependencies": {
+    "vite": "7.3.1"
+  }
+}

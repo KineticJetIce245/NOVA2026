@@ -1,20 +1,24 @@
 """Constants for the PVT visual-detection experiment.
 
 The task predicts, from the *post*-stimulus EEG only, whether the subject
-registered the stimulus. It complements ``scripts/dataproc/cogbci_pvt.py``,
-which predicts a lapse from the 2 s of signal *before* the stimulus.
+registered the stimulus. It was built beside ``scripts/dataproc/cogbci_pvt.py``,
+which predicted a lapse from the 2 s of signal *before* the stimulus; that module
+was removed in the D-22 cleanup (``final_connection.md``) and nothing here
+depends on it.
 
-The occipital channels are listed literally rather than imported from
-``cogbci_pvt``: that module runs the whole checkpoint build at import time, so
-importing it for a constant would load all 75 recordings as a side effect.
+The occipital channels are listed literally rather than imported from a shared
+constant: the removed module ran the whole checkpoint build at import time, so
+importing it for a constant would have loaded all 75 recordings as a side
+effect.
 """
 
 from pathlib import Path
 
 from nova2026.config import DATA_DIR
 
-#: Reconstruction order of the COG-BCI cap (62 EEG channels), copied from
-#: ``scripts/dataproc/cogbci_pvt.py``. ``build_dataset`` verifies its channel set
+#: Reconstruction order of the COG-BCI cap (62 EEG channels), copied from the
+#: since-removed ``scripts/dataproc/cogbci_pvt.py`` (D-22). ``build_dataset``
+#: verifies its channel set
 #: against the loaded recording, so a divergence fails loudly instead of
 #: silently reordering channels.
 EEG_CHANNELS = (
@@ -27,16 +31,21 @@ EEG_CHANNELS = (
     "AF4", "F2",
 )  # fmt: skip
 
-#: ``occipital`` is the set a visual evoked response is expected in and stays
-#: caudal enough to be clear of the motor plan for the button press.
-#: ``posterior`` adds the lateral-occipital and parietal-occipital ring as a
-#: sensitivity check. Both are stored in cap order.
+#: ``occipital`` is the minimal visual set (8 electrodes at the back of the
+#: head). ``posterior`` widens it to 17 by adding the surrounding ring --
+#: lateral-occipital (PO7/PO8), the parietal-occipital row (P7/P5/P3/P1/Pz/
+#: P2/P4/P6/P8) and PO3/POz/PO4 -- on the argument that a visual response is
+#: spatially broader than the four midline sites, and that more electrodes also
+#: give a spatial filter more to work with. ``all`` is the whole cap, used as a
+#: control: if 17 electrodes do not beat 8, adding more sensors is not the
+#: bottleneck. All are stored in cap order.
 CHANNEL_SETS = {
     "occipital": ["O1", "Oz", "O2", "PO7", "PO3", "POz", "PO4", "PO8"],
     "posterior": [
         "Pz", "P3", "P7", "O1", "Oz", "O2", "P4", "P8", "P1", "P5",
         "PO7", "PO3", "POz", "PO4", "PO8", "P6", "P2",
     ],  # fmt: skip
+    "all": list(EEG_CHANNELS),
 }
 
 #: Output directory and data-type tag of the PVT-visual checkpoints.

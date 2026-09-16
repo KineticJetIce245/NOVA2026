@@ -1,0 +1,18 @@
+{
+  "kind": "declared railed-electrode exclusion: break the mechanism, require red",
+  "command": "python -B tmp/mutate_declared_railed.py (deletes src/ and scripts/ __pycache__ before each run)",
+  "note": "Python serves a cached .pyc when the source mtime is unchanged at one-second resolution; the first sweep reported three survivors that were stale bytecode, not weak tests. The driver now clears the caches before every mutant.",
+  "mutants": {
+    "exclusion ignored by Repair's scope": "exit 1 | FAILED (failures=2)",
+    "endpoint check inspects every column (the global-limit blindness)": "exit 1 | FAILED (failures=1)",
+    "excluded damage not held at its last finite level": "exit 1 | FAILED (failures=1)",
+    "declaration check trusts the operator (no rail test)": "exit 1 | FAILED (failures=1)",
+    "runner drops the declaration before the session sees it": "exit 1 | FAILED (failures=1)",
+    "saturation guard default raised until the rail passes (rejected design)": "exit 1 | FAILED (failures=1)",
+    "contract reorder dropped on the delivered block (was surviving)": "exit 1 | FAILED (errors=1)",
+    "empty-block guard removed (was surviving)": "exit 1 | FAILED (errors=1)",
+    "chain fed 128 Hz but declaring 500 Hz (the live stop)": "exit 1 | FAILED (failures=1)",
+    "pass-through resampler reintroduced as a 1:1 Resampler": "exit 1 | FAILED (errors=1)",
+    "runner stops handing the declaration to the session": "exit 1 | FAILED (failures=1)"
+  }
+}

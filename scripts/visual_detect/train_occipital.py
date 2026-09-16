@@ -554,7 +554,8 @@ def main(argv: list[str] | None = None) -> dict:
     print(f"Device    : {trainer.device}")
     print(f"Protocol  : {args.protocol}")
 
-    if args.scheme == "rt" and args.class_weight and labels.sum() and (labels == 0).sum():
+    imbalanced = args.scheme == "rt" and args.class_weight
+    if imbalanced and labels.sum() and (labels == 0).sum():
         class_weight = torch.tensor(
             [1.0, float((labels == 0).sum() / max(1, labels.sum()))],
             dtype=torch.float32,
@@ -571,7 +572,9 @@ def main(argv: list[str] | None = None) -> dict:
     fold_scores = []
     for i, subject in enumerate(folds):
         if args.protocol == "within":
-            specs = within_splits(subject_of, session_of, subject, n_splits=args.inner_folds)
+            specs = within_splits(
+                subject_of, session_of, subject, n_splits=args.inner_folds
+            )
             train_subjects = [subject]
         else:
             specs = [("loso", subject_of == subject, None)]
@@ -653,7 +656,9 @@ def main(argv: list[str] | None = None) -> dict:
         "majority_accuracy": float(max(truth.mean(), 1 - truth.mean())),
         "sparse_folds": {
             "threshold_positives": SPARSE_POSITIVES,
-            "n_folds": int(sum(1 for row in fold_scores if row["n_pos"] < SPARSE_POSITIVES)),
+            "n_folds": int(
+                sum(1 for row in fold_scores if row["n_pos"] < SPARSE_POSITIVES)
+            ),
             "note": "per-subject AUC in these folds rests on too few positives",
         },        "null": permutation_null(truth, scores, seed=args.seed),
         "fold_scores": fold_scores,

@@ -1,0 +1,427 @@
+{
+  "stamp": "2026-09-13T14:57:25+00:00",
+  "kind": "live amplifier run (no recording involved)",
+  "seconds_served": 189.294,
+  "url": "http://127.0.0.1:59060/",
+  "source": {
+    "stream_name": "NOVA-ANT-replay",
+    "source_id": "ant-replay-1",
+    "stream_type": "EEG",
+    "sfreq_hz": 500.0,
+    "source_units": "uV",
+    "source_unit_exponent": -6,
+    "electrodes": [
+      "Fp1",
+      "Fp2",
+      "F7",
+      "F3",
+      "Fz",
+      "F4",
+      "F8",
+      "T7",
+      "C3",
+      "C4",
+      "T8",
+      "Cz",
+      "P7",
+      "P3",
+      "Pz",
+      "P4",
+      "P8",
+      "Oz",
+      "O1",
+      "O2"
+    ],
+    "n_electrodes": 20,
+    "timebase": "grid",
+    "block_samples": 25,
+    "pre_resample": "auto",
+    "chain_input_hz": 128.0,
+    "model_input_hz": 128.0,
+    "model_output_hz": 64,
+    "window_seconds": 5.0,
+    "step_seconds": 1.0,
+    "reference": "CPz (declared by the operator; the model records Cz)",
+    "ground": "AFz (declared by the operator)",
+    "upstream_processing": "eego control software over LSL; gain and filters set in the software and not advertised over LSL - operator assertion, not a measurement",
+    "assertions": "--sfreq, --source-units, --reference, --ground and --upstream are operator assertions, not measurements: LSL advertises none of them (scripts/getlive/README.md). The package's pre-flight checks the rate and the units against what the outlet declares; gain, filters and impedance are the control software's and are not visible here."
+  },
+  "declared_by_the_outlet": {
+    "name": "NOVA-ANT-replay",
+    "type": "EEG",
+    "source_id": "ant-replay-1",
+    "sfreq": 500.0,
+    "channels": [
+      "Fp1",
+      "Fp2",
+      "F7",
+      "F3",
+      "Fz",
+      "F4",
+      "F8",
+      "T7",
+      "C3",
+      "C4",
+      "T8",
+      "Cz",
+      "P7",
+      "P3",
+      "Pz",
+      "P4",
+      "P8",
+      "Oz",
+      "O1",
+      "O2"
+    ],
+    "types": [
+      "eeg",
+      "eeg",
+      "eeg",
+      "eeg",
+      "eeg",
+      "eeg",
+      "eeg",
+      "eeg",
+      "eeg",
+      "eeg",
+      "eeg",
+      "eeg",
+      "eeg",
+      "eeg",
+      "eeg",
+      "eeg",
+      "eeg",
+      "eeg",
+      "eeg",
+      "eeg"
+    ],
+    "units": [
+      "microvolts",
+      "microvolts",
+      "microvolts",
+      "microvolts",
+      "microvolts",
+      "microvolts",
+      "microvolts",
+      "microvolts",
+      "microvolts",
+      "microvolts",
+      "microvolts",
+      "microvolts",
+      "microvolts",
+      "microvolts",
+      "microvolts",
+      "microvolts",
+      "microvolts",
+      "microvolts",
+      "microvolts",
+      "microvolts"
+    ],
+    "n_channels": 20
+  },
+  "model": {
+    "path": "models/auditory_kuleuven_live20.npz",
+    "contract": {
+      "eeg_channels": [
+        "Fp1",
+        "Fp2",
+        "F7",
+        "F3",
+        "Fz",
+        "F4",
+        "F8",
+        "T7",
+        "C3",
+        "C4",
+        "T8",
+        "Cz",
+        "P7",
+        "P3",
+        "Pz",
+        "P4",
+        "P8",
+        "Oz",
+        "O1",
+        "O2"
+      ],
+      "output_sfreq": 64,
+      "input_sfreq": 128.0,
+      "units": "uV",
+      "input_reference": "No reference channel is shipped. RawData.Channels is 1..64 with no reference label, the subject structs carry no montage or electrode-position field, and the distribution contains no channel-location file (the only entries under datasets/AAD-KULeuven are S1.mat..S16.mat, stimuli/, stimuli.zip, preprocess_data.m, README.txt.txt and the Zenodo record JSON). The published preprocess_data.m re-references by subtracting EegData(:,48) from every channel (params.rereference = 'Cz'), which fixes column 48 (1-based) as Cz; the standard BioSemi64 order also places Cz at index 48, so the two agree. That subtraction belongs to the authors' preprocessing and not to the shipped files, so the EegData this loader reads is an unreferenced / unknown-reference recording. The auditory chain therefore carries trial.reference into its contract verbatim and applies its own band-pass (1-9 Hz, order 3, see src/nova2026/auditory/streaming.py) rather than assuming any reference.",
+      "upstream_processing": "Shipped by the dataset authors: each trial was high-pass filtered at 0.5 Hz and downsampled to 128 Hz, and FileHeader.SampleRate is 128 in every trial, confirming the shipped rate. The recorded rate is stated inconsistently in README.txt.txt (8196 Hz in the recording description, 8192 Hz in the trial description); the shipped files cannot settle which is correct, so neither figure is relied on. Envelope source: both README.txt.txt and preprocess_data.m compute envelopes from the DRY stimulus, so each trials[i].stimuli name is mapped to its dry counterpart (a trailing _hrtf becomes _dry, any rep_ prefix is preserved, an existing _dry name is left unchanged). Channel naming is a DERIVATION, not data shipped with the dataset: no channel-location file is included, so column j of EegData is named by the standard BioSemi64 order (mne.channels.make_standard_montage('biosemi64').ch_names), which is consistent with the authors' Cz re-reference of column 48.",
+      "bandpass": [
+        1.0,
+        9.0
+      ],
+      "filter_order": 3,
+      "resample_quality": "QQ",
+      "stage": "auditory-current-streaming-v2",
+      "window_seconds": 5.0,
+      "step_seconds": 1.0
+    },
+    "window_seconds": 5.0
+  },
+  "contract": {
+    "provenance": {
+      "input_reference": {
+        "model": "No reference channel is shipped. RawData.Channels is 1..64 with no reference label, the subject structs carry no montage or electrode-position field, and the distribution contains no channel-location file (the only entries under datasets/AAD-KULeuven are S1.mat..S16.mat, stimuli/, stimuli.zip, preprocess_data.m, README.txt.txt and the Zenodo record JSON). The published preprocess_data.m re-references by subtracting EegData(:,48) from every channel (params.rereference = 'Cz'), which fixes column 48 (1-based) as Cz; the standard BioSemi64 order also places Cz at index 48, so the two agree. That subtraction belongs to the authors' preprocessing and not to the shipped files, so the EegData this loader reads is an unreferenced / unknown-reference recording. The auditory chain therefore carries trial.reference into its contract verbatim and applies its own band-pass (1-9 Hz, order 3, see src/nova2026/auditory/streaming.py) rather than assuming any reference.",
+        "source": "CPz (declared by the operator; the model records Cz)"
+      },
+      "upstream_processing": {
+        "model": "Shipped by the dataset authors: each trial was high-pass filtered at 0.5 Hz and downsampled to 128 Hz, and FileHeader.SampleRate is 128 in every trial, confirming the shipped rate. The recorded rate is stated inconsistently in README.txt.txt (8196 Hz in the recording description, 8192 Hz in the trial description); the shipped files cannot settle which is correct, so neither figure is relied on. Envelope source: both README.txt.txt and preprocess_data.m compute envelopes from the DRY stimulus, so each trials[i].stimuli name is mapped to its dry counterpart (a trailing _hrtf becomes _dry, any rep_ prefix is preserved, an existing _dry name is left unchanged). Channel naming is a DERIVATION, not data shipped with the dataset: no channel-location file is included, so column j of EegData is named by the standard BioSemi64 order (mne.channels.make_standard_montage('biosemi64').ch_names), which is consistent with the authors' Cz re-reference of column 48.",
+        "source": "eego control software over LSL; gain and filters set in the software and not advertised over LSL - operator assertion, not a measurement"
+      }
+    },
+    "gated": {},
+    "only_in_model": [],
+    "only_in_source": [],
+    "gate_keys": [
+      "eeg_channels",
+      "input_sfreq",
+      "output_sfreq",
+      "units",
+      "bandpass",
+      "filter_order",
+      "resample_quality",
+      "stage",
+      "window_seconds"
+    ],
+    "provenance_keys": [
+      "input_reference",
+      "upstream_processing"
+    ],
+    "model_contract": {
+      "eeg_channels": [
+        "Fp1",
+        "Fp2",
+        "F7",
+        "F3",
+        "Fz",
+        "F4",
+        "F8",
+        "T7",
+        "C3",
+        "C4",
+        "T8",
+        "Cz",
+        "P7",
+        "P3",
+        "Pz",
+        "P4",
+        "P8",
+        "Oz",
+        "O1",
+        "O2"
+      ],
+      "output_sfreq": 64,
+      "input_sfreq": 128.0,
+      "units": "uV",
+      "input_reference": "No reference channel is shipped. RawData.Channels is 1..64 with no reference label, the subject structs carry no montage or electrode-position field, and the distribution contains no channel-location file (the only entries under datasets/AAD-KULeuven are S1.mat..S16.mat, stimuli/, stimuli.zip, preprocess_data.m, README.txt.txt and the Zenodo record JSON). The published preprocess_data.m re-references by subtracting EegData(:,48) from every channel (params.rereference = 'Cz'), which fixes column 48 (1-based) as Cz; the standard BioSemi64 order also places Cz at index 48, so the two agree. That subtraction belongs to the authors' preprocessing and not to the shipped files, so the EegData this loader reads is an unreferenced / unknown-reference recording. The auditory chain therefore carries trial.reference into its contract verbatim and applies its own band-pass (1-9 Hz, order 3, see src/nova2026/auditory/streaming.py) rather than assuming any reference.",
+      "upstream_processing": "Shipped by the dataset authors: each trial was high-pass filtered at 0.5 Hz and downsampled to 128 Hz, and FileHeader.SampleRate is 128 in every trial, confirming the shipped rate. The recorded rate is stated inconsistently in README.txt.txt (8196 Hz in the recording description, 8192 Hz in the trial description); the shipped files cannot settle which is correct, so neither figure is relied on. Envelope source: both README.txt.txt and preprocess_data.m compute envelopes from the DRY stimulus, so each trials[i].stimuli name is mapped to its dry counterpart (a trailing _hrtf becomes _dry, any rep_ prefix is preserved, an existing _dry name is left unchanged). Channel naming is a DERIVATION, not data shipped with the dataset: no channel-location file is included, so column j of EegData is named by the standard BioSemi64 order (mne.channels.make_standard_montage('biosemi64').ch_names), which is consistent with the authors' Cz re-reference of column 48.",
+      "bandpass": [
+        1.0,
+        9.0
+      ],
+      "filter_order": 3,
+      "resample_quality": "QQ",
+      "stage": "auditory-current-streaming-v2",
+      "window_seconds": 5.0,
+      "step_seconds": 1.0
+    },
+    "source_contract": {
+      "eeg_channels": [
+        "Fp1",
+        "Fp2",
+        "F7",
+        "F3",
+        "Fz",
+        "F4",
+        "F8",
+        "T7",
+        "C3",
+        "C4",
+        "T8",
+        "Cz",
+        "P7",
+        "P3",
+        "Pz",
+        "P4",
+        "P8",
+        "Oz",
+        "O1",
+        "O2"
+      ],
+      "output_sfreq": 64,
+      "input_sfreq": 128.0,
+      "units": "uV",
+      "input_reference": "CPz (declared by the operator; the model records Cz)",
+      "upstream_processing": "eego control software over LSL; gain and filters set in the software and not advertised over LSL - operator assertion, not a measurement",
+      "bandpass": [
+        1.0,
+        9.0
+      ],
+      "filter_order": 3,
+      "resample_quality": "QQ",
+      "stage": "auditory-current-streaming-v2",
+      "window_seconds": 5.0,
+      "step_seconds": 1.0
+    },
+    "source": "live chain"
+  },
+  "quality_policy": {
+    "check_channels": false,
+    "max_bad_channels": 0,
+    "exclude_channels": [
+      "F8",
+      "F3"
+    ],
+    "amplitude_limit_uv": 20000.0,
+    "amplitude_limit_source": "declared on the command line",
+    "saturation_limit_uv": null,
+    "saturation_limit_source": "chain default (75 000 uV) - not declared by this run",
+    "margin": 0.05,
+    "margin_source": "calibrated default (results/aad_margin_calibration_*)",
+    "documented_min_margin": 0.5,
+    "warmup_seconds": 2.0,
+    "frame_seconds": 0.25,
+    "note": "check_channels=False is the documented run policy (plan section 3.17-1): the signal is unchanged, only the verdict is. It is what stops a dry cap from halting the session. The cost is stated rather than hidden - with the check off, QualityMonitor.reasons() returns nothing by policy, so signal_quality degenerates (section 3.17-6). Saturation and flatline are shown by the per-electrode statistics, and --strict-policy restores the chain default."
+  },
+  "media": {
+    "candidate_samples": [
+      43200000,
+      43200000
+    ],
+    "candidate_seconds": [
+      900.0,
+      900.0
+    ],
+    "length_difference_seconds": 0.0,
+    "published_samples": 43200000,
+    "published_seconds": 900.0,
+    "sample_rate": 48000,
+    "candidates": {
+      "A": "tmp/antneurodata/audio_files/experiment/left_mono.wav",
+      "B": "tmp/antneurodata/audio_files/experiment/right_mono.wav"
+    },
+    "path": "output\\auditory_ui\\ant_verify.wav",
+    "file": "ant_verify.wav",
+    "presentation": "dichotic",
+    "crossmix_weight": null,
+    "samples": 43200000,
+    "seconds": 900.0,
+    "channels": [
+      "A",
+      "B"
+    ],
+    "peak_int16": {
+      "left": 21515,
+      "right": 23544
+    },
+    "bytes": 172800044,
+    "sha256": {
+      "left": "b09028db4768b812a831e4ee5bf78be3312b15e14bfbf0916c1fc3f0941dd11b",
+      "right": "0467c2ef3b84c9a986c3fb22453f67fcf53d37bd401ca1563b310515435f1ea9"
+    },
+    "media_id": "4a7c85e3d15a4457a2758f39f5926c0f",
+    "descriptor": {
+      "media_id": "4a7c85e3d15a4457a2758f39f5926c0f",
+      "title": "live",
+      "kind": "audio",
+      "url": "/api/media/file"
+    }
+  },
+  "audio_alignment": {
+    "applied": true,
+    "audio_start_seconds": 0.0,
+    "candidate_seconds": 0.0,
+    "mode": "auto",
+    "declared_audio_start_seconds": 0.0,
+    "loopback_offset_seconds": null,
+    "loopback_measured": false,
+    "tolerance_seconds": 0.03,
+    "cost_of_100ms": "0.119 balanced accuracy audio-early / 0.150 audio-late, measured in results/aad_shift_sweep_* (plan sections 3.11/3.17-4) - five to seven times the 0.022 cost of the 44 electrodes the headset does not have",
+    "note": "The audio-to-EEG loopback offset is unmeasured unless loopback_measured is true. The anchor adopted here is derived from the browser's own reported playback position (decision D-02), which is the authority the gain gate uses, and it does NOT include the sound card's output latency or the acoustic path to the electrode. Only scripts.getlive.calibrate_loopback measures that."
+  },
+  "transport": {
+    "first_stamp": 214886.08462839999,
+    "last_stamp": 215072.68263224998,
+    "transport_seconds": 186.598004,
+    "blocks": 3732,
+    "samples": 93300,
+    "max_lag_seconds": 2.756523,
+    "gaps": 0,
+    "max_gap_seconds": 0.0,
+    "pending_samples_at_end": 0,
+    "ended": "no-more-data",
+    "raw_rate_hz": 499.99999,
+    "grid_deviation_peak_seconds": 542.3004375,
+    "timebase_relocks": 0,
+    "timebase_relocked_samples": 0.0,
+    "timebase_large_steps": 0,
+    "timebase_anchor_rate_hz": 499.99999,
+    "pre_resampled_to_hz": 128.0,
+    "pre_resampled_samples": 23682,
+    "recovery_events": []
+  },
+  "session": {
+    "started": true,
+    "final_status": "stopped",
+    "summary": {
+      "windows": 181,
+      "decisions": {
+        "unavailable": 8,
+        "uncertain": 452,
+        "B": 126,
+        "A": 155
+      },
+      "failed": 0,
+      "evidence_gaps": 0,
+      "scoring_failures": []
+    }
+  },
+  "counters": {
+    "packets": 2995,
+    "by_type": {
+      "attention": 741,
+      "audio_sources": 1,
+      "gain": 741,
+      "media": 723,
+      "prediction": 29,
+      "session": 2,
+      "signal_quality": 741,
+      "sync": 17
+    },
+    "decision_words": {
+      "A": 155,
+      "B": 126,
+      "unavailable": 8,
+      "uncertain": 452
+    }
+  },
+  "trust": {
+    "reference_mismatch": "The model was fitted on KU Leuven recordings (Cz derivation, 128 Hz); this rig records CPz at 500 Hz and the chain is fed whatever reference the amplifier applied (plan sections 3.11/3.17-4). The two provenance keys are recorded, not gated, and nothing was equalised. A decision here therefore measures the rig mismatch as much as it measures attention. Do not quote the KU Leuven accuracy numbers as an expectation for this rig.",
+    "decision_is_not_a_probability": "a decoder score is a correlation; the margin is the distance between the two candidates' scores, and --margin is where the system decides to stay quiet",
+    "no_participant_data": "this record holds counters, policy, declared contracts and decision words. No EEG sample, no packet payload and no audio content."
+  },
+  "console": [
+    "[10:54:15] live demo: 20 electrodes by name, 500 Hz, units uV (exponent -6)",
+    "[10:54:15] model models/auditory_kuleuven_live20.npz: window 5.0s, step 1.0s, input 128.0 Hz -> output 64 Hz",
+    "[10:54:15] policy: check_channels=False, max_bad_channels=0, exclude=['F8', 'F3'], amplitude 20000.0 (declared on the command line), margin 0.05 (calibrated default (results/aad_margin_calibration_*))",
+    "[10:54:15] WARNING: the audio-to-EEG loopback offset is UNMEASURED. The anchor comes from the browser's reported playback position and excludes the sound card and the acoustic path. See documents/live_demo_two_commands.md, calibration.",
+    "[10:54:16] resolved outlet name='NOVA-ANT-replay' type='EEG' channels=20 sfreq=500 source_id='ant-replay-1'",
+    "[10:54:17] the outlet declares: 20 channels, 500 Hz, units ['microvolts']",
+    "[10:54:18] envelopes verified: left_mono.npz, right_mono.npz (coverage ((0.0, 899.984375), (0.0, 899.984375)))",
+    "[10:54:19] rendered dichotic stereo 900.0s -> output/auditory_ui/ant_verify.wav",
+    "[10:54:19] model contract check: 9 gate key(s) matched (eeg_channels, input_sfreq, output_sfreq, units, bandpass, filter_order, resample_quality, stage, window_seconds)",
+    "[10:54:19]   recorded, not gated: input_reference, upstream_processing - ['input_reference', 'upstream_processing'] differ on this rig",
+    "[10:54:19]   input_reference: this rig declares 'CPz (declared by the operator; the model records Cz)' / the model records 'No reference channel is shipped. RawData.Channels is 1..64 with no reference label, the subject structs carry no montage'",
+    "[10:54:19]   upstream_processing: this rig declares 'eego control software over LSL; gain and filters set in the software and not advertised over LSL - operator assertion, n' / the model records 'Shipped by the dataset authors: each trial was high-pass filtered at 0.5 Hz and downsampled to 128 Hz, and FileHeader.Sa'",
+    "[10:54:19] OPEN THIS URL: http://127.0.0.1:59060/",
+    "[10:54:19]   press play in the page; the two candidates play one per ear and the unattended ear is attenuated",
+    "[10:54:19]   Ctrl+C here ends the run and writes the record",
+    "[10:54:19] session started; the page at the URL is live",
+    "[10:54:19] audio anchor: adopted media position zero at session time 0.000 s",
+    "[10:57:24] session ended with status 'stopped'",
+    "[10:57:25] transport stopped"
+  ]
+}

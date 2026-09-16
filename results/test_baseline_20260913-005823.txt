@@ -1,0 +1,98 @@
+================================================================================
+NOVA2026 — PRE-INTEGRATION TEST BASELINE (frozen record)
+================================================================================
+Plan reference : final_connection.md  §5 步骤 1「基线固化」
+Repository     : C:\Files\git\NOVA2026
+Branch         : integration
+Base commit    : db4e66da88d67675b53e3793200ecd99aa494393
+                 "integration: adopt final_connection.md and the derived-artifact policy"
+Working tree   : clean before and after the run (no source edits by this step)
+Purpose        : frozen pre-change record for the auditory_ui integration work.
+                 Any later suite result is compared against this file.
+
+--------------------------------------------------------------------------------
+1. EXACT COMMAND LINE
+--------------------------------------------------------------------------------
+.venv\Scripts\python.exe -B scripts/run_tests.py
+
+Run from repository root (C:\Files\git\NOVA2026). Invoked via the local virtual
+environment interpreter; -B suppresses .pyc bytecode writing.
+
+--------------------------------------------------------------------------------
+2. RESULT SUMMARY
+--------------------------------------------------------------------------------
+Exit code      : 0
+Wall time      : 92.22 s (00:01:32.22)
+Runner-reported: 92.1 s
+Run start      : 2026-09-13 00:58:23
+Run end        : 2026-09-13 00:59:55
+
+Suites run     : 5
+Tests          : 523
+Tests passed   : 523
+Tests failed   : 0
+Tests skipped  : 0
+Verdict        : ALL GREEN
+
+Per-suite breakdown (verbatim from runner output):
+  streaming              376 tests   0 skipped   ok    46.6s
+  tooling                 13 tests   0 skipped   ok     0.1s
+  visual-detect           56 tests   0 skipped   ok    11.3s
+  auditory                46 tests   0 skipped   ok    29.6s
+  dataproc-streaming      32 tests   0 skipped   ok     4.6s
+
+--------------------------------------------------------------------------------
+3. COMPLETE CAPTURED OUTPUT (stdout+stderr, verbatim, 10 lines / 386 bytes)
+--------------------------------------------------------------------------------
+
+suite                tests   skip  result      time
+streaming              376      0  ok          46.6s
+tooling                 13      0  ok          0.1s
+visual-detect           56      0  ok          11.3s
+auditory                46      0  ok          29.6s
+dataproc-streaming      32      0  ok          4.6s
+
+total: 523 tests in 5 suite(s), 0 skipped, 92.1s
+all green
+
+--------------------------------------------------------------------------------
+4. INTERPRETER
+--------------------------------------------------------------------------------
+Python 3.13.15 (tags/v3.13.15:4061bc4, Aug  5 2026, 13:05:39) [MSC v.1944 64 bit (AMD64)]
+Platform: Windows-11-10.0.26200-SP0
+Executable: .venv\Scripts\python.exe
+
+--------------------------------------------------------------------------------
+5. DEPENDENCY MANIFEST
+--------------------------------------------------------------------------------
+Collected with:
+  .venv\Scripts\python.exe -c "import importlib.metadata as md; ..."
+
+Package        Version
+-------------- --------------------
+numpy          2.5.2
+scipy          1.18.0
+mne            1.12.1
+torch          2.13.0+cu132
+scikit-learn   1.9.0
+pandas         3.0.5
+matplotlib     3.11.1
+
+Note: versions above are the installed distribution versions reported by
+importlib.metadata at baseline time. They match the environment recorded in
+final_connection.md §1 (Python 3.13.15 / numpy 2.5.2 / mne 1.12.1 /
+torch 2.13.0+cu132 / sklearn 1.9.0).
+
+--------------------------------------------------------------------------------
+6. SCOPE / PROVENANCE NOTES
+--------------------------------------------------------------------------------
+- No test file, source file, or dataset was modified by this step.
+- No dependency was installed, upgraded, or removed by this step.
+- This file is an unmodified record of a single run; it was not re-run to
+  obtain a more favourable result.
+- Trackability: .gitignore line 43 contains "results/*" but line 47 contains
+  the negation "!results/test_baseline_*.txt", so this file is intentionally
+  committable while other results/ artifacts stay ignored.
+================================================================================
+END OF BASELINE RECORD
+================================================================================

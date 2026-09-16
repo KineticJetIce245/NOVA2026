@@ -14,10 +14,12 @@ uneven chunk size, then runs the whole chain in one loop:
       |                                 band-pass, 500 -> 128 Hz
       -> CircularBuffer.push()         2 s windows @ 128 Hz
       -> StreamSession.wrap()          warm-up + judge (quality/repair) gating
-      -> TaskOffloader (or in-loop) analysis
+      -> dummy_offloader (or in-loop) analysis
 
 Each recorded run keeps a config snapshot and one line per delivered window
-(D). Pass --record to keep the raw run.
+(D). Pass --record to keep the raw run. A run stopped by a guard, interrupted,
+or hit by a worker failure is closed with status "failed", its error text and a
+non-zero exit code, so a truncated session cannot be read as a clean one.
 
 Compare consumer modes with a simulated slow analysis:
 
@@ -30,7 +32,7 @@ Replace the PlayerLSL/StreamLSL setup with the real amplifier outlet to run
 live; nothing else in the loop changes.
 """
 
-from time import monotonic, sleep
+from time import monotonic
 from uuid import uuid4
 
 import mne
@@ -42,8 +44,8 @@ from mne_lsl.stream import StreamLSL  # our reader (inlet)
 from nova2026.streaming import (  # runs per-window analysis
     Recovery,  # A2: reset-and-continue on unrepairable damage
     StreamStats,  # E: per-run counters persisted at close
-    TaskOffloader,  # runs per-window analysis on worker threads
     UnrepairableError,  # damage the Repair stage cannot fix
+    dummy_offloader,  # the load test's consumer, on worker threads
     prepare,  # pre-flight source check -> the run's channel contract (B)
     processing_contract,  # serializable description of this run's chain
     resolve_outlet,  # confirm the outlet is publishing before connecting (B1)
@@ -247,25 +249,22 @@ def main() -> None:
             f"ptp_uV={np.round(peak_to_peak_uv, 1)}"
         )
 
-    # The "analysis" task: optionally sleep to simulate a slow model, then
-    # report. This function runs in worker threads when workers > 0.
-    def analyze(item) -> None:
-        eeg_window = item
-        if args.compute > 0:
-            sleep(args.compute)
-        report(eeg_window)
-
-    # Offloader created once before the loop; workers pick tasks off a queue.
-    offloader = (
-        TaskOffloader(analyze, workers=args.workers, capacity=args.queue)
-        if args.workers
-        else None
+    # The "analysis" task: the offloader sleeps for --compute seconds to pretend
+    # to be a slow model, then calls report() on a worker thread. --workers 0
+    # keeps the analysis in the loop and builds no offloader at all.
+    offloader = dummy_offloader(
+        handler=report,
+        workers=args.workers,
+        capacity=args.queue,
+        compute_seconds=args.compute,
     )
 
     # ------------------------------------------------------------------
     # 6) The real-time loop. One iteration = one acquired block; everything
     #    downstream happens in this fixed order every iteration.
     # ------------------------------------------------------------------
+    interrupted = False
+    failure = None
     try:
         while monotonic() - started < args.duration:
             # (a) Pull the next raw block from LSL (blocks until ready).
@@ -319,12 +318,17 @@ def main() -> None:
                     offloader.submit(eeg_window)
 
     # ------------------------------------------------------------------
-    # 7) Shutdown: release everything in the right order.
+    # 7) Shutdown: release everything in the right order. A run that was
+    #    stopped by a guard, interrupted, or hit a worker failure is filed as
+    #    "failed" with its own error text: a truncated session must never be
+    #    recorded as a clean one.
     # ------------------------------------------------------------------
     except KeyboardInterrupt:
         print("interrupted by user")
-    except RuntimeError as error:
+        interrupted = True
+    except Exception as error:  # noqa: BLE001 - recorded, then re-raised at the end
         print(f"run stopped: {error}")
+        failure = error
     finally:
         # Samples still buffered toward the next block never become windows;
         # record them honestly before the acquire handle drops them (D4).
@@ -335,12 +339,31 @@ def main() -> None:
         player.stop()  # stop the fake source
         if offloader is not None:
             offloader.close(drain=True, timeout=5.0)  # let tasks finish
+            stats.offload_dropped = offloader.dropped
+            stats.offload_failed = offloader.failed
+            if failure is None and not interrupted:
+                # Observed on the submitting thread, where the offloader's
+                # contract says a worker failure has to surface.
+                try:
+                    offloader.raise_error()
+                except Exception as error:  # noqa: BLE001 - recorded below
+                    failure = error
         if session.recorder is not None and tail:
             session.recorder.mark_not_processed(tail)
         # Persist the transport counters and run statistics (E).
         stats.max_lag = session.acquire.max_lag
         stats.gaps = session.acquire.gaps
-        session.close(status="completed", stats=stats.to_dict())
+        if interrupted:
+            recorded = "interrupted by user"
+        elif failure is not None:
+            recorded = repr(failure)
+        else:
+            recorded = None
+        session.close(
+            status="completed" if recorded is None else "failed",
+            error=recorded,
+            stats=stats.to_dict(),
+        )
         if session.recorder is not None:
             print(
                 f"recorded {session.recorder.samples} raw samples -> "
@@ -367,6 +390,15 @@ def main() -> None:
             f"offload: submitted={offloader.submitted} completed={offloader.completed} "
             f"dropped={offloader.dropped} failed={offloader.failed}"
         )
+
+    # ------------------------------------------------------------------
+    # 9) A run that stopped early, was interrupted, or lost a worker must not
+    #    exit zero: the persisted status and the exit code have to agree.
+    # ------------------------------------------------------------------
+    if failure is not None:
+        raise failure
+    if interrupted:
+        raise SystemExit(130)
 
 
 # ---------------------------------------------------------------------------

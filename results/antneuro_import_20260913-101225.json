@@ -1,0 +1,1166 @@
+{
+  "kind": "step-9.5 ANT Neuro import: marker table and per-session summary",
+  "generated_at": "2026-09-13T10:13:02.275007+00:00",
+  "stamp": "20260913-101225",
+  "command": "python -B -m scripts.auditory.antneuro --data-root tmp/antneurodata --out datasets/AAD-ANT --buffer-seconds 0.5",
+  "buffer_seconds": 0.5,
+  "buffer_range_seconds": [
+    0.5,
+    1.0
+  ],
+  "session_audio_start_seconds": {
+    "19-34-06": 0.0,
+    "19-41-11": 267.0
+  },
+  "channel_contract": [
+    "Fp1",
+    "Fp2",
+    "F7",
+    "F3",
+    "Fz",
+    "F4",
+    "F8",
+    "T7",
+    "C3",
+    "C4",
+    "T8",
+    "Cz",
+    "P7",
+    "P3",
+    "Pz",
+    "P4",
+    "P8",
+    "Oz",
+    "O1",
+    "O2"
+  ],
+  "exclusions": [
+    {
+      "session": "19-41-11",
+      "code": "1007",
+      "time": 148.354,
+      "reason": "operator-confirmed spurious: a 2.000 s Saying-YES event, not an attention cue"
+    },
+    {
+      "session": "19-41-11",
+      "code": "1004",
+      "time": 326.692,
+      "reason": "operator-confirmed spurious: a second Start anchor pressed while stopping the recording"
+    }
+  ],
+  "ambiguous": [
+    {
+      "session": "19-41-11",
+      "code": "1006",
+      "time": 148.402,
+      "reason": "operator reported this right cue as an accidental press, 0.048 s after the Saying-YES event; retained because dropping it would leave 11 right cues against 12 left and a 25.670 s left stretch, while keeping it keeps the alternation at 12.848 s and 12.822 s, both mid-range for this session"
+    }
+  ],
+  "sessions": [
+    {
+      "session": "19-34-06",
+      "source_file": "tmp\\antneurodata\\audio\\Lacroix_Flo2_2026-09-12_19-34-06.cnt",
+      "shape": [
+        155093,
+        20
+      ],
+      "sample_rate_hz": 500.0,
+      "duration_seconds": 310.186,
+      "channels_recorded": 24,
+      "channel_names": [
+        "Fp1",
+        "Fp2",
+        "F7",
+        "F3",
+        "Fz",
+        "F4",
+        "F8",
+        "T7",
+        "C3",
+        "C4",
+        "T8",
+        "Cz",
+        "P7",
+        "P3",
+        "Pz",
+        "P4",
+        "P8",
+        "Oz",
+        "O1",
+        "O2"
+      ],
+      "dropped_channels": [
+        "F9",
+        "F10",
+        "M1",
+        "M2"
+      ],
+      "unit": {
+        "source_unit": "V",
+        "trial_unit": "uV",
+        "scale_to_microvolts": 1000000.0,
+        "chain_source_unit_exponent": -6,
+        "peak_microvolts": 83333.336
+      },
+      "audio": {
+        "start_offset_seconds": 0.0,
+        "start_anchor_seconds": 5.006,
+        "audio_rate_hz": 64.0,
+        "envelope_sources": [
+          "left_mono.npz",
+          "right_mono.npz"
+        ],
+        "samples": 19852,
+        "covered_samples": 19531,
+        "covered_seconds": 305.172,
+        "first_stimulus_position_seconds": 0.01,
+        "last_stimulus_position_seconds": 305.166,
+        "playable_source_slice_samples": [
+          0,
+          14888928
+        ]
+      },
+      "markers": {
+        "total": 26,
+        "cues": 24,
+        "candidate_a": 12,
+        "candidate_b": 12,
+        "excluded": [],
+        "ambiguous": [],
+        "non_cues": [
+          {
+            "index": 25,
+            "onset_seconds": 310.178,
+            "duration_seconds": 0.0,
+            "code": "impedance",
+            "name": "",
+            "candidate": null,
+            "disposition": "non-cue",
+            "reason": "not an attention cue by code"
+          }
+        ],
+        "table": [
+          {
+            "index": 0,
+            "onset_seconds": 5.006,
+            "duration_seconds": 0.0,
+            "code": "1004",
+            "name": "Start",
+            "candidate": null,
+            "disposition": "anchor",
+            "reason": "first Start marker: the audio timeline's anchor"
+          },
+          {
+            "index": 1,
+            "onset_seconds": 17.746,
+            "duration_seconds": 0.0,
+            "code": "1001",
+            "name": "Left side",
+            "candidate": 0,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 2,
+            "onset_seconds": 25.75,
+            "duration_seconds": 0.0,
+            "code": "1006",
+            "name": "Custom Annotation",
+            "candidate": 1,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 3,
+            "onset_seconds": 33.896,
+            "duration_seconds": 0.0,
+            "code": "1001",
+            "name": "Left side",
+            "candidate": 0,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 4,
+            "onset_seconds": 44.742,
+            "duration_seconds": 0.0,
+            "code": "1006",
+            "name": "Custom Annotation",
+            "candidate": 1,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 5,
+            "onset_seconds": 55.874,
+            "duration_seconds": 0.0,
+            "code": "1001",
+            "name": "Left side",
+            "candidate": 0,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 6,
+            "onset_seconds": 66.832,
+            "duration_seconds": 0.0,
+            "code": "1006",
+            "name": "Custom Annotation",
+            "candidate": 1,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 7,
+            "onset_seconds": 77.678,
+            "duration_seconds": 0.0,
+            "code": "1001",
+            "name": "Left side",
+            "candidate": 0,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 8,
+            "onset_seconds": 89.86,
+            "duration_seconds": 0.0,
+            "code": "1006",
+            "name": "Custom Annotation",
+            "candidate": 1,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 9,
+            "onset_seconds": 101.488,
+            "duration_seconds": 0.0,
+            "code": "1001",
+            "name": "Left side",
+            "candidate": 0,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 10,
+            "onset_seconds": 114.888,
+            "duration_seconds": 0.0,
+            "code": "1006",
+            "name": "Custom Annotation",
+            "candidate": 1,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 11,
+            "onset_seconds": 126.056,
+            "duration_seconds": 0.0,
+            "code": "1001",
+            "name": "Left side",
+            "candidate": 0,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 12,
+            "onset_seconds": 137.506,
+            "duration_seconds": 0.0,
+            "code": "1006",
+            "name": "Custom Annotation",
+            "candidate": 1,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 13,
+            "onset_seconds": 152.576,
+            "duration_seconds": 0.0,
+            "code": "1001",
+            "name": "Left side",
+            "candidate": 0,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 14,
+            "onset_seconds": 166.666,
+            "duration_seconds": 0.0,
+            "code": "1006",
+            "name": "Custom Annotation",
+            "candidate": 1,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 15,
+            "onset_seconds": 179.59,
+            "duration_seconds": 0.0,
+            "code": "1001",
+            "name": "Left side",
+            "candidate": 0,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 16,
+            "onset_seconds": 193.66,
+            "duration_seconds": 0.0,
+            "code": "1006",
+            "name": "Custom Annotation",
+            "candidate": 1,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 17,
+            "onset_seconds": 207.478,
+            "duration_seconds": 0.0,
+            "code": "1001",
+            "name": "Left side",
+            "candidate": 0,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 18,
+            "onset_seconds": 221.824,
+            "duration_seconds": 0.0,
+            "code": "1006",
+            "name": "Custom Annotation",
+            "candidate": 1,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 19,
+            "onset_seconds": 236.038,
+            "duration_seconds": 0.0,
+            "code": "1001",
+            "name": "Left side",
+            "candidate": 0,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 20,
+            "onset_seconds": 251.386,
+            "duration_seconds": 0.0,
+            "code": "1006",
+            "name": "Custom Annotation",
+            "candidate": 1,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 21,
+            "onset_seconds": 264.854,
+            "duration_seconds": 0.0,
+            "code": "1001",
+            "name": "Left side",
+            "candidate": 0,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 22,
+            "onset_seconds": 276.796,
+            "duration_seconds": 0.0,
+            "code": "1006",
+            "name": "Custom Annotation",
+            "candidate": 1,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 23,
+            "onset_seconds": 292.124,
+            "duration_seconds": 0.0,
+            "code": "1001",
+            "name": "Left side",
+            "candidate": 0,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 24,
+            "onset_seconds": 306.304,
+            "duration_seconds": 0.0,
+            "code": "1006",
+            "name": "Custom Annotation",
+            "candidate": 1,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 25,
+            "onset_seconds": 310.178,
+            "duration_seconds": 0.0,
+            "code": "impedance",
+            "name": "",
+            "candidate": null,
+            "disposition": "non-cue",
+            "reason": "not an attention cue by code"
+          }
+        ]
+      },
+      "labels": {
+        "buffer_seconds": 0.5,
+        "unknown_seconds": 41.294,
+        "a_seconds": 138.792,
+        "b_seconds": 130.1,
+        "surviving_seconds": 268.892,
+        "surviving_fraction": 0.8669,
+        "surviving_seconds_at_buffer_1_0": 245.392,
+        "segments": [
+          {
+            "cue_index": 0,
+            "candidate": 0,
+            "onset_seconds": 17.746,
+            "assigned_seconds": 7.002
+          },
+          {
+            "cue_index": 1,
+            "candidate": 1,
+            "onset_seconds": 25.75,
+            "assigned_seconds": 7.144
+          },
+          {
+            "cue_index": 2,
+            "candidate": 0,
+            "onset_seconds": 33.896,
+            "assigned_seconds": 9.844
+          },
+          {
+            "cue_index": 3,
+            "candidate": 1,
+            "onset_seconds": 44.742,
+            "assigned_seconds": 10.13
+          },
+          {
+            "cue_index": 4,
+            "candidate": 0,
+            "onset_seconds": 55.874,
+            "assigned_seconds": 9.956
+          },
+          {
+            "cue_index": 5,
+            "candidate": 1,
+            "onset_seconds": 66.832,
+            "assigned_seconds": 9.844
+          },
+          {
+            "cue_index": 6,
+            "candidate": 0,
+            "onset_seconds": 77.678,
+            "assigned_seconds": 11.18
+          },
+          {
+            "cue_index": 7,
+            "candidate": 1,
+            "onset_seconds": 89.86,
+            "assigned_seconds": 10.626
+          },
+          {
+            "cue_index": 8,
+            "candidate": 0,
+            "onset_seconds": 101.488,
+            "assigned_seconds": 12.398
+          },
+          {
+            "cue_index": 9,
+            "candidate": 1,
+            "onset_seconds": 114.888,
+            "assigned_seconds": 10.166
+          },
+          {
+            "cue_index": 10,
+            "candidate": 0,
+            "onset_seconds": 126.056,
+            "assigned_seconds": 10.448
+          },
+          {
+            "cue_index": 11,
+            "candidate": 1,
+            "onset_seconds": 137.506,
+            "assigned_seconds": 14.068
+          },
+          {
+            "cue_index": 12,
+            "candidate": 0,
+            "onset_seconds": 152.576,
+            "assigned_seconds": 13.088
+          },
+          {
+            "cue_index": 13,
+            "candidate": 1,
+            "onset_seconds": 166.666,
+            "assigned_seconds": 11.922
+          },
+          {
+            "cue_index": 14,
+            "candidate": 0,
+            "onset_seconds": 179.59,
+            "assigned_seconds": 13.068
+          },
+          {
+            "cue_index": 15,
+            "candidate": 1,
+            "onset_seconds": 193.66,
+            "assigned_seconds": 12.816
+          },
+          {
+            "cue_index": 16,
+            "candidate": 0,
+            "onset_seconds": 207.478,
+            "assigned_seconds": 13.344
+          },
+          {
+            "cue_index": 17,
+            "candidate": 1,
+            "onset_seconds": 221.824,
+            "assigned_seconds": 13.212
+          },
+          {
+            "cue_index": 18,
+            "candidate": 0,
+            "onset_seconds": 236.038,
+            "assigned_seconds": 14.346
+          },
+          {
+            "cue_index": 19,
+            "candidate": 1,
+            "onset_seconds": 251.386,
+            "assigned_seconds": 12.466
+          },
+          {
+            "cue_index": 20,
+            "candidate": 0,
+            "onset_seconds": 264.854,
+            "assigned_seconds": 10.94
+          },
+          {
+            "cue_index": 21,
+            "candidate": 1,
+            "onset_seconds": 276.796,
+            "assigned_seconds": 14.326
+          },
+          {
+            "cue_index": 22,
+            "candidate": 0,
+            "onset_seconds": 292.124,
+            "assigned_seconds": 13.178
+          },
+          {
+            "cue_index": 23,
+            "candidate": 1,
+            "onset_seconds": 306.304,
+            "assigned_seconds": 3.38
+          }
+        ]
+      },
+      "alternation": {
+        "ok": true,
+        "breaks": []
+      },
+      "railed_channels": [
+        {
+          "name": "F3",
+          "railed_fraction": 0.398097
+        },
+        {
+          "name": "F8",
+          "railed_fraction": 0.999974
+        }
+      ],
+      "trial_id": "antneuro_19-34-06",
+      "group": "antneuro|19-34-06",
+      "trial_count": 1,
+      "trial_file": "datasets\\AAD-ANT\\session_19-34-06.npz",
+      "marker_table_file": "datasets\\AAD-ANT\\session_19-34-06_markers.csv"
+    },
+    {
+      "session": "19-41-11",
+      "source_file": "tmp\\antneurodata\\audio\\Lacroix_Flo2_2026-09-12_19-41-11.cnt",
+      "shape": [
+        164317,
+        20
+      ],
+      "sample_rate_hz": 500.0,
+      "duration_seconds": 328.634,
+      "channels_recorded": 24,
+      "channel_names": [
+        "Fp1",
+        "Fp2",
+        "F7",
+        "F3",
+        "Fz",
+        "F4",
+        "F8",
+        "T7",
+        "C3",
+        "C4",
+        "T8",
+        "Cz",
+        "P7",
+        "P3",
+        "Pz",
+        "P4",
+        "P8",
+        "Oz",
+        "O1",
+        "O2"
+      ],
+      "dropped_channels": [
+        "F9",
+        "F10",
+        "M1",
+        "M2"
+      ],
+      "unit": {
+        "source_unit": "V",
+        "trial_unit": "uV",
+        "scale_to_microvolts": 1000000.0,
+        "chain_source_unit_exponent": -6,
+        "peak_microvolts": 83333.336
+      },
+      "audio": {
+        "start_offset_seconds": 267.0,
+        "start_anchor_seconds": 12.838,
+        "audio_rate_hz": 64.0,
+        "envelope_sources": [
+          "left_mono.npz",
+          "right_mono.npz"
+        ],
+        "samples": 21033,
+        "covered_samples": 20211,
+        "covered_seconds": 315.797,
+        "first_stimulus_position_seconds": 267.006,
+        "last_stimulus_position_seconds": 582.787,
+        "playable_source_slice_samples": [
+          12816000,
+          28590432
+        ]
+      },
+      "markers": {
+        "total": 28,
+        "cues": 24,
+        "candidate_a": 12,
+        "candidate_b": 12,
+        "excluded": [
+          {
+            "index": 11,
+            "onset_seconds": 148.354,
+            "duration_seconds": 2.0,
+            "code": "1007",
+            "name": "Saying-YES",
+            "candidate": null,
+            "disposition": "excluded",
+            "reason": "operator-confirmed spurious: a 2.000 s Saying-YES event, not an attention cue"
+          },
+          {
+            "index": 26,
+            "onset_seconds": 326.692,
+            "duration_seconds": 0.0,
+            "code": "1004",
+            "name": "Start",
+            "candidate": null,
+            "disposition": "excluded",
+            "reason": "operator-confirmed spurious: a second Start anchor pressed while stopping the recording"
+          }
+        ],
+        "ambiguous": [
+          {
+            "index": 12,
+            "onset_seconds": 148.402,
+            "duration_seconds": 0.0,
+            "code": "1006",
+            "name": "Custom Annotation",
+            "candidate": 1,
+            "disposition": "ambiguous-cue",
+            "reason": "operator reported this right cue as an accidental press, 0.048 s after the Saying-YES event; retained because dropping it would leave 11 right cues against 12 left and a 25.670 s left stretch, while keeping it keeps the alternation at 12.848 s and 12.822 s, both mid-range for this session"
+          }
+        ],
+        "non_cues": [
+          {
+            "index": 27,
+            "onset_seconds": 328.626,
+            "duration_seconds": 0.0,
+            "code": "impedance",
+            "name": "",
+            "candidate": null,
+            "disposition": "non-cue",
+            "reason": "not an attention cue by code"
+          }
+        ],
+        "table": [
+          {
+            "index": 0,
+            "onset_seconds": 12.838,
+            "duration_seconds": 0.0,
+            "code": "1004",
+            "name": "Start",
+            "candidate": null,
+            "disposition": "anchor",
+            "reason": "first Start marker: the audio timeline's anchor"
+          },
+          {
+            "index": 1,
+            "onset_seconds": 19.79,
+            "duration_seconds": 0.0,
+            "code": "1006",
+            "name": "Custom Annotation",
+            "candidate": 1,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 2,
+            "onset_seconds": 32.248,
+            "duration_seconds": 0.0,
+            "code": "1001",
+            "name": "Left side",
+            "candidate": 0,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 3,
+            "onset_seconds": 45.106,
+            "duration_seconds": 0.0,
+            "code": "1006",
+            "name": "Custom Annotation",
+            "candidate": 1,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 4,
+            "onset_seconds": 56.028,
+            "duration_seconds": 0.0,
+            "code": "1001",
+            "name": "Left side",
+            "candidate": 0,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 5,
+            "onset_seconds": 68.356,
+            "duration_seconds": 0.0,
+            "code": "1006",
+            "name": "Custom Annotation",
+            "candidate": 1,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 6,
+            "onset_seconds": 85.048,
+            "duration_seconds": 0.0,
+            "code": "1001",
+            "name": "Left side",
+            "candidate": 0,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 7,
+            "onset_seconds": 97.202,
+            "duration_seconds": 0.0,
+            "code": "1006",
+            "name": "Custom Annotation",
+            "candidate": 1,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 8,
+            "onset_seconds": 111.468,
+            "duration_seconds": 0.0,
+            "code": "1001",
+            "name": "Left side",
+            "candidate": 0,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 9,
+            "onset_seconds": 123.732,
+            "duration_seconds": 0.0,
+            "code": "1006",
+            "name": "Custom Annotation",
+            "candidate": 1,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 10,
+            "onset_seconds": 135.554,
+            "duration_seconds": 0.0,
+            "code": "1001",
+            "name": "Left side",
+            "candidate": 0,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 11,
+            "onset_seconds": 148.354,
+            "duration_seconds": 2.0,
+            "code": "1007",
+            "name": "Saying-YES",
+            "candidate": null,
+            "disposition": "excluded",
+            "reason": "operator-confirmed spurious: a 2.000 s Saying-YES event, not an attention cue"
+          },
+          {
+            "index": 12,
+            "onset_seconds": 148.402,
+            "duration_seconds": 0.0,
+            "code": "1006",
+            "name": "Custom Annotation",
+            "candidate": 1,
+            "disposition": "ambiguous-cue",
+            "reason": "operator reported this right cue as an accidental press, 0.048 s after the Saying-YES event; retained because dropping it would leave 11 right cues against 12 left and a 25.670 s left stretch, while keeping it keeps the alternation at 12.848 s and 12.822 s, both mid-range for this session"
+          },
+          {
+            "index": 13,
+            "onset_seconds": 161.224,
+            "duration_seconds": 0.0,
+            "code": "1001",
+            "name": "Left side",
+            "candidate": 0,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 14,
+            "onset_seconds": 174.904,
+            "duration_seconds": 0.0,
+            "code": "1006",
+            "name": "Custom Annotation",
+            "candidate": 1,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 15,
+            "onset_seconds": 187.694,
+            "duration_seconds": 0.0,
+            "code": "1001",
+            "name": "Left side",
+            "candidate": 0,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 16,
+            "onset_seconds": 203.218,
+            "duration_seconds": 0.0,
+            "code": "1006",
+            "name": "Custom Annotation",
+            "candidate": 1,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 17,
+            "onset_seconds": 218.338,
+            "duration_seconds": 0.0,
+            "code": "1001",
+            "name": "Left side",
+            "candidate": 0,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 18,
+            "onset_seconds": 233.948,
+            "duration_seconds": 0.0,
+            "code": "1006",
+            "name": "Custom Annotation",
+            "candidate": 1,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 19,
+            "onset_seconds": 245.046,
+            "duration_seconds": 0.0,
+            "code": "1001",
+            "name": "Left side",
+            "candidate": 0,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 20,
+            "onset_seconds": 258.082,
+            "duration_seconds": 0.0,
+            "code": "1006",
+            "name": "Custom Annotation",
+            "candidate": 1,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 21,
+            "onset_seconds": 270.286,
+            "duration_seconds": 0.0,
+            "code": "1001",
+            "name": "Left side",
+            "candidate": 0,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 22,
+            "onset_seconds": 282.874,
+            "duration_seconds": 0.0,
+            "code": "1006",
+            "name": "Custom Annotation",
+            "candidate": 1,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 23,
+            "onset_seconds": 293.962,
+            "duration_seconds": 0.0,
+            "code": "1001",
+            "name": "Left side",
+            "candidate": 0,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 24,
+            "onset_seconds": 306.388,
+            "duration_seconds": 0.0,
+            "code": "1006",
+            "name": "Custom Annotation",
+            "candidate": 1,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 25,
+            "onset_seconds": 317.564,
+            "duration_seconds": 0.0,
+            "code": "1001",
+            "name": "Left side",
+            "candidate": 0,
+            "disposition": "cue",
+            "reason": "attention cue, used for labels"
+          },
+          {
+            "index": 26,
+            "onset_seconds": 326.692,
+            "duration_seconds": 0.0,
+            "code": "1004",
+            "name": "Start",
+            "candidate": null,
+            "disposition": "excluded",
+            "reason": "operator-confirmed spurious: a second Start anchor pressed while stopping the recording"
+          },
+          {
+            "index": 27,
+            "onset_seconds": 328.626,
+            "duration_seconds": 0.0,
+            "code": "impedance",
+            "name": "",
+            "candidate": null,
+            "disposition": "non-cue",
+            "reason": "not an attention cue by code"
+          }
+        ]
+      },
+      "labels": {
+        "buffer_seconds": 0.5,
+        "unknown_seconds": 43.338,
+        "a_seconds": 144.862,
+        "b_seconds": 140.434,
+        "surviving_seconds": 285.296,
+        "surviving_fraction": 0.8681,
+        "surviving_seconds_at_buffer_1_0": 261.796,
+        "segments": [
+          {
+            "cue_index": 0,
+            "candidate": 1,
+            "onset_seconds": 19.79,
+            "assigned_seconds": 11.456
+          },
+          {
+            "cue_index": 1,
+            "candidate": 0,
+            "onset_seconds": 32.248,
+            "assigned_seconds": 11.856
+          },
+          {
+            "cue_index": 2,
+            "candidate": 1,
+            "onset_seconds": 45.106,
+            "assigned_seconds": 9.92
+          },
+          {
+            "cue_index": 3,
+            "candidate": 0,
+            "onset_seconds": 56.028,
+            "assigned_seconds": 11.326
+          },
+          {
+            "cue_index": 4,
+            "candidate": 1,
+            "onset_seconds": 68.356,
+            "assigned_seconds": 15.69
+          },
+          {
+            "cue_index": 5,
+            "candidate": 0,
+            "onset_seconds": 85.048,
+            "assigned_seconds": 11.152
+          },
+          {
+            "cue_index": 6,
+            "candidate": 1,
+            "onset_seconds": 97.202,
+            "assigned_seconds": 13.264
+          },
+          {
+            "cue_index": 7,
+            "candidate": 0,
+            "onset_seconds": 111.468,
+            "assigned_seconds": 11.262
+          },
+          {
+            "cue_index": 8,
+            "candidate": 1,
+            "onset_seconds": 123.732,
+            "assigned_seconds": 10.82
+          },
+          {
+            "cue_index": 9,
+            "candidate": 0,
+            "onset_seconds": 135.554,
+            "assigned_seconds": 11.846
+          },
+          {
+            "cue_index": 10,
+            "candidate": 1,
+            "onset_seconds": 148.402,
+            "assigned_seconds": 11.82
+          },
+          {
+            "cue_index": 11,
+            "candidate": 0,
+            "onset_seconds": 161.224,
+            "assigned_seconds": 12.678
+          },
+          {
+            "cue_index": 12,
+            "candidate": 1,
+            "onset_seconds": 174.904,
+            "assigned_seconds": 11.788
+          },
+          {
+            "cue_index": 13,
+            "candidate": 0,
+            "onset_seconds": 187.694,
+            "assigned_seconds": 14.522
+          },
+          {
+            "cue_index": 14,
+            "candidate": 1,
+            "onset_seconds": 203.218,
+            "assigned_seconds": 14.118
+          },
+          {
+            "cue_index": 15,
+            "candidate": 0,
+            "onset_seconds": 218.338,
+            "assigned_seconds": 14.608
+          },
+          {
+            "cue_index": 16,
+            "candidate": 1,
+            "onset_seconds": 233.948,
+            "assigned_seconds": 10.096
+          },
+          {
+            "cue_index": 17,
+            "candidate": 0,
+            "onset_seconds": 245.046,
+            "assigned_seconds": 12.034
+          },
+          {
+            "cue_index": 18,
+            "candidate": 1,
+            "onset_seconds": 258.082,
+            "assigned_seconds": 11.202
+          },
+          {
+            "cue_index": 19,
+            "candidate": 0,
+            "onset_seconds": 270.286,
+            "assigned_seconds": 11.586
+          },
+          {
+            "cue_index": 20,
+            "candidate": 1,
+            "onset_seconds": 282.874,
+            "assigned_seconds": 10.086
+          },
+          {
+            "cue_index": 21,
+            "candidate": 0,
+            "onset_seconds": 293.962,
+            "assigned_seconds": 11.424
+          },
+          {
+            "cue_index": 22,
+            "candidate": 1,
+            "onset_seconds": 306.388,
+            "assigned_seconds": 10.174
+          },
+          {
+            "cue_index": 23,
+            "candidate": 0,
+            "onset_seconds": 317.564,
+            "assigned_seconds": 10.568
+          }
+        ]
+      },
+      "alternation": {
+        "ok": true,
+        "breaks": []
+      },
+      "railed_channels": [
+        {
+          "name": "F8",
+          "railed_fraction": 1.0
+        }
+      ],
+      "trial_id": "antneuro_19-41-11",
+      "group": "antneuro|19-41-11",
+      "trial_count": 1,
+      "trial_file": "datasets\\AAD-ANT\\session_19-41-11.npz",
+      "marker_table_file": "datasets\\AAD-ANT\\session_19-41-11_markers.csv"
+    }
+  ],
+  "checks": [
+    "Open the marker table beside the .evt file (or the ANT software's event list) and confirm every onset, code and name, including the ones marked excluded.",
+    "Confirm the two exclusions are the operator's own list: the 2.000 s 1007/Saying-YES and the second 1004/Start.",
+    "Confirm the disputed 1006 at 148.402 s. It is retained, flagged ambiguous; the marker table shows the arithmetic that keeps it (12 right cues, alternation intact).",
+    "Listen to the first seconds of session 2's recorded stimulus near 267 s and confirm the anchor: the audio at the Start marker must match what was playing then.",
+    "Check the label distribution: a candidate's seconds should be its own, minus the buffers around its switch; per-cue 'assigned_seconds' shows where a switch kept nothing, which is what happens when two cues fall closer than twice the buffer.",
+    "Decide whether the labels are usable at all: check that the surviving fraction is high enough, and that the railed channels do not leave the 20-channel contract with fewer usable electrodes than the decoder was trained on."
+  ],
+  "notes": [
+    "The trial's audio columns are the two candidate reference envelopes on the trial clock (64 Hz, band 1-9 Hz), not a waveform; the decoding path loads the same envelopes through load_envelope, and the playable stimulus is the original dichotic_15min.wav (see playable_source_slice_samples for the per-session range).",
+    "The audio start offsets (0 s and 267.0 s) are operator statements. Nothing in the recorded files can confirm them, so an error there would shift every window.",
+    "The reference is CPz and the ground is not in the file, while the KU Leuven trials are Cz-referenced. A decoder trained on one set is not reference-matched to the other.",
+    "F8 is at the amplifier rail for the whole of both sessions and F3 for 39.8 % of session 1. They are kept in the 20-channel contract and reported here; no amplitude, variance or band-power statement may be made about them.",
+    "This recording is dichotic (one candidate per ear), so it is a rehearsal of the task, not the same-mixture presentation the demo aims at.",
+    "One continuous session is one trial: the switching lives in the labels, not in trial boundaries, so a window-level evaluation must cut windows inside the labelled spans."
+  ],
+  "total_trials": 2
+}

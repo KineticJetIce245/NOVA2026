@@ -1,0 +1,41 @@
+{
+  "kind": "independent Q1/Q3 re-measurement of the post-replay serve window; one real KU Leuven trial, one short replay, probes after the replay ended",
+  "baseline": {
+    "git_rev_parse_HEAD": "d7f53753fdfb5dda9820c20a3e5fa3652322595e",
+    "note": "the fix under test is the commit at HEAD: 'auditory_ui: keep serving after the replay ends, instead of dying with it'"
+  },
+  "command_line": ".venv\\Scripts\\python.exe -B -m scripts.auditory_ui.demo --trial datasets/AAD-KULeuven/converted/S1/trial_004.npz --model models/auditory_kuleuven.npz --seconds 16 --serve-seconds 60 --media-out output/auditory_ui/serve_verify_q1.wav --out results/demo_run_serve_verify_q1.json --stream-out output/auditory_ui/serve_verify_q1_packets.jsonl --render-out output/auditory_ui/serve_verify_q1_dashboard.html --media-record output/auditory_ui/serve_verify_q1_media.json --gate-out output/auditory_ui/serve_verify_q1_gate.json --log-level info",
+  "media_out": "output/auditory_ui/serve_verify_q1.wav (explicit; output/auditory_ui/demo_stereo.wav was never opened by this run)",
+  "url": "http://127.0.0.1:52781/ (ephemeral port, read back from the demo's own log)",
+  "log_lines": [
+    "[09:33:37] replay finished; still serving http://127.0.0.1:52781/ (for 60s)",
+    "INFO:     127.0.0.1:52844 - \"HEAD /api/media/file HTTP/1.1\" 404 Not Found",
+    "INFO:     127.0.0.1:52845 - \"GET /api/media/file HTTP/1.1\" 206 Partial Content"
+  ],
+  "probe_timing": "the probe ran 12 s after the log line 'replay finished; still serving ... (for 60s)' appeared; the serve window is 60 s, so every probe is inside the window and after the replay was over",
+  "observed": {
+    "GET /api/state": {"status": 200, "sequence_frozen_at": 277, "session_id": "8a2b0eb8-0c33-4a76-9857-0bb2f20dc310"},
+    "GET /": {"status": 200, "bytes": 369},
+    "HEAD /api/media/file": {"status": 404, "note": "method not accepted; see head_finding"},
+    "GET /api/media/file (Range: bytes=0-1023)": {"status": 206, "bytes": 1024, "content_range": "bytes 0-1023/2822444"},
+    "GET /api/sessions": {"status": 200, "body": "[{\"id\":\"8a2b0eb8-0c33-4a76-9857-0bb2f20dc310\",\"status\":\"stopped\",\"simulated\":false}]"},
+    "session_stream_status_after_replay": "the /api/state snapshot is the same body the browser polls; its newest packets are the attention/gain packets at timestamp 16.0 (the last window) and the transport's session packet with status 'stopped'"
+  },
+  "head_finding": {
+    "observation": "HEAD /api/media/file -> 404 while a ranged GET on the same path, seconds later in the same window, -> 206",
+    "mechanism": "inferred, not measured: @app.get() in the installed FastAPI 0.128.8 registers GET only (no HEAD literal in .venv/Lib/site-packages/fastapi/routing.py outside the head() decorator and its docs), so the HEAD request falls through the API route to the static mount, which 404s a path it does not have",
+    "impact": "none for the demo: the audio element and the browser use GET with Range, which answers 206"
+  },
+  "trial_measurements": {
+    "command_line": ".venv\\Scripts\\python.exe -B -c \"from scripts.auditory_ui.demo import load_trial; ...\" (timestamps[-1] - timestamps[0] per converted npz)",
+    "S1/trial_004": {"samples": 49792, "span_s": 388.992, "rate": 128.0},
+    "S1/trial_008": {"samples": 15872, "span_s": 123.992, "rate": 128.0},
+    "S1/trial_001": {"samples": 50048, "span_s": 390.992, "rate": 128.0},
+    "note": "scripts/auditory_ui/README.md now reads 'trial_008 is one of the short trials (~125 s); most S1 trials are 389-399 s (trial_004: 388.992 s, measured)'. Both halves match these measurements; the '124 s' wording the task brief quoted is no longer in the file."
+  },
+  "verified_versus_assumed": {
+    "verified_by_running": "every status code above, the URL, the serve-window log line, the trial spans, the 206 Content-Range",
+    "read_from_code": "the drive()/runner() phase structure, the --browser and --serve-seconds semantics, the frontend's inactive/stale handling",
+    "assumed": "the mechanism behind the HEAD 404 (no framework instrumentation was run)"
+  }
+}

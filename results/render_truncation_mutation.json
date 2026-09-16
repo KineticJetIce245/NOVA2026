@@ -1,0 +1,50 @@
+{
+  "kind": "truncation mutation record; every named mutation must be caught",
+  "ran_at": "2026-09-13T13:01:04.605421+00:00",
+  "suite": "scripts.auditory.tests.test_render_truncation",
+  "baseline_green": true,
+  "mutations": [
+    {
+      "mutation": "pass the untruncated candidates at the demo call site",
+      "module": "scripts/auditory_ui/demo.py",
+      "note": "the code as it stood before this change: the 394.00 s file for a 389 s trial",
+      "test": "scripts.auditory.tests.test_render_truncation.CallSiteTests.test_the_demo_call_site_renders_the_eeg_span",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 1.408s | FAILED (failures=1)"
+    },
+    {
+      "mutation": "pass the untruncated candidates at the session call site",
+      "module": "scripts/auditory_ui/session.py",
+      "note": "the session path, whose docstring claimed the cut while the code did not make it",
+      "test": "scripts.auditory.tests.test_render_truncation.CallSiteTests.test_the_session_call_site_renders_the_eeg_span",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 1.303s | FAILED (failures=1)"
+    },
+    {
+      "mutation": "pass the untruncated candidates in the perturbation matrix",
+      "module": "scripts/auditory_ui/demorun.py",
+      "note": "all four demorun cases back on a file longer than the session",
+      "test": "scripts.auditory.tests.test_render_truncation.CallSiteTests.test_the_demorun_call_site_renders_the_eeg_span",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 1.481s | FAILED (failures=1)"
+    },
+    {
+      "mutation": "count candidates from the EEG's sample count, not its last sample",
+      "module": "src/nova2026/auditory/render.py",
+      "note": "an off-by-one that adds one EEG sample of audio back to the file",
+      "test": "scripts.auditory.tests.test_render_truncation.TruncationRuleTests.test_the_restated_rule_agrees_with_the_frozen_contract",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.003s | FAILED (failures=5)"
+    },
+    {
+      "mutation": "pad a short candidate set out to the EEG prefix",
+      "module": "src/nova2026/auditory/render.py",
+      "note": "silence appended to a trial that was legitimately shorter than its EEG",
+      "test": "scripts.auditory.tests.test_render_truncation.TruncationArithmeticTests.test_shorter_candidates_are_left_alone",
+      "caught": true,
+      "detail": "---------------------------------------------------------------------- | Ran 1 test in 0.001s | FAILED (failures=1)"
+    }
+  ],
+  "caught": 5,
+  "total": 5
+}

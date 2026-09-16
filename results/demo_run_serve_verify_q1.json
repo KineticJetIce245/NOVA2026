@@ -1,0 +1,1706 @@
+{
+  "kind": "step-10 one-command demo run record; a KU Leuven replay, not a live participant",
+  "started_at": "2026-09-13T13:33:19.552567+00:00",
+  "seconds": 78.41,
+  "command": [
+    "C:\\Files\\git\\NOVA2026\\scripts\\auditory_ui\\demo.py",
+    "--trial",
+    "datasets/AAD-KULeuven/converted/S1/trial_004.npz",
+    "--model",
+    "models/auditory_kuleuven.npz",
+    "--seconds",
+    "16",
+    "--serve-seconds",
+    "60",
+    "--media-out",
+    "output/auditory_ui/serve_verify_q1.wav",
+    "--out",
+    "results/demo_run_serve_verify_q1.json",
+    "--stream-out",
+    "output/auditory_ui/serve_verify_q1_packets.jsonl",
+    "--render-out",
+    "output/auditory_ui/serve_verify_q1_dashboard.html",
+    "--media-record",
+    "output/auditory_ui/serve_verify_q1_media.json",
+    "--gate-out",
+    "output/auditory_ui/serve_verify_q1_gate.json",
+    "--log-level",
+    "info"
+  ],
+  "url": "http://127.0.0.1:52781/",
+  "trial": {
+    "subject": "S1",
+    "trial_id": "4",
+    "group": "part1_track1_dry.wav|part1_track2_dry.wav",
+    "samples": 2049,
+    "seconds": 16.0,
+    "channels": [
+      "Fp1",
+      "AF7",
+      "AF3",
+      "F1",
+      "F3",
+      "F5",
+      "F7",
+      "FT7",
+      "FC5",
+      "FC3",
+      "FC1",
+      "C1",
+      "C3",
+      "C5",
+      "T7",
+      "TP7",
+      "CP5",
+      "CP3",
+      "CP1",
+      "P1",
+      "P3",
+      "P5",
+      "P7",
+      "P9",
+      "PO7",
+      "PO3",
+      "O1",
+      "Iz",
+      "Oz",
+      "POz",
+      "Pz",
+      "CPz",
+      "Fpz",
+      "Fp2",
+      "AF8",
+      "AF4",
+      "AFz",
+      "Fz",
+      "F2",
+      "F4",
+      "F6",
+      "F8",
+      "FT8",
+      "FC6",
+      "FC4",
+      "FC2",
+      "FCz",
+      "Cz",
+      "C2",
+      "C4",
+      "C6",
+      "T8",
+      "TP8",
+      "CP6",
+      "CP4",
+      "CP2",
+      "P2",
+      "P4",
+      "P6",
+      "P8",
+      "P10",
+      "PO8",
+      "PO4",
+      "O2"
+    ]
+  },
+  "operating_point": {
+    "margin": 0.05,
+    "margin_source": "calibrated (results/aad_margin_calibration_*.md, decision D-29)",
+    "documented_default_margin": 0.5,
+    "margin_overridden": true,
+    "window_seconds": 5.0,
+    "window_seconds_source": "decoder contract; not a policy field (decision D-29)",
+    "presentation": "dichotic",
+    "speed": 1.0,
+    "clip_seconds": 16.0,
+    "eeg_display_channel": null,
+    "eeg_display_channel_source": "not set: no eeg_display packet is published"
+  },
+  "media": {
+    "path": "output\\auditory_ui\\serve_verify_q1.wav",
+    "file": "serve_verify_q1.wav",
+    "presentation": "dichotic",
+    "crossmix_weight": null,
+    "sample_rate": 44100,
+    "samples": 705600,
+    "seconds": 16.0,
+    "channels": [
+      "A",
+      "B"
+    ],
+    "peak_int16": {
+      "left": 3204,
+      "right": 1755
+    },
+    "bytes": 2822444,
+    "sha256": {
+      "left": "302e616759af5603eaf5391dcf18f0f2a37cb60c9c34f1c1caad97a9ae6df94a",
+      "right": "14d354967d308d7ce6c16cc34484a0c3cc074b9e513d8d8c9d6163e89a06fd37"
+    },
+    "truncation": {
+      "rule": "the candidate samples at or before the last EEG sample",
+      "eeg_samples": 2049,
+      "eeg_rate": 128.0,
+      "audio_rate": 44100.0,
+      "eeg_seconds": 16.0,
+      "candidate_samples": 705600,
+      "candidate_seconds": 16.0,
+      "kept_samples": 705600,
+      "kept_seconds": 16.0,
+      "samples_dropped": 0,
+      "dropped_seconds": 0.0,
+      "truncated": false
+    },
+    "candidate_seconds": 16.0,
+    "eeg_seconds": 16.0,
+    "media_id": "a0408025c35f4b55af892bc005ef9e0b",
+    "descriptor": {
+      "media_id": "a0408025c35f4b55af892bc005ef9e0b",
+      "title": "KU Leuven trial",
+      "kind": "audio",
+      "url": "/api/media/file"
+    }
+  },
+  "static_dir": "C:\\Files\\git\\NOVA2026\\apps\\attune-ui\\dist",
+  "session": {
+    "kind": "kuleuven_replay",
+    "simulated": false,
+    "policy": {
+      "check_channels": false,
+      "max_bad_channels": 0,
+      "exclude_channels": [],
+      "source_unit_exponent": -6,
+      "saturation_limit_uv": null,
+      "amplitude_limit_uv": null,
+      "margin": 0.05,
+      "warmup_seconds": 2.0,
+      "frame_seconds": 0.25,
+      "display_channel": null
+    },
+    "channel_count": 64,
+    "window_seconds": 5.0,
+    "step_seconds": 1.0,
+    "started": 0.0,
+    "ended": 16.0,
+    "wall_seconds": 16.00114120001672,
+    "windows": 12,
+    "submitted": 10,
+    "scored": 10,
+    "invalid": 2,
+    "evidence_gaps": 0,
+    "failed": 0,
+    "frames": 65,
+    "decisions": {
+      "unavailable": 19,
+      "uncertain": 25,
+      "A": 21
+    },
+    "decision_stream": [
+      [
+        10.578125,
+        "A"
+      ],
+      [
+        11.578125,
+        "A"
+      ],
+      [
+        12.578125,
+        "A"
+      ],
+      [
+        13.578125,
+        "A"
+      ],
+      [
+        14.578125,
+        "A"
+      ],
+      [
+        15.578125,
+        "A"
+      ]
+    ],
+    "bad_channel_census": {},
+    "recovery_events": [],
+    "recovery_segment": 0,
+    "repaired_samples": 0,
+    "scoring_failures": [],
+    "failure": null
+  },
+  "media_client": {
+    "client_id": "demo-runner",
+    "descriptor": {
+      "media_id": "a0408025c35f4b55af892bc005ef9e0b",
+      "title": "KU Leuven trial",
+      "kind": "audio",
+      "url": "/api/media/file"
+    },
+    "duration_s": 16.0,
+    "started_playback": true,
+    "prepared": true,
+    "exchanges": [
+      {
+        "index": 0,
+        "action": "prepare",
+        "request_id": 1,
+        "media_time_s": 0.0,
+        "duration_s": 16.0,
+        "wall_seconds": 0.002993,
+        "round_trip_seconds": 0.002988,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 0.0,
+        "sync_status": "observed",
+        "playback_state": "paused",
+        "detail": ""
+      },
+      {
+        "index": 1,
+        "action": "playing",
+        "request_id": 2,
+        "media_time_s": 0.0,
+        "duration_s": 16.0,
+        "wall_seconds": 0.273337,
+        "round_trip_seconds": 0.003818,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 0.0,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 1,
+        "action": "report",
+        "request_id": 3,
+        "media_time_s": 3e-06,
+        "duration_s": 16.0,
+        "wall_seconds": 0.276582,
+        "round_trip_seconds": 0.00321,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 2.7999922167509794e-06,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 2,
+        "action": "report",
+        "request_id": 4,
+        "media_time_s": 0.259981,
+        "duration_s": 16.0,
+        "wall_seconds": 0.536786,
+        "round_trip_seconds": 0.003435,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 0.25998070000787266,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 3,
+        "action": "report",
+        "request_id": 5,
+        "media_time_s": 0.526413,
+        "duration_s": 16.0,
+        "wall_seconds": 0.803085,
+        "round_trip_seconds": 0.003303,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 0.5264125000103377,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 4,
+        "action": "report",
+        "request_id": 6,
+        "media_time_s": 0.792605,
+        "duration_s": 16.0,
+        "wall_seconds": 1.069621,
+        "round_trip_seconds": 0.003646,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 0.7926048999943305,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 5,
+        "action": "report",
+        "request_id": 7,
+        "media_time_s": 1.059578,
+        "duration_s": 16.0,
+        "wall_seconds": 1.336177,
+        "round_trip_seconds": 0.003228,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 1.0595780999865383,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 6,
+        "action": "report",
+        "request_id": 8,
+        "media_time_s": 1.326746,
+        "duration_s": 16.0,
+        "wall_seconds": 1.604148,
+        "round_trip_seconds": 0.00403,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 1.3267462000076193,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 7,
+        "action": "report",
+        "request_id": 9,
+        "media_time_s": 1.592699,
+        "duration_s": 16.0,
+        "wall_seconds": 1.869653,
+        "round_trip_seconds": 0.003584,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 1.5926986999984365,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 8,
+        "action": "report",
+        "request_id": 10,
+        "media_time_s": 1.858439,
+        "duration_s": 16.0,
+        "wall_seconds": 2.135795,
+        "round_trip_seconds": 0.003985,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 1.8584389000025112,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 9,
+        "action": "report",
+        "request_id": 11,
+        "media_time_s": 2.125466,
+        "duration_s": 16.0,
+        "wall_seconds": 2.402494,
+        "round_trip_seconds": 0.003657,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 2.1254656999954022,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 10,
+        "action": "report",
+        "request_id": 12,
+        "media_time_s": 2.392636,
+        "duration_s": 16.0,
+        "wall_seconds": 2.669304,
+        "round_trip_seconds": 0.003297,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 2.392635700001847,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 11,
+        "action": "report",
+        "request_id": 13,
+        "media_time_s": 2.661212,
+        "duration_s": 16.0,
+        "wall_seconds": 2.937865,
+        "round_trip_seconds": 0.003284,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 2.661211500002537,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 12,
+        "action": "report",
+        "request_id": 14,
+        "media_time_s": 2.925018,
+        "duration_s": 16.0,
+        "wall_seconds": 3.201652,
+        "round_trip_seconds": 0.003263,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 2.9250179000082426,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 13,
+        "action": "report",
+        "request_id": 15,
+        "media_time_s": 3.189425,
+        "duration_s": 16.0,
+        "wall_seconds": 3.466646,
+        "round_trip_seconds": 0.003851,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 3.1894252999918535,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 14,
+        "action": "report",
+        "request_id": 16,
+        "media_time_s": 3.456511,
+        "duration_s": 16.0,
+        "wall_seconds": 3.733854,
+        "round_trip_seconds": 0.003973,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 3.4565111999982037,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 15,
+        "action": "report",
+        "request_id": 17,
+        "media_time_s": 3.721162,
+        "duration_s": 16.0,
+        "wall_seconds": 3.997633,
+        "round_trip_seconds": 0.0031,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 3.7211619000008795,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 16,
+        "action": "report",
+        "request_id": 18,
+        "media_time_s": 3.986077,
+        "duration_s": 16.0,
+        "wall_seconds": 4.263742,
+        "round_trip_seconds": 0.004294,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 3.9860769000079017,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 17,
+        "action": "report",
+        "request_id": 19,
+        "media_time_s": 4.251922,
+        "duration_s": 16.0,
+        "wall_seconds": 4.529307,
+        "round_trip_seconds": 0.004015,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 4.251921899995068,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 18,
+        "action": "report",
+        "request_id": 20,
+        "media_time_s": 4.517446,
+        "duration_s": 16.0,
+        "wall_seconds": 4.794088,
+        "round_trip_seconds": 0.003271,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 4.517445600009523,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 19,
+        "action": "report",
+        "request_id": 21,
+        "media_time_s": 4.782824,
+        "duration_s": 16.0,
+        "wall_seconds": 5.060284,
+        "round_trip_seconds": 0.004089,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 4.782824199995957,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 20,
+        "action": "report",
+        "request_id": 22,
+        "media_time_s": 5.047965,
+        "duration_s": 16.0,
+        "wall_seconds": 5.324404,
+        "round_trip_seconds": 0.00307,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 5.04796460000216,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 21,
+        "action": "report",
+        "request_id": 23,
+        "media_time_s": 5.313942,
+        "duration_s": 16.0,
+        "wall_seconds": 5.59079,
+        "round_trip_seconds": 0.003479,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 5.313942000007955,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 22,
+        "action": "report",
+        "request_id": 24,
+        "media_time_s": 5.576502,
+        "duration_s": 16.0,
+        "wall_seconds": 5.853503,
+        "round_trip_seconds": 0.003631,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 5.576502000010805,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 23,
+        "action": "report",
+        "request_id": 25,
+        "media_time_s": 5.841932,
+        "duration_s": 16.0,
+        "wall_seconds": 6.119037,
+        "round_trip_seconds": 0.003736,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 5.841932199982693,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 24,
+        "action": "report",
+        "request_id": 26,
+        "media_time_s": 6.110267,
+        "duration_s": 16.0,
+        "wall_seconds": 6.38859,
+        "round_trip_seconds": 0.004954,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 6.110267099982593,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 25,
+        "action": "report",
+        "request_id": 27,
+        "media_time_s": 6.375033,
+        "duration_s": 16.0,
+        "wall_seconds": 6.651979,
+        "round_trip_seconds": 0.003576,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 6.375033199990867,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 26,
+        "action": "report",
+        "request_id": 28,
+        "media_time_s": 6.628937,
+        "duration_s": 16.0,
+        "wall_seconds": 6.904907,
+        "round_trip_seconds": 0.002601,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 6.6289371000020765,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 27,
+        "action": "report",
+        "request_id": 29,
+        "media_time_s": 6.888772,
+        "duration_s": 16.0,
+        "wall_seconds": 7.165821,
+        "round_trip_seconds": 0.003679,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 6.888772100006463,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 28,
+        "action": "report",
+        "request_id": 30,
+        "media_time_s": 7.153374,
+        "duration_s": 16.0,
+        "wall_seconds": 7.429524,
+        "round_trip_seconds": 0.00278,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 7.153373999986798,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 29,
+        "action": "report",
+        "request_id": 31,
+        "media_time_s": 7.419242,
+        "duration_s": 16.0,
+        "wall_seconds": 7.696423,
+        "round_trip_seconds": 0.00381,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 7.419241800002055,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 30,
+        "action": "report",
+        "request_id": 32,
+        "media_time_s": 7.689175,
+        "duration_s": 16.0,
+        "wall_seconds": 7.966758,
+        "round_trip_seconds": 0.004212,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 7.689174800005276,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 31,
+        "action": "report",
+        "request_id": 33,
+        "media_time_s": 7.955344,
+        "duration_s": 16.0,
+        "wall_seconds": 8.232417,
+        "round_trip_seconds": 0.003703,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 7.95534429998952,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 32,
+        "action": "report",
+        "request_id": 34,
+        "media_time_s": 8.221983,
+        "duration_s": 16.0,
+        "wall_seconds": 8.499309,
+        "round_trip_seconds": 0.003955,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 8.22198259999277,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 33,
+        "action": "report",
+        "request_id": 35,
+        "media_time_s": 8.486814,
+        "duration_s": 16.0,
+        "wall_seconds": 8.764233,
+        "round_trip_seconds": 0.004049,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 8.486814400006551,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 34,
+        "action": "report",
+        "request_id": 36,
+        "media_time_s": 8.755431,
+        "duration_s": 16.0,
+        "wall_seconds": 9.032084,
+        "round_trip_seconds": 0.003283,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 8.755431199999293,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 35,
+        "action": "report",
+        "request_id": 37,
+        "media_time_s": 9.02101,
+        "duration_s": 16.0,
+        "wall_seconds": 9.297955,
+        "round_trip_seconds": 0.003574,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 9.021010099997511,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 36,
+        "action": "report",
+        "request_id": 38,
+        "media_time_s": 9.288276,
+        "duration_s": 16.0,
+        "wall_seconds": 9.565126,
+        "round_trip_seconds": 0.00348,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 9.288276200008113,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 37,
+        "action": "report",
+        "request_id": 39,
+        "media_time_s": 9.553928,
+        "duration_s": 16.0,
+        "wall_seconds": 9.830973,
+        "round_trip_seconds": 0.003675,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 9.553928100009216,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 38,
+        "action": "report",
+        "request_id": 40,
+        "media_time_s": 9.816696,
+        "duration_s": 16.0,
+        "wall_seconds": 10.093326,
+        "round_trip_seconds": 0.003261,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 9.81669609999517,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 39,
+        "action": "report",
+        "request_id": 41,
+        "media_time_s": 10.084039,
+        "duration_s": 16.0,
+        "wall_seconds": 10.360759,
+        "round_trip_seconds": 0.003351,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 10.08403850000468,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 40,
+        "action": "report",
+        "request_id": 42,
+        "media_time_s": 10.352295,
+        "duration_s": 16.0,
+        "wall_seconds": 10.628968,
+        "round_trip_seconds": 0.003304,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 10.352294599986635,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 41,
+        "action": "report",
+        "request_id": 43,
+        "media_time_s": 10.617024,
+        "duration_s": 16.0,
+        "wall_seconds": 10.89365,
+        "round_trip_seconds": 0.003256,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 10.617024200008018,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 42,
+        "action": "report",
+        "request_id": 44,
+        "media_time_s": 10.883292,
+        "duration_s": 16.0,
+        "wall_seconds": 11.159844,
+        "round_trip_seconds": 0.003182,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 10.883291500009364,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 43,
+        "action": "report",
+        "request_id": 45,
+        "media_time_s": 11.147974,
+        "duration_s": 16.0,
+        "wall_seconds": 11.424753,
+        "round_trip_seconds": 0.003408,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 11.147974199993769,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 44,
+        "action": "report",
+        "request_id": 46,
+        "media_time_s": 11.414006,
+        "duration_s": 16.0,
+        "wall_seconds": 11.691298,
+        "round_trip_seconds": 0.003923,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 11.414005500002531,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 45,
+        "action": "report",
+        "request_id": 47,
+        "media_time_s": 11.679907,
+        "duration_s": 16.0,
+        "wall_seconds": 11.95671,
+        "round_trip_seconds": 0.003433,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 11.679907499987166,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 46,
+        "action": "report",
+        "request_id": 48,
+        "media_time_s": 11.946168,
+        "duration_s": 16.0,
+        "wall_seconds": 12.223189,
+        "round_trip_seconds": 0.00365,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 11.946167699992657,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 47,
+        "action": "report",
+        "request_id": 49,
+        "media_time_s": 12.211022,
+        "duration_s": 16.0,
+        "wall_seconds": 12.488328,
+        "round_trip_seconds": 0.003934,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 12.211022400006186,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 48,
+        "action": "report",
+        "request_id": 50,
+        "media_time_s": 12.475074,
+        "duration_s": 16.0,
+        "wall_seconds": 12.752298,
+        "round_trip_seconds": 0.003854,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 12.47507359998417,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 49,
+        "action": "report",
+        "request_id": 51,
+        "media_time_s": 12.738033,
+        "duration_s": 16.0,
+        "wall_seconds": 13.014948,
+        "round_trip_seconds": 0.003545,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 12.738032599998405,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 50,
+        "action": "report",
+        "request_id": 52,
+        "media_time_s": 13.00518,
+        "duration_s": 16.0,
+        "wall_seconds": 13.282551,
+        "round_trip_seconds": 0.004001,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 13.005180100008147,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 51,
+        "action": "report",
+        "request_id": 53,
+        "media_time_s": 13.268919,
+        "duration_s": 16.0,
+        "wall_seconds": 13.545358,
+        "round_trip_seconds": 0.00307,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 13.268918699992355,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 52,
+        "action": "report",
+        "request_id": 54,
+        "media_time_s": 13.532365,
+        "duration_s": 16.0,
+        "wall_seconds": 13.809162,
+        "round_trip_seconds": 0.003426,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 13.532365099992603,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 53,
+        "action": "report",
+        "request_id": 55,
+        "media_time_s": 13.797618,
+        "duration_s": 16.0,
+        "wall_seconds": 14.074598,
+        "round_trip_seconds": 0.00361,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 13.797618299984606,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 54,
+        "action": "report",
+        "request_id": 56,
+        "media_time_s": 14.065288,
+        "duration_s": 16.0,
+        "wall_seconds": 14.342291,
+        "round_trip_seconds": 0.003634,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 14.065287800010992,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 55,
+        "action": "report",
+        "request_id": 57,
+        "media_time_s": 14.331424,
+        "duration_s": 16.0,
+        "wall_seconds": 14.609742,
+        "round_trip_seconds": 0.004948,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 14.331424000003608,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 56,
+        "action": "report",
+        "request_id": 58,
+        "media_time_s": 14.596363,
+        "duration_s": 16.0,
+        "wall_seconds": 14.872858,
+        "round_trip_seconds": 0.003124,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 14.596363399992697,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 57,
+        "action": "report",
+        "request_id": 59,
+        "media_time_s": 14.86168,
+        "duration_s": 16.0,
+        "wall_seconds": 15.138082,
+        "round_trip_seconds": 0.003033,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 14.861679900001036,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 58,
+        "action": "report",
+        "request_id": 60,
+        "media_time_s": 15.127079,
+        "duration_s": 16.0,
+        "wall_seconds": 15.403702,
+        "round_trip_seconds": 0.003253,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 15.127079300000332,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 59,
+        "action": "report",
+        "request_id": 61,
+        "media_time_s": 15.392232,
+        "duration_s": 16.0,
+        "wall_seconds": 15.668839,
+        "round_trip_seconds": 0.003236,
+        "status": 200,
+        "acknowledged_revision": 2,
+        "acknowledged_time_s": 15.392232399986824,
+        "sync_status": "observed",
+        "playback_state": "playing",
+        "detail": ""
+      },
+      {
+        "index": 60,
+        "action": "report",
+        "request_id": 62,
+        "media_time_s": 15.655938,
+        "duration_s": 16.0,
+        "wall_seconds": 15.932723,
+        "round_trip_seconds": 0.003415,
+        "status": 409,
+        "acknowledged_revision": null,
+        "acknowledged_time_s": null,
+        "sync_status": null,
+        "playback_state": null,
+        "detail": "{\"detail\":\"Session inactive\"}"
+      }
+    ],
+    "failures": [
+      "report answered 409: {\"detail\":\"Session inactive\"}"
+    ]
+  },
+  "session_record": {
+    "id": "8a2b0eb8-0c33-4a76-9857-0bb2f20dc310",
+    "status": "stopped",
+    "simulated": false
+  },
+  "replay_metrics": {
+    "kind": "KU Leuven replay, one converted trial; plumbing evidence, not a live-participant claim",
+    "margin": 0.05,
+    "window_seconds": 5.0,
+    "windows_scored": 10,
+    "frames": 65,
+    "decision_stream_length": 6,
+    "trial_label": [
+      1
+    ],
+    "window_accuracy": 0.0,
+    "windows_decided": 6,
+    "window_null_majority": 1.0,
+    "balanced_accuracy_decided": 0.0,
+    "recall_decided": {
+      "A": null,
+      "B": 0.0
+    },
+    "first_decision_seconds": 10.578125,
+    "last_decision_seconds": 15.578125,
+    "dataset_null_majority_by_time": 0.661,
+    "selection": {
+      "known_seconds": 6.0,
+      "correct_emphasis_seconds": 0.0,
+      "wrong_suppression_seconds": 6.0,
+      "neutral_seconds": 0.0,
+      "coverage": 1.0,
+      "false_selection_changes": 0,
+      "reported_switch_delays_seconds": [],
+      "missed_switches": 0
+    },
+    "note": "window-level agreement over the committed windows of ONE converted KU Leuven trial, replayed at 1x; an abstention is not counted as an error and is reported as uncovered time, not as a miss. Not a live-participant accuracy and not a cross-subject claim."
+  },
+  "frontend_evidence": {
+    "available": true,
+    "stream": "output\\auditory_ui\\serve_verify_q1_packets.jsonl",
+    "media_record": "output\\auditory_ui\\serve_verify_q1_media.json",
+    "packets": 277,
+    "decode": {
+      "available": true,
+      "exit_code": 1,
+      "command": [
+        "node",
+        "scripts\\auditory_ui\\decode_packets.mjs",
+        "output\\auditory_ui\\serve_verify_q1_packets.jsonl",
+        "output/auditory_ui/serve_verify_q1_dashboard.html"
+      ],
+      "report": {
+        "packets": 277,
+        "sequence": 277,
+        "last_attention": {
+          "mediaId": "a0408025c35f4b55af892bc005ef9e0b",
+          "mediaRevision": 2,
+          "mediaTime": 15.392232399986824,
+          "attended": "A",
+          "correlationA": 0.02564537352827775,
+          "correlationB": 0.19991011726366925,
+          "reasons": [],
+          "decision": "A"
+        },
+        "last_gain": {
+          "a_db": 0,
+          "b_db": -6,
+          "mediaId": "a0408025c35f4b55af892bc005ef9e0b",
+          "mediaRevision": 2,
+          "mediaTime": 15.392232399986824
+        },
+        "last_quality": {
+          "quality": 1,
+          "artifact": false
+        },
+        "last_sync": {
+          "status": "unobserved",
+          "offsetMs": null,
+          "driftWarning": null,
+          "timeline": "eeg_source_clock",
+          "fixedLatencyMs": null
+        },
+        "last_prediction": {
+          "status": "ok",
+          "providerId": "nova2026.ridge",
+          "providerName": "Ridge envelope decoder",
+          "providerVersion": "1",
+          "task": "auditory_attention",
+          "timestamp": 16,
+          "windowId": "w12",
+          "windowStart": 10.578125,
+          "windowEnd": 15.578125,
+          "outputs": [
+            {
+              "name": "correlation_a",
+              "value": 0.02564537352827775,
+              "semanticType": "correlation",
+              "label": "Candidate A"
+            },
+            {
+              "name": "correlation_b",
+              "value": 0.19991011726366925,
+              "semanticType": "correlation",
+              "label": "Candidate B"
+            },
+            {
+              "name": "decision",
+              "value": "A",
+              "semanticType": "decision",
+              "label": "Attended candidate"
+            }
+          ],
+          "reasons": [],
+          "metadata": {
+            "decision": "A",
+            "evidence_count": 12,
+            "media_time_s": 16,
+            "policy": {
+              "check_channels": false,
+              "max_bad_channels": 0,
+              "exclude_channels": [],
+              "source_unit_exponent": -6,
+              "saturation_limit_uv": null,
+              "amplitude_limit_uv": null,
+              "margin": 0.05,
+              "warmup_seconds": 2,
+              "frame_seconds": 0.25,
+              "display_channel": null
+            },
+            "source_kind": "kuleuven_replay",
+            "simulated": false
+          }
+        },
+        "focus_line": "Focused on Speaker A",
+        "focus_time": 16,
+        "focus_gain": {
+          "a_db": 0,
+          "b_db": -6,
+          "mediaId": "a0408025c35f4b55af892bc005ef9e0b",
+          "mediaRevision": 2,
+          "mediaTime": 15.392232399986824
+        },
+        "decision_census": {
+          "unavailable": 19,
+          "uncertain": 25,
+          "A": 21
+        },
+        "rejects": 0,
+        "checks": [
+          {
+            "name": "the stream is not empty",
+            "ok": true,
+            "detail": "277 packets"
+          },
+          {
+            "name": "every packet passes the frontend validator",
+            "ok": true,
+            "detail": "277 validated"
+          },
+          {
+            "name": "the client accepted every packet, so rejected stays 0",
+            "ok": true,
+            "detail": "rejected=0 lastError=none"
+          },
+          {
+            "name": "the client kept one stream per (source, type)",
+            "ok": true,
+            "detail": "8 streams"
+          },
+          {
+            "name": "the dashboard has all the streams it renders",
+            "ok": true,
+            "detail": "attention, audio_sources, gain, media, prediction, session, signal_quality, sync"
+          },
+          {
+            "name": "decoded decisions are the four allowed words",
+            "ok": true,
+            "detail": "unavailable, uncertain, A"
+          },
+          {
+            "name": "audio_sources decoded to exactly the two candidates A and B",
+            "ok": true,
+            "detail": "[{\"id\":\"A\",\"label\":\"part1_track1_dry.wav\",\"inputType\":\"kuleuven_replay\",\"reference\":\"part1_track1_dry.wav\"},{\"id\":\"B\",\"label\":\"part1_track2_dry.wav\",\"inputType\":\"kuleuven_replay\",\"reference\":\"part1_track2_dry.wav\"}]"
+          },
+          {
+            "name": "gain decoded as attenuation only (never above 0 dB)",
+            "ok": true,
+            "detail": "a=0 b=-6"
+          },
+          {
+            "name": "signal_quality decodes null rather than a fabricated zero",
+            "ok": true,
+            "detail": "quality=1 artifact=false"
+          },
+          {
+            "name": "sync reports a status and an unmeasured offset as null",
+            "ok": true,
+            "detail": "status=unobserved offset=null"
+          },
+          {
+            "name": "prediction carries the reasons and the run policy it ran under",
+            "ok": true,
+            "detail": "reasons=[] policy={\"check_channels\":false,\"max_bad_channels\":0,\"exclude_channels\":[],\"source_unit_exponent\":-6,\"saturation_limit_uv\":null,\"amplitude_limit_uv\":null,\"margin\":0.05,\"warmup_seconds\":2,\"frame_seconds\":0.25,\"display_channel\":null}"
+          },
+          {
+            "name": "the attention stream decodes the same decision the packets carried",
+            "ok": true,
+            "detail": "stream=A"
+          },
+          {
+            "name": "the rendered dashboard shows the focus prediction card",
+            "ok": true,
+            "detail": ""
+          },
+          {
+            "name": "the card renders the decision the session published for that moment",
+            "ok": false,
+            "detail": "Focused on Speaker A at t=16"
+          },
+          {
+            "name": "the winning source is marked FOCUSED and the other is attenuated",
+            "ok": false,
+            "detail": "decision gains a=0 b=-6"
+          },
+          {
+            "name": "the end of the run shows the degraded state in the card, with a reason",
+            "ok": true,
+            "detail": "final decision A"
+          },
+          {
+            "name": "after the session stops the card marks its values as historical",
+            "ok": true,
+            "detail": ""
+          },
+          {
+            "name": "the card is not flagged as simulated for a real measurement",
+            "ok": true,
+            "detail": "stream simulated=false"
+          },
+          {
+            "name": "no packet was rejected anywhere in the page",
+            "ok": true,
+            "detail": ""
+          },
+          {
+            "name": "the card shows the source labels from audio_sources",
+            "ok": true,
+            "detail": ""
+          }
+        ]
+      }
+    },
+    "gate": {
+      "available": true,
+      "exit_code": 0,
+      "command": [
+        "node",
+        "scripts\\auditory_ui\\gate_evidence.mjs",
+        "output\\auditory_ui\\serve_verify_q1_packets.jsonl",
+        "output\\auditory_ui\\serve_verify_q1_media.json",
+        "output/auditory_ui/serve_verify_q1_gate.json"
+      ],
+      "report": {
+        "packet_count": 277,
+        "sequence": 277,
+        "validator_rejects": 0,
+        "client_state_rejected": 0,
+        "gate_open": true,
+        "gate_opened_at_seconds": 11,
+        "gate_opened_on": "attention",
+        "observations": 130,
+        "sampled_gain_packets": 65,
+        "delta_seconds": {
+          "count": 64,
+          "max": 0.2824816000065766,
+          "mean": 0.14955380155834064,
+          "min": 0
+        },
+        "clauses": [
+          {
+            "name": "connection.isConnected",
+            "ok": true,
+            "detail": "connection=connected stale=false error=none"
+          },
+          {
+            "name": "session.statusRunning",
+            "ok": true,
+            "detail": "status=running"
+          },
+          {
+            "name": "playback.ready",
+            "ok": true,
+            "detail": "ready=true error=none"
+          },
+          {
+            "name": "playback.stateIsPlayingOrPaused",
+            "ok": true,
+            "detail": "playbackState=playing"
+          },
+          {
+            "name": "media.syncStatusObserved",
+            "ok": true,
+            "detail": "syncStatus=observed (time=10.617024200008018 revision=2 state=playing)"
+          },
+          {
+            "name": "media.playbackStateMatches",
+            "ok": true,
+            "detail": "media=playing playback=playing"
+          },
+          {
+            "name": "media.revisionMatches",
+            "ok": true,
+            "detail": "media=2 playback=2"
+          },
+          {
+            "name": "media.mediaIdMatches",
+            "ok": true,
+            "detail": "media=a0408025c35f4b55af892bc005ef9e0b playback=a0408025c35f4b55af892bc005ef9e0b"
+          },
+          {
+            "name": "sync.statusIsUsable",
+            "ok": true,
+            "detail": "status=unobserved"
+          },
+          {
+            "name": "attention.sessionIdMatches",
+            "ok": true,
+            "detail": "attention=8a2b0eb8-0c33-4a76-9857-0bb2f20dc310 state=8a2b0eb8-0c33-4a76-9857-0bb2f20dc310"
+          },
+          {
+            "name": "attention.mediaIdMatches",
+            "ok": true,
+            "detail": "attention=a0408025c35f4b55af892bc005ef9e0b playback=a0408025c35f4b55af892bc005ef9e0b"
+          },
+          {
+            "name": "attention.mediaRevisionMatches",
+            "ok": true,
+            "detail": "attention=2 playback=2"
+          },
+          {
+            "name": "attention.timeWithin750ms",
+            "ok": true,
+            "detail": "|\u0394t|=0.1711s"
+          },
+          {
+            "name": "attention.decisionIsAOrB",
+            "ok": true,
+            "detail": "decision=A"
+          }
+        ],
+        "playback_gains_at_first_open": {
+          "at_seconds": 0,
+          "a_db": 0,
+          "b_db": 0,
+          "linear": [
+            1,
+            1
+          ],
+          "linear_db": [
+            0,
+            0
+          ],
+          "expected_linear": [
+            1,
+            1
+          ]
+        },
+        "playback_gains_applied": 21,
+        "playback_gains_samples": [
+          {
+            "at_seconds": 11,
+            "a_db": 0,
+            "b_db": -6,
+            "linear": [
+              1,
+              0.5011872336272722
+            ],
+            "linear_db": [
+              0,
+              -6.000000000000001
+            ],
+            "expected_linear": [
+              1,
+              0.5011872336272722
+            ]
+          },
+          {
+            "at_seconds": 11.25,
+            "a_db": 0,
+            "b_db": -6,
+            "linear": [
+              1,
+              0.5011872336272722
+            ],
+            "linear_db": [
+              0,
+              -6.000000000000001
+            ],
+            "expected_linear": [
+              1,
+              0.5011872336272722
+            ]
+          },
+          {
+            "at_seconds": 11.5,
+            "a_db": 0,
+            "b_db": -6,
+            "linear": [
+              1,
+              0.5011872336272722
+            ],
+            "linear_db": [
+              0,
+              -6.000000000000001
+            ],
+            "expected_linear": [
+              1,
+              0.5011872336272722
+            ]
+          },
+          {
+            "at_seconds": 11.75,
+            "a_db": 0,
+            "b_db": -6,
+            "linear": [
+              1,
+              0.5011872336272722
+            ],
+            "linear_db": [
+              0,
+              -6.000000000000001
+            ],
+            "expected_linear": [
+              1,
+              0.5011872336272722
+            ]
+          },
+          {
+            "at_seconds": 12,
+            "a_db": 0,
+            "b_db": -6,
+            "linear": [
+              1,
+              0.5011872336272722
+            ],
+            "linear_db": [
+              0,
+              -6.000000000000001
+            ],
+            "expected_linear": [
+              1,
+              0.5011872336272722
+            ]
+          }
+        ],
+        "first_applied_gain": {
+          "at_seconds": 11,
+          "a_db": 0,
+          "b_db": -6,
+          "linear": [
+            1,
+            0.5011872336272722
+          ],
+          "linear_db": [
+            0,
+            -6.000000000000001
+          ],
+          "expected_linear": [
+            1,
+            0.5011872336272722
+          ]
+        },
+        "conditions_at_first_open": {
+          "mode_is_attune": true,
+          "playback_is_playing": true,
+          "focus_ready": true,
+          "gain_media_time": 10.352294599986635,
+          "attention_media_time": 10.617024200008018,
+          "times_equal": false,
+          "gain_session_matches": true,
+          "gain_media_id_matches": true,
+          "gain_revision_matches": true,
+          "gain_time_within_750ms": true,
+          "gains_in_range": true
+        },
+        "media_packet_sample": {
+          "mediaId": "a0408025c35f4b55af892bc005ef9e0b",
+          "title": "KU Leuven trial",
+          "mediaTime": 10.617024200008018,
+          "duration": 16,
+          "playbackState": "playing",
+          "revision": 2,
+          "serverReference": 210030.3678985,
+          "syncStatus": "observed"
+        }
+      }
+    }
+  },
+  "packet_stream": {
+    "path": "output\\auditory_ui\\serve_verify_q1_packets.jsonl",
+    "count": 277,
+    "by_type": {
+      "session": 2,
+      "audio_sources": 1,
+      "sync": 5,
+      "media": 62,
+      "attention": 65,
+      "gain": 65,
+      "signal_quality": 65,
+      "prediction": 12
+    }
+  },
+  "log": [
+    "[09:33:20] trial S1/4: 2049 samples (16.0s), 64 channels",
+    "[09:33:20] decoder models/auditory_kuleuven.npz: window 5.0s, step 1.0s, channels 64",
+    "[09:33:20] envelopes verified: part1_track1_dry.npz, part1_track2_dry.npz (coverage ((0.0, 393.984375), (0.0, 393.984375)))",
+    "[09:33:20] operating point: margin=0.05 (calibrated default), policy check_channels=False (section 3.17 item 1)",
+    "[09:33:20] rendered dichotic stereo 16.0s -> output/auditory_ui/serve_verify_q1.wav (left sha256 302e616759af...)",
+    "[09:33:20] media cut to the EEG: candidates 16.000s, EEG 16.000s, dropped 0 samples (0.000s); file is 16.000s",
+    "[09:33:20] serving the demo at http://127.0.0.1:52781/",
+    "[09:33:37] replay finished; still serving http://127.0.0.1:52781/ (for 60s)",
+    "[09:34:37] transport stopped (server thread alive: False)",
+    "[09:34:37] 277 packets recorded from /ws/live",
+    "[09:34:37] replay metrics: {\"window_accuracy\": 0.0, \"windows_decided\": 6, \"balanced_accuracy_decided\": 0.0, \"window_null_majority\": 1.0, \"false_selection_changes\": 0}",
+    "[09:34:37] session ended with status 'stopped'",
+    "[09:34:37] decisions: {\"unavailable\": 19, \"uncertain\": 25, \"A\": 21}",
+    "[09:34:37] effective run policy: {\"check_channels\": false, \"max_bad_channels\": 0, \"exclude_channels\": [], \"source_unit_exponent\": -6, \"saturation_limit_uv\": null, \"amplitude_limit_uv\": null, \"margin\": 0.05, \"warmup_seconds\": 2.0, \"frame_seconds\": 0.25, \"display_channel\": null}",
+    "[09:34:37] bad-channel census: no channel was flagged"
+  ]
+}
